@@ -1856,8 +1856,9 @@ export function registerSetupActions(): void {
   });
 
   // claude_logout_result: outcome of `claude_logout` (the re-probe arrives
-  // separately as claude_auth_result). On failure this carries the error the
-  // Logout orchestrator surfaces.
+  // just before it as claude_auth_result). On failure this carries the error
+  // the Logout orchestrator surfaces; `stillLoggedIn` says the logout left a
+  // login in place, which the orchestrator names.
   registerAction("claude_logout_result", (payload) => {
     applyLogoutResultPayload(payload);
   });

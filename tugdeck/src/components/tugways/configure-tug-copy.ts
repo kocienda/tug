@@ -6,6 +6,7 @@
  * @module components/tugways/configure-tug-copy
  */
 
+import type { AuthAccount } from "@/lib/auth-store";
 import { CLAUDE_CODE_FLOOR_VERSION } from "@/lib/claude-code-versions";
 
 /**
@@ -38,23 +39,265 @@ export function subscriptionLabel(
 }
 
 /**
- * The Log Out confirm's message. Names the account being logged out of the
- * way the wizard's signed-in row does — email, then the plan from
- * {@link subscriptionLabel} — so the user knows which login they are giving
- * up. Each part is dropped when unknown, never shown as a placeholder.
+ * What the copy below needs to know about a login: the account fields the
+ * auth store carries, of which only the source is always there.
  */
-export function logoutConfirmMessage(
-  account: { email: string | null; subscriptionType?: string | null } | null,
-): string {
+export type LoginFacts = Pick<AuthAccount, "email" | "loginSource"> &
+  Partial<
+    Pick<
+      AuthAccount,
+      | "subscriptionType"
+      | "authMethod"
+      | "apiKeySource"
+      | "orgName"
+      | "profile"
+      | "subscriptionStored"
+    >
+  >;
+
+/**
+ * The login named in a sentence's middle — "logged in through …". Every
+ * source but the subscription names where it lives, because that is what the
+ * user needs to find it.
+ */
+export function loginSourcePhrase(account: LoginFacts): string {
+  switch (account.loginSource) {
+    case "subscription":
+      return "your Claude subscription";
+    case "console_profile":
+      return account.profile
+        ? `the ant CLI's "${account.profile.name}" Console profile`
+        : "a Console profile from the ant CLI";
+    case "environment_key":
+      return `an API key from ${account.apiKeySource ?? "ANTHROPIC_API_KEY"}`;
+    case "environment_token":
+      return "an auth token from ANTHROPIC_AUTH_TOKEN";
+    case "settings_helper":
+      return "an apiKeyHelper in Claude Code's settings";
+    case "unknown":
+      return "a login Tug can't identify";
+  }
+}
+
+/** Who a pay-per-token login bills, as far as Tug knows. */
+function billedTo(account: LoginFacts): string {
+  switch (account.loginSource) {
+    case "console_profile":
+      return "its Console organization";
+    case "environment_token":
+      return "the organization the token belongs to";
+    default:
+      return "the organization that owns the key";
+  }
+}
+
+/** Where a login that is not the subscription comes from, in a sentence. */
+function originSentence(account: LoginFacts): string {
+  switch (account.loginSource) {
+    case "console_profile":
+      return account.profile?.configDir
+        ? `Set up by Anthropic's ant CLI, in ${account.profile.configDir}.`
+        : "Set up by Anthropic's ant CLI.";
+    case "environment_key":
+      return `Set by ${account.apiKeySource ?? "ANTHROPIC_API_KEY"} in Claude Code's settings.`;
+    case "environment_token":
+      return "Set by ANTHROPIC_AUTH_TOKEN in Claude Code's settings.";
+    case "settings_helper":
+      return "Claude Code's settings run an apiKeyHelper command to get a key.";
+    default:
+      return "";
+  }
+}
+
+/**
+ * The signed-in row's label and detail, naming the source in words ([B01]).
+ *
+ * A subscription reads as it always has: the email, then the plan. Anything
+ * else says what it is, where it comes from, that it is not the user's
+ * subscription, and who it bills — the no-email case is exactly the one that
+ * left a user unable to tell which account Tug was on, so it is never folded
+ * into a generic "Logged in". When a stored subscription is being outranked,
+ * the detail says so ([B04]).
+ */
+export function signedInRowCopy(account: LoginFacts | null): {
+  label: string;
+  detail: string | undefined;
+} {
+  if (account === null) return { label: "Logged in to Claude", detail: undefined };
+  const email = account.email?.trim();
+  if (account.loginSource === "subscription") {
+    return {
+      label: email ? `Logged in as ${email}` : "Logged in with your Claude subscription",
+      detail: subscriptionLabel(account.subscriptionType) ?? "Your Claude subscription",
+    };
+  }
+  const override = account.subscriptionStored
+    ? " Your stored subscription login is being overridden by it."
+    : "";
+  if (account.loginSource === "unknown") {
+    const method = account.authMethod ? ` (it reports "${account.authMethod}")` : "";
+    return {
+      label: "Logged in through a login Tug can't identify",
+      detail: `Tug can't tell which login Claude Code is using${method}. It may not be your Claude subscription, and it may be billed per token.${override}`,
+    };
+  }
+  const label =
+    account.loginSource === "console_profile"
+      ? account.profile
+        ? `Logged in through the "${account.profile.name}" Console profile`
+        : "Logged in through a Console profile"
+      : account.loginSource === "environment_key"
+        ? "Logged in with an API key"
+        : account.loginSource === "environment_token"
+          ? "Logged in with an auth token"
+          : "Logged in through an API key helper";
+  return {
+    label,
+    detail: `${originSentence(account)} This is not your Claude subscription: it is billed per token to ${billedTo(account)}.${override}`,
+  };
+}
+
+/**
+ * The Log Out confirm's message. Names the login being logged out of the way
+ * the wizard's signed-in row does, so the user knows which one they are giving
+ * up — a subscription by its email and plan from {@link subscriptionLabel},
+ * anything else by its source ([B01]). A Console profile beneath a
+ * subscription is said aloud, because a logout leaves Claude Code signed in
+ * through it ([B04]); the consequence then drops the promise of having to log
+ * in again, which would be false.
+ */
+export function logoutConfirmMessage(account: LoginFacts | null): string {
   const consequence =
     "Your in-progress turns will stop, and you'll need to log in again to continue.";
-  const email = account?.email?.trim();
-  if (!email) return consequence;
-  const plan = subscriptionLabel(account?.subscriptionType);
-  const who = plan
-    ? `You're logged in as ${email} on the ${plan}.`
-    : `You're logged in as ${email}.`;
+  if (account === null) return consequence;
+  if (account.loginSource !== "subscription") {
+    const who =
+      account.loginSource === "unknown"
+        ? "Tug can't tell which login Claude Code is using, so it may not be your Claude subscription."
+        : `You're logged in through ${loginSourcePhrase(account)}, which is not your Claude subscription.`;
+    return `${who} ${consequence}`;
+  }
+  const email = account.email?.trim();
+  const plan = subscriptionLabel(account.subscriptionType);
+  const who = email
+    ? plan
+      ? `You're logged in as ${email} on the ${plan}.`
+      : `You're logged in as ${email}.`
+    : plan
+      ? `You're logged in with your Claude subscription, on the ${plan}.`
+      : "You're logged in with your Claude subscription.";
+  if (account.profile) {
+    return `${who} Logging out removes that login, but Claude Code will then fall back to ${loginSourcePhrase({ ...account, loginSource: "console_profile" })}, which is billed per token to its Console organization. Your in-progress turns will stop.`;
+  }
   return `${who} ${consequence}`;
+}
+
+/** The command that logs the `ant` CLI out of its active Console profile. */
+export const ANT_LOGOUT_COMMAND = "ant auth logout";
+
+/**
+ * What Log Out can do for a login ([B02]). Only the subscription is one Tug
+ * can clear itself, with `claude auth logout`; a Console profile belongs to
+ * the `ant` CLI, so Tug offers that CLI's command for the user to run; a key,
+ * token or helper lives in Claude Code's settings, so Tug says where. A login
+ * Tug can't identify keeps today's flow, since `claude auth logout` is the
+ * only door there is and the re-probe afterwards says what it left ([B03]).
+ */
+export type LogoutAction = "logout" | "offer_command" | "explain";
+
+export function logoutActionFor(account: LoginFacts | null): LogoutAction {
+  switch (account?.loginSource) {
+    case "console_profile":
+      return "offer_command";
+    case "environment_key":
+    case "environment_token":
+    case "settings_helper":
+      return "explain";
+    default:
+      return "logout";
+  }
+}
+
+/**
+ * The step that removes a login Tug can't clear itself, as a sentence, or
+ * `""` for a login Tug logs out of directly.
+ */
+export function logoutStepSentence(account: LoginFacts | null): string {
+  if (account === null) return "";
+  switch (account.loginSource) {
+    case "console_profile":
+      return `To log out of it, run ${ANT_LOGOUT_COMMAND} in a terminal.`;
+    case "environment_key": {
+      const name = account.apiKeySource ?? "ANTHROPIC_API_KEY";
+      return `To stop using it, remove ${name} from the env block of Claude Code's settings.json.`;
+    }
+    case "environment_token":
+      return "To stop using it, remove ANTHROPIC_AUTH_TOKEN from the env block of Claude Code's settings.json.";
+    case "settings_helper":
+      return "To stop using it, remove apiKeyHelper from Claude Code's settings.json.";
+    default:
+      return "";
+  }
+}
+
+/**
+ * The alert Log Out shows for a login Tug can't clear itself ([B02]): what
+ * the login is, that Tug can't remove it, and the step that does.
+ */
+export function logoutUnavailableCopy(account: LoginFacts): {
+  title: string;
+  message: string;
+} {
+  const where = originSentence(account);
+  return {
+    title: "Tug Can't Log Out of This Login",
+    message: `You're logged in through ${loginSourcePhrase(account)}, which Tug can't remove.${where ? ` ${where}` : ""} ${logoutStepSentence(account)}`,
+  };
+}
+
+/**
+ * The report after a logout that left a login in place ([B03]). Under the
+ * precedence order the one source that sits beneath a subscription is a
+ * Console profile, so that is the ordinary case; a subscription still in
+ * place after a logout that said it worked is said as plainly.
+ */
+export function logoutRemainingCopy(account: LoginFacts): {
+  title: string;
+  message: string;
+} {
+  if (account.loginSource === "subscription") {
+    return {
+      title: "Still Logged In",
+      message:
+        "Claude Code reported the logout as done, but it is still logged in with your Claude subscription.",
+    };
+  }
+  const step = logoutStepSentence(account);
+  const billed =
+    account.loginSource === "unknown"
+      ? " It may be billed per token."
+      : ` It is billed per token to ${billedTo(account)}.`;
+  return {
+    title: "Still Logged In",
+    message: `Your subscription login was removed, but Claude Code is still signed in through ${loginSourcePhrase(account)}.${billed}${step ? ` ${step}` : ""}`,
+  };
+}
+
+/**
+ * The note for auth variables the card's shell sets ([B05]), or `null` when
+ * it sets none. Names each variable and says the difference it makes: Tug's
+ * sessions strip it, while `claude` run in a shell uses it, so the two can be
+ * logged in differently. Tug never edits the shell, so the note offers no
+ * button.
+ */
+export function shellAuthVarsNote(vars: readonly string[]): string | null {
+  if (vars.length === 0) return null;
+  const names =
+    vars.length === 1
+      ? vars[0]
+      : `${vars.slice(0, -1).join(", ")} and ${vars[vars.length - 1]}`;
+  const it = vars.length === 1 ? "it" : "them";
+  return `Your shell sets ${names}. Tug's sessions ignore ${it}, but claude run in a shell uses ${it}, so it may be logged in differently from your sessions.`;
 }
 
 /**

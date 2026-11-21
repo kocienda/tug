@@ -34,6 +34,7 @@ import { sessionSynopsisStore } from "./session-synopsis-store";
 import { sessionUsageStore } from "./session-usage-store";
 import { sessionCitationStore } from "./session-citation-store";
 import { sessionSpawnErrorStore } from "./session-spawn-error-store";
+import { parsePaidLogin } from "./paid-login";
 import { handOffUnaskedAck, notifySpawnRejected } from "./session-restore";
 import { logSessionLifecycle } from "./session-lifecycle-log";
 import { takePendingReload } from "./reload-reasons";
@@ -654,6 +655,9 @@ export function registerSessionControlActions(filter?: SessionControlFilter): vo
     }
     sessionSpawnErrorStore.set(cardId, {
       reason: typeof detail === "string" ? detail : "unknown",
+      // A pay-per-token refusal carries the login it found ([B08]), which
+      // the picker names in its confirm.
+      login: parsePaidLogin(payload.login),
     });
     // A rejection during the startup restore pass leaves a
     // `sessionRestoreRegistry` hold in place — the zero-turn fresh-spawn

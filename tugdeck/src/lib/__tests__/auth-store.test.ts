@@ -20,7 +20,33 @@ import {
   applyDownloadFallbackPayload,
   applyDownloadProgressPayload,
   applyDownloadStoppedPayload,
+  applyLogoutResultPayload,
 } from "../auth-store";
+
+describe("auth-store: the shell's auth variables", () => {
+  it("carries the names every answer reports, logged in or not", () => {
+    applyAuthResultPayload({ loggedIn: false, reason: "logged_out", shellAuthVars: ["ANTHROPIC_API_KEY"] });
+    expect(authStore.getSnapshot().shellAuthVars).toEqual(["ANTHROPIC_API_KEY"]);
+    applyAuthResultPayload({
+      loggedIn: true,
+      loginSource: "subscription",
+      shellAuthVars: ["ANTHROPIC_API_KEY", 7, "", "CLAUDE_CODE_OAUTH_TOKEN"],
+    });
+    expect(authStore.getSnapshot().shellAuthVars).toEqual([
+      "ANTHROPIC_API_KEY",
+      "CLAUDE_CODE_OAUTH_TOKEN",
+    ]);
+  });
+
+  it("keeps the same array while the names are unchanged, and clears on none", () => {
+    applyAuthResultPayload({ loggedIn: false, reason: "logged_out", shellAuthVars: ["ANTHROPIC_AUTH_TOKEN"] });
+    const first = authStore.getSnapshot().shellAuthVars;
+    applyAuthResultPayload({ loggedIn: false, reason: "logged_out", shellAuthVars: ["ANTHROPIC_AUTH_TOKEN"] });
+    expect(authStore.getSnapshot().shellAuthVars).toBe(first);
+    applyAuthResultPayload({ loggedIn: false, reason: "logged_out" });
+    expect(authStore.getSnapshot().shellAuthVars).toEqual([]);
+  });
+});
 
 describe("auth-store: a probe that did not answer", () => {
   it("lands as unknown with the reason that says why", () => {
@@ -76,8 +102,58 @@ describe("auth-store: a definite answer is unchanged", () => {
       email: "user@example.com",
       subscriptionType: "max",
       authMethod: "claude.ai",
+      // A payload that names no source reads as one Tug cannot name.
+      loginSource: "unknown",
+      apiKeySource: null,
+      orgName: null,
+      planTier: null,
+      profile: null,
+      subscriptionStored: false,
     });
     expect(snap.signInFailed).toBe(false);
+  });
+
+  it("records the login's source and a profile beneath it", () => {
+    applyAuthResultPayload({
+      loggedIn: true,
+      email: "user@example.com",
+      authMethod: "claude.ai",
+      loginSource: "subscription",
+      orgName: "Org",
+      planTier: "max_20x",
+      subscriptionStored: true,
+      profile: {
+        name: "default",
+        configDir: "/Users/user/.config/anthropic",
+        authType: "user_oauth",
+        organizationId: "org-1",
+        workspaceId: null,
+      },
+    });
+    const account = authStore.getSnapshot().account;
+    expect(account?.loginSource).toBe("subscription");
+    expect(account?.orgName).toBe("Org");
+    expect(account?.subscriptionStored).toBe(true);
+    expect(account?.profile).toEqual({
+      name: "default",
+      configDir: "/Users/user/.config/anthropic",
+      authType: "user_oauth",
+      organizationId: "org-1",
+      workspaceId: null,
+    });
+  });
+
+  it("reads a source it does not know as unknown, and a nameless profile as none", () => {
+    applyAuthResultPayload({
+      loggedIn: true,
+      loginSource: "bedrock",
+      apiKeySource: "ANTHROPIC_API_KEY",
+      profile: { configDir: "/x" },
+    });
+    const account = authStore.getSnapshot().account;
+    expect(account?.loginSource).toBe("unknown");
+    expect(account?.apiKeySource).toBe("ANTHROPIC_API_KEY");
+    expect(account?.profile).toBeNull();
   });
 
   it("still records a signed-out state with its reason", () => {
@@ -250,5 +326,56 @@ describe("auth-store: a listener that unsubscribes during a notify", () => {
     authStore.setSigningIn(true);
     offB();
     expect(calls).toEqual(["a", "b"]);
+  });
+});
+
+describe("auth-store: a logout that leaves a login in place", () => {
+  const profileLogin = {
+    loggedIn: true,
+    reason: null,
+    email: null,
+    authMethod: "oauth_token",
+    loginSource: "console_profile",
+    subscriptionStored: false,
+    profile: { name: "default", configDir: "/Users/user/.config/anthropic" },
+  };
+
+  it("records the remaining login when the result says one is left", () => {
+    authStore.setLoggingOut(true);
+    // The re-probed state lands first, then the result naming it.
+    applyAuthResultPayload(profileLogin);
+    applyLogoutResultPayload({ ok: true, error: null, stillLoggedIn: true });
+    const snap = authStore.getSnapshot();
+    expect(snap.loggingOut).toBe(false);
+    expect(snap.logoutError).toBeNull();
+    expect(snap.logoutRemaining?.loginSource).toBe("console_profile");
+    expect(snap.logoutRemaining?.profile?.name).toBe("default");
+    authStore.clearLogoutRemaining();
+    expect(authStore.getSnapshot().logoutRemaining).toBeNull();
+  });
+
+  it("records nothing when the logout left the user logged out", () => {
+    authStore.setLoggingOut(true);
+    applyAuthResultPayload({ loggedIn: false, reason: "logged_out" });
+    applyLogoutResultPayload({ ok: true, error: null, stillLoggedIn: false });
+    expect(authStore.getSnapshot().logoutRemaining).toBeNull();
+  });
+
+  it("records an error, not a remaining login, when the logout failed", () => {
+    authStore.setLoggingOut(true);
+    applyAuthResultPayload(profileLogin);
+    applyLogoutResultPayload({ ok: false, error: "boom", stillLoggedIn: true });
+    const snap = authStore.getSnapshot();
+    expect(snap.logoutRemaining).toBeNull();
+    expect(snap.logoutError).toBe("boom");
+    authStore.clearLogoutError();
+  });
+
+  it("forgets an unsurfaced remaining login when a new logout starts", () => {
+    applyAuthResultPayload(profileLogin);
+    applyLogoutResultPayload({ ok: true, error: null, stillLoggedIn: true });
+    authStore.setLoggingOut(true);
+    expect(authStore.getSnapshot().logoutRemaining).toBeNull();
+    authStore.setLoggingOut(false);
   });
 });

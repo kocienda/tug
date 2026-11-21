@@ -1417,8 +1417,13 @@ enum ControlIntercept {
     Handled,
     /// Action was a session-lifecycle action but the supervisor rejected
     /// the payload. Caller should emit a CONTROL error frame with the
-    /// paired `detail` string and not fall through.
-    HandledError { detail: &'static str },
+    /// paired `detail` string and not fall through. `login` rides a
+    /// pay-per-token refusal ([B08]): the login the session would have run
+    /// on, which the deck names in its confirm.
+    HandledError {
+        detail: &'static str,
+        login: Option<Box<serde_json::Value>>,
+    },
     /// Action is not a session-lifecycle action. Caller should fall
     /// through to `dispatch_action` as before.
     PassThrough,
@@ -1452,22 +1457,32 @@ async fn intercept_session_control(
         ControlOutcome::PassThrough => ControlIntercept::PassThrough,
         ControlOutcome::Error(ControlError::MissingCardId) => ControlIntercept::HandledError {
             detail: "missing_card_id",
+            login: None,
         },
         ControlOutcome::Error(ControlError::MissingSessionId) => ControlIntercept::HandledError {
             detail: "missing_tug_session_id",
+            login: None,
         },
         ControlOutcome::Error(ControlError::Malformed) => ControlIntercept::HandledError {
             detail: "malformed_payload",
+            login: None,
         },
         ControlOutcome::Error(ControlError::InvalidProjectDir { reason }) => {
-            ControlIntercept::HandledError { detail: reason }
+            ControlIntercept::HandledError { detail: reason, login: None }
         }
         ControlOutcome::Error(ControlError::CapExceeded { reason }) => {
-            ControlIntercept::HandledError { detail: reason }
+            ControlIntercept::HandledError { detail: reason, login: None }
         }
         ControlOutcome::Error(ControlError::MissingLineId) => ControlIntercept::HandledError {
             detail: "missing_line_id",
+            login: None,
         },
+        ControlOutcome::Error(ControlError::PaidLoginUnconfirmed { login }) => {
+            ControlIntercept::HandledError {
+                detail: "paid_login_unconfirmed",
+                login: serde_json::to_value(&*login).ok().map(Box::new),
+            }
+        }
     }
 }
 
@@ -1994,7 +2009,7 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id
                                                             client_id,
                                                         ).await {
                                                             ControlIntercept::Handled => {}
-                                                            ControlIntercept::HandledError { detail } => {
+                                                            ControlIntercept::HandledError { detail, login } => {
                                                                 warn!(client_id, action, detail, "session control rejected");
                                                                 // Echo the rejected payload's identifying
                                                                 // fields so the client can route the error
@@ -2013,6 +2028,9 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id
                                                                             "action".into(),
                                                                             "spawn_session_error".into(),
                                                                         );
+                                                                    }
+                                                                    if let Some(login) = login {
+                                                                        obj.insert("login".into(), *login);
                                                                     }
                                                                     if let Some(cid) = payload
                                                                         .get("card_id")
@@ -2912,7 +2930,7 @@ mod tests {
 
         let outcome = intercept_session_control(Some(&sup), "spawn_session", &payload, 7).await;
         match outcome {
-            ControlIntercept::HandledError { detail } => {
+            ControlIntercept::HandledError { detail, .. } => {
                 assert_eq!(detail, "missing_card_id");
             }
             other => panic!("expected HandledError(missing_card_id), got {other:?}"),
@@ -2942,7 +2960,7 @@ mod tests {
         .unwrap();
         let outcome = intercept_session_control(Some(&sup), "spawn_session", &missing, 7).await;
         match outcome {
-            ControlIntercept::HandledError { detail } => {
+            ControlIntercept::HandledError { detail, .. } => {
                 assert_eq!(detail, "missing_project_dir");
             }
             other => panic!("expected HandledError(missing_project_dir), got {other:?}"),
@@ -2959,7 +2977,7 @@ mod tests {
         .unwrap();
         let outcome = intercept_session_control(Some(&sup), "spawn_session", &nonexistent, 7).await;
         match outcome {
-            ControlIntercept::HandledError { detail } => {
+            ControlIntercept::HandledError { detail, .. } => {
                 assert_eq!(detail, "does_not_exist");
             }
             other => panic!("expected HandledError(does_not_exist), got {other:?}"),

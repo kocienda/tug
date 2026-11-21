@@ -56,6 +56,14 @@
   color: var(--tug7-element-tone-text-normal-success-rest);
 }
 
+/* The sentence beside the signed-in row's Forget Confirmation, set like the
+ * row's own detail line so the two read as one row's prose. */
+.configure-tug-step-note {
+  font-size: 13px;
+  line-height: 1.45;
+  opacity: 0.8;
+}
+
 /* The Done row, only on a wizard the user opened themselves. The step list
  * ends flush against the panel padding, so the actions row carries the gap —
  * the same header rhythm the title uses above the list. */

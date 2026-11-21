@@ -11,6 +11,8 @@
  * Not persisted — a reload should not surface a stale notice.
  */
 
+import type { PaidLogin } from "@/lib/paid-login";
+
 /**
  * Notice categories surfaced by the Dev picker when it re-presents
  * itself after a failed, canceled, or timed-out restore.
@@ -44,7 +46,11 @@ export type PickerNoticeCategory =
   // the opposite: `spawn_failed` means the project directory cannot be
   // opened and the picker is the recovery, whereas a budget refusal means
   // the directory was never in question and re-picking it changes nothing.
-  | "spawn_budget";
+  | "spawn_budget"
+  // A spawn refused because it would run on a pay-per-token login the user
+  // has not confirmed ([B08]). Carries the login, and the picker offers to
+  // confirm it and open the session.
+  | "paid_login";
 
 export interface PickerNotice {
   category: PickerNoticeCategory;
@@ -58,6 +64,8 @@ export interface PickerNotice {
   staleTugSessionId?: string;
   /** The project path associated with the stale session, for Retry. */
   staleProjectDir?: string;
+  /** The login a `paid_login` refusal found ([B08]). */
+  login?: PaidLogin;
 }
 
 class PickerNoticeStore {

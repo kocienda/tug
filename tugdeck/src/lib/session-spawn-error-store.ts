@@ -20,6 +20,7 @@
 
 import { useCallback } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
+import type { PaidLogin } from "@/lib/paid-login";
 
 /** A rejected `spawn_session`, as surfaced to the card's banner. */
 export interface SpawnError {
@@ -30,6 +31,11 @@ export interface SpawnError {
    * `spawnErrorMessage`.
    */
   reason: string;
+  /**
+   * The login a `paid_login_unconfirmed` refusal found ([B08]), or `null`
+   * for every other reason.
+   */
+  login?: PaidLogin | null;
 }
 
 /**
@@ -125,6 +131,8 @@ export function spawnErrorMessage(reason: string): string {
       return "Too many sessions are starting at once. Try again in a moment.";
     case "session_live_in_terminal":
       return "This session is open in a terminal. Close it there, then resume.";
+    case "paid_login_unconfirmed":
+      return "This session would be billed per token, not to your Claude subscription.";
     default:
       return "The session could not be started.";
   }

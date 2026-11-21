@@ -22,6 +22,52 @@ export interface AuthAccount {
   email: string | null;
   subscriptionType: string | null;
   authMethod: string | null;
+  /** Which source Claude Code is signed in through; see {@link LoginSource}. */
+  loginSource: LoginSource;
+  /** The variable or setting a key came from (`ANTHROPIC_API_KEY`, `apiKeyHelper`). */
+  apiKeySource: string | null;
+  /** The organisation a subscription login belongs to. */
+  orgName: string | null;
+  /** The subscription's plan tier (`max_20x`). */
+  planTier: string | null;
+  /**
+   * A Console profile on disk — the active login, or one beneath a
+   * subscription that a logout would fall back to.
+   */
+  profile: ConsoleProfile | null;
+  /** A subscription login is stored, even when another source outranks it. */
+  subscriptionStored: boolean;
+}
+
+/**
+ * Where the active login comes from, as tugcast names it. `unknown` is a
+ * login Tug cannot name — never a signed-out state, which has no source.
+ */
+export type LoginSource =
+  | "subscription"
+  | "console_profile"
+  | "environment_key"
+  | "environment_token"
+  | "settings_helper"
+  | "unknown";
+
+const LOGIN_SOURCES: readonly LoginSource[] = [
+  "subscription",
+  "console_profile",
+  "environment_key",
+  "environment_token",
+  "settings_helper",
+  "unknown",
+];
+
+/** The `ant` CLI's Console profile, from its config alone. */
+export interface ConsoleProfile {
+  name: string;
+  /** The `ant` config dir it was found under. */
+  configDir: string | null;
+  authType: string | null;
+  organizationId: string | null;
+  workspaceId: string | null;
 }
 
 /**
@@ -66,6 +112,15 @@ export interface AuthSnapshot {
    * logout starts.
    */
   logoutError: string | null;
+  /**
+   * The login a logout left in place, or `null` ([B03]). Set when a
+   * `claude_logout_result` reports success but the re-probe still finds a
+   * login: the user is told what remains rather than left in silence. The
+   * backend broadcasts the re-probed state before the result, so this is
+   * the account that state carried. Cleared once surfaced, or when a new
+   * logout starts.
+   */
+  logoutRemaining: AuthAccount | null;
   /** True while a Tug-managed `install_claude` is running. */
   installing: boolean;
   /**
@@ -122,6 +177,14 @@ export interface AuthSnapshot {
   verifyingInstall: boolean;
   /** Last install error, or `null`. Cleared when a new install starts. */
   installError: string | null;
+  /**
+   * The auth variables the card's shell sets, by name ([B05]). Sessions strip
+   * them and `claude` in a shell uses them, so Configure Tug names each one.
+   * Every `claude_auth_result` carries the current set; the array is kept by
+   * reference while its names are unchanged, so a re-probe that finds the
+   * same set re-renders nothing on its account.
+   */
+  shellAuthVars: readonly string[];
 }
 
 const INITIAL: AuthSnapshot = {
@@ -132,6 +195,7 @@ const INITIAL: AuthSnapshot = {
   signInFailed: false,
   loggingOut: false,
   logoutError: null,
+  logoutRemaining: null,
   installing: false,
   downloadPaused: false,
   downloadVersion: null,
@@ -142,6 +206,7 @@ const INITIAL: AuthSnapshot = {
   expectedBytes: 0,
   verifyingInstall: false,
   installError: null,
+  shellAuthVars: [],
 };
 
 /**
@@ -383,6 +448,7 @@ class AuthStore extends Subscribable {
       ...this._snapshot,
       loggingOut,
       logoutError: loggingOut ? null : this._snapshot.logoutError,
+      logoutRemaining: loggingOut ? null : this._snapshot.logoutRemaining,
     };
     this.notify();
   }
@@ -390,13 +456,20 @@ class AuthStore extends Subscribable {
   /**
    * Apply a `claude_logout_result`: ends the in-flight logout, and on failure
    * records the error so it can be surfaced (the login state itself is settled
-   * by the `claude_auth_result` that follows).
+   * by the `claude_auth_result` sent just before it). A success that left a
+   * login in place (`stillLoggedIn`) records that login as
+   * {@link AuthSnapshot.logoutRemaining} ([B03]).
    */
-  applyLogoutResult(ok: boolean, error: string | null): void {
+  applyLogoutResult(ok: boolean, error: string | null, stillLoggedIn = false): void {
+    const remaining =
+      ok && stillLoggedIn && this._snapshot.loggedIn === true
+        ? this._snapshot.account
+        : null;
     this._snapshot = {
       ...this._snapshot,
       loggingOut: false,
       logoutError: ok ? null : (error ?? "logout failed"),
+      logoutRemaining: remaining,
     };
     this.notify();
   }
@@ -412,6 +485,13 @@ class AuthStore extends Subscribable {
     this.notify();
   }
 
+  /** Clear a surfaced remaining-login report (the alert has shown it). */
+  clearLogoutRemaining(): void {
+    if (this._snapshot.logoutRemaining === null) return;
+    this._snapshot = { ...this._snapshot, logoutRemaining: null };
+    this.notify();
+  }
+
   /** Clear a surfaced logout error (the user dismissed it). */
   clearLogoutError(): void {
     if (this._snapshot.logoutError === null) return;
@@ -424,6 +504,7 @@ class AuthStore extends Subscribable {
     loggedIn: boolean | null,
     reason: AuthReason | null,
     account: AuthAccount | null,
+    shellAuthVars: readonly string[] = [],
   ): void {
     // A result that arrives while a sign-in was in flight but does not log in
     // means the attempt failed (cancelled / browser closed). A successful login
@@ -447,6 +528,9 @@ class AuthStore extends Subscribable {
       // This result is the post-install re-probe (or any later probe): the
       // install step now resolves to its real state, so the bridge ends.
       verifyingInstall: false,
+      shellAuthVars: sameNames(this._snapshot.shellAuthVars, shellAuthVars)
+        ? this._snapshot.shellAuthVars
+        : shellAuthVars,
     };
     this.notify();
   }
@@ -477,7 +561,8 @@ export function useAuth(): AuthRenderSnapshot {
 
 /**
  * Apply a `claude_auth_result` CONTROL payload to the store. Tolerant of the
- * wire shape (`loggedIn` plus optional `email`/`subscriptionType`/`authMethod`).
+ * wire shape (`loggedIn` plus optional account fields); a source the deck
+ * does not know reads as `unknown`.
  */
 export function applyAuthResultPayload(payload: Record<string, unknown>): void {
   const str = (v: unknown): string | null =>
@@ -503,9 +588,44 @@ export function applyAuthResultPayload(payload: Record<string, unknown>): void {
           email: str(payload.email),
           subscriptionType: str(payload.subscriptionType),
           authMethod: str(payload.authMethod),
+          loginSource: loginSourceOf(payload.loginSource),
+          apiKeySource: str(payload.apiKeySource),
+          orgName: str(payload.orgName),
+          planTier: str(payload.planTier),
+          profile: profileOf(payload.profile),
+          subscriptionStored: payload.subscriptionStored === true,
         }
       : null,
+    Array.isArray(payload.shellAuthVars)
+      ? payload.shellAuthVars.filter(
+          (v): v is string => typeof v === "string" && v.length > 0,
+        )
+      : [],
   );
+}
+
+function sameNames(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((name, i) => name === b[i]);
+}
+
+function loginSourceOf(value: unknown): LoginSource {
+  return LOGIN_SOURCES.find((source) => source === value) ?? "unknown";
+}
+
+function profileOf(value: unknown): ConsoleProfile | null {
+  if (typeof value !== "object" || value === null) return null;
+  const record = value as Record<string, unknown>;
+  const str = (v: unknown): string | null =>
+    typeof v === "string" && v.length > 0 ? v : null;
+  const name = str(record.name);
+  if (name === null) return null;
+  return {
+    name,
+    configDir: str(record.configDir),
+    authType: str(record.authType),
+    organizationId: str(record.organizationId),
+    workspaceId: str(record.workspaceId),
+  };
 }
 
 /** Apply a `claude_install_result` CONTROL payload (`{ok, error}`). */
@@ -567,10 +687,11 @@ export function applyDownloadEnded(): void {
   authStore.endDownload();
 }
 
-/** Apply a `claude_logout_result` CONTROL payload (`{ok, error}`). */
+/** Apply a `claude_logout_result` CONTROL payload (`{ok, error, stillLoggedIn}`). */
 export function applyLogoutResultPayload(payload: Record<string, unknown>): void {
   authStore.applyLogoutResult(
     payload.ok === true,
     typeof payload.error === "string" ? payload.error : null,
+    payload.stillLoggedIn === true,
   );
 }

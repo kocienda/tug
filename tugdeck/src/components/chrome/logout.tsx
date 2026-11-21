@@ -7,6 +7,13 @@
  *   `claude_logout` → on success ConfigureTug reopens (auth flips logged-out),
  *   on failure/timeout a "Couldn't log out" alert (the user stays logged in).
  *
+ * That flow is for the login Tug can clear itself, the subscription ([B02]).
+ * A Console profile belongs to the `ant` CLI, so a request over one shows an
+ * alert naming the profile and offering `ant auth logout` to copy and run; a
+ * key, token or helper in Claude Code's settings gets an alert saying where
+ * it is set. Neither runs anything. A logout that succeeds but leaves a login
+ * in place is reported by name with its step ([B03]), never left in silence.
+ *
  * Logout is app-level (it stops every session and reopens the wizard), so it
  * lives here rather than on a Session card — both the File-menu item and the
  * `/logout` slash command funnel through {@link requestLogout}. The confirm and
@@ -23,8 +30,15 @@ import { useLogoutRequest } from "@/lib/logout-store";
 import { getConnection } from "@/lib/connection-singleton";
 import { cardServicesStore } from "@/lib/card-services-store";
 import { useCardDeck } from "@/card-deck-context";
+import { copyTextFrom } from "@/lib/copy-text";
 import { useTugAlert } from "@/components/tugways/tug-alert";
-import { logoutConfirmMessage } from "@/components/tugways/configure-tug-copy";
+import {
+  ANT_LOGOUT_COMMAND,
+  logoutActionFor,
+  logoutConfirmMessage,
+  logoutRemainingCopy,
+  logoutUnavailableCopy,
+} from "@/components/tugways/configure-tug-copy";
 
 /**
  * No `claude_logout_result` within this window → treat the logout as failed.
@@ -35,7 +49,7 @@ const LOGOUT_TIMEOUT_MS = 30_000;
 
 export function Logout(): null {
   const nonce = useLogoutRequest();
-  const { loggingOut, logoutError } = useAuth();
+  const { loggingOut, logoutError, logoutRemaining } = useAuth();
   const deck = useCardDeck();
   const showAlert = useTugAlert();
   const handledRef = useRef(0);
@@ -48,10 +62,30 @@ export function Logout(): null {
     // showing), a logout request is a no-op — don't stack a confirm over it.
     if (authStore.getSnapshot().loggedIn !== true) return;
     let cancelled = false;
+    const account = authStore.getSnapshot().account;
+    const action = logoutActionFor(account);
+    if (account !== null && action !== "logout") {
+      // A login Tug can't clear: say what it is and what removes it.
+      const copy = logoutUnavailableCopy(account);
+      void (async () => {
+        const copied = await showAlert({
+          title: copy.title,
+          message: copy.message,
+          ...(action === "offer_command"
+            ? { confirmLabel: "Copy Command", cancelLabel: "Close" }
+            : { confirmLabel: "OK", cancelLabel: null }),
+          confirm: { role: "action" },
+        });
+        if (copied && action === "offer_command") {
+          void copyTextFrom(null, ANT_LOGOUT_COMMAND);
+        }
+      })();
+      return;
+    }
     void (async () => {
       const confirmed = await showAlert({
         title: "Log Out of Claude?",
-        message: logoutConfirmMessage(authStore.getSnapshot().account),
+        message: logoutConfirmMessage(account),
         confirmLabel: "Log Out",
         cancelLabel: "Cancel",
         confirm: { role: "danger" },
@@ -105,6 +139,21 @@ export function Logout(): null {
       confirm: { role: "action" },
     });
   }, [logoutError, showAlert]);
+
+  // A logout that worked but left a login in place: name what remains and
+  // the step that removes it ([B03]). Cleared first so it fires once.
+  useEffect(() => {
+    if (logoutRemaining === null) return;
+    const copy = logoutRemainingCopy(logoutRemaining);
+    authStore.clearLogoutRemaining();
+    void showAlert({
+      title: copy.title,
+      message: copy.message,
+      confirmLabel: "OK",
+      cancelLabel: null,
+      confirm: { role: "action" },
+    });
+  }, [logoutRemaining, showAlert]);
 
   return null;
 }

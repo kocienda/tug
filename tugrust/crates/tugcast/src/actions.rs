@@ -15,8 +15,23 @@ use crate::router::LagPolicy;
 fn broadcast_auth_result(
     cat: Option<broadcast::Sender<Frame>>,
     state: crate::feeds::claude_auth::AuthState,
+    shell_auth_vars: &[&str],
     tug_session_id: Option<String>,
 ) {
+    let Some(cat) = cat else { return };
+    send_control(&cat, auth_result_body(state, shell_auth_vars, tug_session_id));
+}
+
+/// The `claude_auth_result` body for a resolved auth state. Every logged-in
+/// answer names its `loginSource`, and carries the Console profile and the
+/// stored-subscription fact the deck warns from. Every answer, logged in or
+/// not, names the auth variables the card's shell sets ([B05]): sessions
+/// ignore them and `claude` in that shell uses them.
+fn auth_result_body(
+    state: crate::feeds::claude_auth::AuthState,
+    shell_auth_vars: &[&str],
+    tug_session_id: Option<String>,
+) -> serde_json::Value {
     use crate::feeds::claude_auth::AuthState;
     // `reason` distinguishes the two signed-out cases so the gate can show
     // install guidance vs. a sign-in prompt: "claude_missing" (no CLI) vs
@@ -26,47 +41,38 @@ fn broadcast_auth_result(
     // `null` with reason "probe_failed" says the probe did not answer, which no
     // boolean could say. A `false` there would put a sign-in modal in front of
     // a user who may well be signed in, over a question nobody asked.
-    let (logged_in, email, subscription_type, auth_method, reason) = match state {
-        AuthState::LoggedIn(info) => (
-            serde_json::Value::Bool(true),
-            info.email,
-            info.subscription_type,
-            info.auth_method,
-            None,
-        ),
-        AuthState::ClaudeMissing => (
-            serde_json::Value::Bool(false),
-            None,
-            None,
-            None,
-            Some("claude_missing"),
-        ),
-        AuthState::LoggedOut => (
-            serde_json::Value::Bool(false),
-            None,
-            None,
-            None,
-            Some("logged_out"),
-        ),
-        AuthState::Unknown => (
-            serde_json::Value::Null,
-            None,
-            None,
-            None,
-            Some("probe_failed"),
-        ),
+    let (logged_in, account, reason) = match state {
+        AuthState::LoggedIn(info) => (serde_json::Value::Bool(true), Some(info), None),
+        AuthState::ClaudeMissing => (serde_json::Value::Bool(false), None, Some("claude_missing")),
+        AuthState::LoggedOut => (serde_json::Value::Bool(false), None, Some("logged_out")),
+        AuthState::Unknown => (serde_json::Value::Null, None, Some("probe_failed")),
     };
-    let Some(cat) = cat else { return };
-    let body = serde_json::json!({
+    let account = account.unwrap_or_default();
+    let profile = account.profile.as_ref().map(|p| {
+        serde_json::json!({
+            "name": p.name,
+            "configDir": p.config_dir.to_string_lossy(),
+            "authType": p.auth_type,
+            "organizationId": p.organization_id,
+            "workspaceId": p.workspace_id,
+        })
+    });
+    serde_json::json!({
         "action": "claude_auth_result",
         "loggedIn": logged_in,
         "reason": reason,
         "tug_session_id": tug_session_id,
-        "email": email,
-        "subscriptionType": subscription_type,
-        "authMethod": auth_method,
-    });
-    send_control(&cat, body);
+        "email": account.email,
+        "subscriptionType": account.subscription_type,
+        "authMethod": account.auth_method,
+        "loginSource": reason.is_none().then(|| account.source.as_str()),
+        "apiKeySource": account.api_key_source,
+        "orgName": account.org_name,
+        "planTier": account.plan_tier,
+        "profile": profile,
+        "subscriptionStored": account.subscription_stored,
+        "shellAuthVars": shell_auth_vars,
+    })
 }
 
 /// Probe the installed and newest-available Claude Code versions and broadcast
@@ -186,8 +192,11 @@ async fn run_claude_install(cat: Option<broadcast::Sender<Frame>>, result_action
         serde_json::json!({ "action": result_action, "ok": ok, "error": error }),
     );
     // Re-probe regardless — on success `claude` is now reachable.
-    let state = crate::feeds::claude_auth::probe().await;
-    broadcast_auth_result(cat.clone(), state, None);
+    let (state, shell) = tokio::join!(
+        crate::feeds::claude_auth::probe(),
+        crate::feeds::claude_auth::shell_auth_vars(),
+    );
+    broadcast_auth_result(cat.clone(), state, &shell, None);
     // …and report what version that install landed, so the row names it
     // rather than staying blank until the next launch.
     broadcast_version_result(cat).await;
@@ -341,8 +350,11 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
                 .get(&FeedId::CONTROL)
                 .map(|(tx, _)| tx.clone());
             tokio::spawn(async move {
-                let state = crate::feeds::claude_auth::probe().await;
-                broadcast_auth_result(cat, state, None);
+                let (state, shell) = tokio::join!(
+                    crate::feeds::claude_auth::probe(),
+                    crate::feeds::claude_auth::shell_auth_vars(),
+                );
+                broadcast_auth_result(cat, state, &shell, None);
             });
         }
         Ok(A::CheckHostTools) => {
@@ -504,31 +516,65 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
                 });
             tokio::spawn(async move {
                 let state = crate::feeds::claude_auth::login().await;
-                broadcast_auth_result(cat, state, tug_session_id);
+                let shell = crate::feeds::claude_auth::shell_auth_vars().await;
+                broadcast_auth_result(cat, state, &shell, tug_session_id);
             });
         }
         Ok(A::ClaudeLogout) => {
             // Drive `claude auth logout`. Report the command's own success as a
             // `claude_logout_result` (so a failed logout surfaces an error
-            // rather than a silent no-op), then re-probe and broadcast the
-            // resulting auth state — logged out on success — which reopens
-            // ConfigureTug for the user to log back in.
+            // rather than a silent no-op), after re-probing and broadcasting
+            // the resulting auth state — logged out on success — which reopens
+            // ConfigureTug for the user to log back in. The state goes first so
+            // the result's `stillLoggedIn` lands on a store that already holds
+            // the login the logout left in place, which the deck names ([B03]).
             info!("dispatch_action: claude logout requested");
             let cat = stream_outputs
                 .get(&FeedId::CONTROL)
                 .map(|(tx, _)| tx.clone());
             tokio::spawn(async move {
-                let (ok, error) = crate::feeds::claude_auth::logout().await;
+                // The source is read on both sides of the command so the log
+                // says what the logout removed and what it left in place.
+                let before = crate::feeds::claude_auth::probe().await;
+                let outcome = crate::feeds::claude_auth::logout().await;
+                let (state, shell) = tokio::join!(
+                    crate::feeds::claude_auth::probe(),
+                    crate::feeds::claude_auth::shell_auth_vars(),
+                );
+                let source_before = before.source_label();
+                let source_after = state.source_label();
+                if outcome.ok {
+                    info!(
+                        exit_code = ?outcome.exit_code,
+                        stdout = %outcome.stdout_tail,
+                        stderr = %outcome.stderr_tail,
+                        source_before,
+                        source_after,
+                        "claude logout finished"
+                    );
+                } else {
+                    warn!(
+                        exit_code = ?outcome.exit_code,
+                        stdout = %outcome.stdout_tail,
+                        stderr = %outcome.stderr_tail,
+                        error = ?outcome.error,
+                        source_before,
+                        source_after,
+                        "claude logout failed"
+                    );
+                }
+                let still_logged_in =
+                    matches!(state, crate::feeds::claude_auth::AuthState::LoggedIn(_));
+                broadcast_auth_result(cat.clone(), state, &shell, None);
                 if let Some(cat) = &cat {
                     let body = serde_json::json!({
                         "action": "claude_logout_result",
-                        "ok": ok,
-                        "error": error,
+                        "ok": outcome.ok,
+                        "error": outcome.error,
+                        "stillLoggedIn": still_logged_in,
                     });
                     send_control(cat, body);
                 }
-                let state = crate::feeds::claude_auth::probe().await;
-                broadcast_auth_result(cat, state, None);
             });
         }
         Ok(A::SharedAgentClassify) => {
@@ -599,6 +645,53 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
 
 #[cfg(test)]
 mod tests {
+    use crate::feeds::claude_auth::{AccountInfo, AuthState, ConsoleProfile, LoginSource};
+
+    #[test]
+    fn an_auth_result_names_its_source_and_what_lies_beneath() {
+        let body = auth_result_body(
+            AuthState::LoggedIn(AccountInfo {
+                email: Some("user@example.com".to_string()),
+                subscription_type: Some("max".to_string()),
+                auth_method: Some("claude.ai".to_string()),
+                org_name: Some("Org".to_string()),
+                plan_tier: Some("max_20x".to_string()),
+                source: LoginSource::Subscription,
+                profile: Some(Box::new(ConsoleProfile {
+                    name: "default".to_string(),
+                    config_dir: "/Users/user/.config/anthropic".into(),
+                    auth_type: Some("user_oauth".to_string()),
+                    organization_id: Some("org-1".to_string()),
+                    workspace_id: None,
+                })),
+                subscription_stored: true,
+                ..AccountInfo::default()
+            }),
+            &["ANTHROPIC_API_KEY"],
+            None,
+        );
+        assert_eq!(body["loginSource"], "subscription");
+        assert_eq!(body["orgName"], "Org");
+        assert_eq!(body["planTier"], "max_20x");
+        assert_eq!(body["subscriptionStored"], true);
+        assert_eq!(body["profile"]["name"], "default");
+        assert_eq!(
+            body["profile"]["configDir"],
+            "/Users/user/.config/anthropic"
+        );
+        assert_eq!(body["profile"]["organizationId"], "org-1");
+        assert!(body["apiKeySource"].is_null());
+        assert_eq!(body["shellAuthVars"], serde_json::json!(["ANTHROPIC_API_KEY"]));
+
+        // A signed-out answer names no source, rather than `unknown`, which
+        // would claim a login Tug merely cannot name.
+        let out = auth_result_body(AuthState::LoggedOut, &[], None);
+        assert_eq!(out["loggedIn"], false);
+        assert!(out["loginSource"].is_null());
+        assert!(out["profile"].is_null());
+        assert_eq!(out["shellAuthVars"], serde_json::json!([]));
+    }
+
     use super::*;
     use crate::pages::Delivery;
 

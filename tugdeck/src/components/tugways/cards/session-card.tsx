@@ -123,7 +123,8 @@ import { useResumeSheet } from "./resume-sheet";
 import { SessionPendingContextStrip } from "./session-pending-context-strip";
 import { SessionFoldControl } from "./session-fold-control";
 import { useSessionCardDrop } from "./use-session-card-drop";
-import { sessionPickerPanel } from "./session-picker-panel";
+import { sessionPickerPanel, type SessionPickerHandlers } from "./session-picker-panel";
+import { PAID_LOGIN_REASON, confirmPaidLogin } from "@/lib/paid-login";
 import { noticeContent } from "./session-picker-notice-content";
 import { isTugMotionEnabled } from "@/lib/scale-timing";
 import { EditorView } from "@codemirror/view";
@@ -1101,6 +1102,14 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
   if (noticeRef.current === null) {
     noticeRef.current = pickerNoticeStore.consume(cardId);
   }
+  // The last open the picker sent, which a `paid_login` refusal's confirm
+  // repeats ([B08]).
+  const lastOpenRef = useRef<{
+    projectDir: string;
+    sessionMode: Parameters<NonNullable<SessionPickerHandlers["onOpen"]>>[1];
+    sessionId: string;
+    display: Parameters<NonNullable<SessionPickerHandlers["onOpen"]>>[3];
+  } | null>(null);
 
   // Spawn rejection (tugcast refused `spawn_session` — e.g. the project
   // directory was deleted). Formerly a separate red `TugPaneBanner` that
@@ -1122,7 +1131,15 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
   // sheet's own Open button is the correct retry for a fresh spawn, and the
   // restore path has its own retry ladder for a resume.
   const spawnNotice: PickerNotice | null =
-    spawnError !== null
+    spawnError !== null && spawnError.reason === PAID_LOGIN_REASON
+      ? {
+          // A pay-per-token login the user has not confirmed ([B08]). The
+          // notice names it and offers to confirm it and open the session.
+          category: "paid_login",
+          message: spawnErrorMessage(spawnError.reason),
+          login: spawnError.login ?? undefined,
+        }
+      : spawnError !== null
       ? {
           category: isSpawnBudgetReason(spawnError.reason)
             ? "spawn_budget"
@@ -1297,9 +1314,13 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
       content: (close) =>
         sessionPickerPanel({
           cardId,
-          handlers: {
+          handlers: ((): SessionPickerHandlers => {
+            const handlers: SessionPickerHandlers = {
             notice: activeNoticeRef.current,
             onOpen: (projectDir, sessionMode, sessionId, display) => {
+              // Kept so a `paid_login` refusal's confirm can send this
+              // same open again once the login is confirmed ([B08]).
+              lastOpenRef.current = { projectDir, sessionMode, sessionId, display };
               const connection = getConnection();
               if (!connection) {
                 console.warn("SessionProjectPicker: connection unavailable");
@@ -1370,7 +1391,24 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
                     }, SHEET_EXIT_ANIMATION_MS);
                   }
                 : null
-          },
+            };
+            // Confirm the login a `paid_login` refusal named, then send the
+            // open it refused again: the confirmation is stored before the
+            // spawn leaves, so the gate meets it ([B08]). A refusal from the
+            // startup restore has no open to repeat, and the user picks one.
+            handlers.onConfirmPaidLogin = () => {
+              const login = activeNoticeRef.current?.login;
+              if (login === undefined) return;
+              void confirmPaidLogin(login).then(() => {
+                sessionSpawnErrorStore.clear(cardId);
+                const last = lastOpenRef.current;
+                if (last !== null) {
+                  handlers.onOpen?.(last.projectDir, last.sessionMode, last.sessionId, last.display);
+                }
+              });
+            };
+            return handlers;
+          })(),
         }).panel,
       // Fire after the sheet's exit animation finishes so the card
     });

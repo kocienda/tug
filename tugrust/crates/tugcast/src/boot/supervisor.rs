@@ -256,6 +256,26 @@ pub(crate) async fn supervisor(
         supervisor.set_semantic_index(Arc::clone(index));
     }
 
+    // The pay-per-token gate on session open ([B08]): the login a session in
+    // a project would run on, and the identity the user confirmed, which the
+    // deck writes to `dev.tugapp.auth`/`paid_login_confirmed` and Configure
+    // Tug revokes. Read per spawn, so a confirm or a revoke applies at once.
+    let paid_login_confirmed: Arc<dyn Fn() -> Option<String> + Send + Sync> = {
+        let bank = bank_client.clone();
+        Arc::new(move || {
+            bank.as_ref()
+                .and_then(|b| b.get("dev.tugapp.auth", "paid_login_confirmed").ok().flatten())
+                .and_then(|v| match v {
+                    tugbank_core::Value::String(s) if !s.is_empty() => Some(s),
+                    _ => None,
+                })
+        })
+    };
+    supervisor.set_paid_login_gate(feeds::agent_supervisor::PaidLoginGate {
+        login: Arc::new(|dir| Box::pin(feeds::claude_auth::session_paid_login(dir))),
+        confirmed: paid_login_confirmed,
+    });
+
     // The changeset scribe ([P11]/[P22]): the maintained-draft engine runs a
     // headless `claude -p` with the model from
     // the tugbank default `dev.tugapp.changeset`/`scribe_model` (resolved per

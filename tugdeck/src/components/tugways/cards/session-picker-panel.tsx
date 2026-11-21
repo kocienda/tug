@@ -34,6 +34,7 @@ export interface SessionPickerHandlers {
   onOpen?: SessionProjectPickerFormProps["onOpen"];
   onCancel?: SessionProjectPickerFormProps["onCancel"];
   onRetryRestore?: SessionProjectPickerFormProps["onRetryRestore"];
+  onConfirmPaidLogin?: SessionProjectPickerFormProps["onConfirmPaidLogin"];
   /** The notice the picker stands under when it is re-presented after a failure. */
   notice?: PickerNotice | null;
 }
@@ -73,6 +74,7 @@ export function sessionPickerPanel({
         onOpen={handlers.onOpen ?? NOOP}
         onCancel={handlers.onCancel ?? NOOP}
         onRetryRestore={handlers.onRetryRestore ?? null}
+        onConfirmPaidLogin={handlers.onConfirmPaidLogin ?? null}
       />
     ),
   };

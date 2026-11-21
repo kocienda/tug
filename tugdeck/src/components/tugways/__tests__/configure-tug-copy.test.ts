@@ -12,6 +12,12 @@ import { describe, expect, test } from "bun:test";
 import {
   subscriptionLabel,
   logoutConfirmMessage,
+  logoutActionFor,
+  logoutStepSentence,
+  logoutUnavailableCopy,
+  logoutRemainingCopy,
+  signedInRowCopy,
+  type LoginFacts,
   pendingOpenStepCopy,
   claudeInstalledCopy,
   claudeTooOldCopy,
@@ -28,27 +34,207 @@ import {
   deriveProbingHold,
   deriveConfigureTugRequired,
   deriveFirstRunComplete,
+  shellAuthVarsNote,
 } from "../configure-tug-copy";
+
+describe("the shell's auth variables", () => {
+  test("no variable, no note", () => {
+    expect(shellAuthVarsNote([])).toBeNull();
+  });
+
+  test("names the variable and the difference it makes", () => {
+    expect(shellAuthVarsNote(["ANTHROPIC_API_KEY"])).toBe(
+      "Your shell sets ANTHROPIC_API_KEY. Tug's sessions ignore it, but claude run in a shell uses it, so it may be logged in differently from your sessions.",
+    );
+  });
+
+  test("names every variable the shell sets", () => {
+    expect(
+      shellAuthVarsNote(["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]),
+    ).toBe(
+      "Your shell sets ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN and CLAUDE_CODE_OAUTH_TOKEN. Tug's sessions ignore them, but claude run in a shell uses them, so it may be logged in differently from your sessions.",
+    );
+  });
+});
+
+describe("logout per source", () => {
+  const profile = {
+    name: "work",
+    configDir: "/Users/user/.config/anthropic",
+    authType: "user_oauth",
+    organizationId: null,
+    workspaceId: null,
+  };
+
+  test("only a subscription or an unidentified login is logged out by Tug", () => {
+    expect(logoutActionFor(null)).toBe("logout");
+    expect(logoutActionFor({ email: "user@example.com", loginSource: "subscription" })).toBe("logout");
+    expect(logoutActionFor({ email: null, loginSource: "unknown" })).toBe("logout");
+    expect(logoutActionFor({ email: null, loginSource: "console_profile", profile })).toBe("offer_command");
+    expect(logoutActionFor({ email: null, loginSource: "environment_key" })).toBe("explain");
+    expect(logoutActionFor({ email: null, loginSource: "environment_token" })).toBe("explain");
+    expect(logoutActionFor({ email: null, loginSource: "settings_helper" })).toBe("explain");
+  });
+
+  test("a Console profile is offered the ant CLI's own command", () => {
+    const copy = logoutUnavailableCopy({ email: null, loginSource: "console_profile", profile });
+    expect(copy.message).toBe(
+      `You're logged in through the ant CLI's "work" Console profile, which Tug can't remove. Set up by Anthropic's ant CLI, in /Users/user/.config/anthropic. To log out of it, run ant auth logout in a terminal.`,
+    );
+  });
+
+  test("a key, token or helper is told where it is set", () => {
+    expect(logoutStepSentence({ email: null, loginSource: "environment_key", apiKeySource: "ANTHROPIC_API_KEY" })).toBe(
+      "To stop using it, remove ANTHROPIC_API_KEY from the env block of Claude Code's settings.json.",
+    );
+    expect(logoutStepSentence({ email: null, loginSource: "environment_token" })).toContain("ANTHROPIC_AUTH_TOKEN");
+    expect(logoutStepSentence({ email: null, loginSource: "settings_helper" })).toContain("apiKeyHelper");
+    expect(logoutStepSentence({ email: "user@example.com", loginSource: "subscription" })).toBe("");
+  });
+
+  test("a logout that left a profile in place names it and its step", () => {
+    const copy = logoutRemainingCopy({ email: null, loginSource: "console_profile", profile });
+    expect(copy.title).toBe("Still Logged In");
+    expect(copy.message).toBe(
+      `Your subscription login was removed, but Claude Code is still signed in through the ant CLI's "work" Console profile. It is billed per token to its Console organization. To log out of it, run ant auth logout in a terminal.`,
+    );
+  });
+
+  test("a subscription still in place after a logout is said plainly", () => {
+    const copy = logoutRemainingCopy({ email: "user@example.com", loginSource: "subscription" });
+    expect(copy.message).toContain("still logged in with your Claude subscription");
+  });
+});
 
 describe("logoutConfirmMessage", () => {
   const consequence =
     "Your in-progress turns will stop, and you'll need to log in again to continue.";
+  const sub = (facts: Partial<LoginFacts>): LoginFacts => ({
+    email: null,
+    loginSource: "subscription",
+    ...facts,
+  });
 
   test("names the account and its plan ahead of the consequence", () => {
     expect(
-      logoutConfirmMessage({ email: "kocienda@mac.com", subscriptionType: "max" }),
+      logoutConfirmMessage(sub({ email: "kocienda@mac.com", subscriptionType: "max" })),
     ).toBe(`You're logged in as kocienda@mac.com on the Claude Max plan. ${consequence}`);
   });
 
   test("drops the plan when the tier is unknown", () => {
-    expect(logoutConfirmMessage({ email: "a@b.com", subscriptionType: null })).toBe(
+    expect(logoutConfirmMessage(sub({ email: "a@b.com", subscriptionType: null }))).toBe(
       `You're logged in as a@b.com. ${consequence}`,
     );
   });
 
-  test("falls back to the consequence alone with no email", () => {
+  test("names the subscription in words when there is no email", () => {
     expect(logoutConfirmMessage(null)).toBe(consequence);
-    expect(logoutConfirmMessage({ email: "  ", subscriptionType: "pro" })).toBe(consequence);
+    expect(logoutConfirmMessage(sub({ email: "  ", subscriptionType: "pro" }))).toBe(
+      `You're logged in with your Claude subscription, on the Claude Pro plan. ${consequence}`,
+    );
+  });
+
+  test("says a profile beneath the subscription is what Claude Code falls back to", () => {
+    const message = logoutConfirmMessage(
+      sub({
+        email: "a@b.com",
+        subscriptionType: "max",
+        profile: {
+          name: "default",
+          configDir: "/Users/u/.config/anthropic",
+          authType: "user_oauth",
+          organizationId: "org-1",
+          workspaceId: null,
+        },
+      }),
+    );
+    expect(message).toBe(
+      `You're logged in as a@b.com on the Claude Max plan. Logging out removes that login, but Claude Code will then fall back to the ant CLI's "default" Console profile, which is billed per token to its Console organization. Your in-progress turns will stop.`,
+    );
+    expect(message).not.toContain("log in again");
+  });
+
+  test("names a login that is not the subscription, and never says nothing", () => {
+    expect(
+      logoutConfirmMessage({
+        email: null,
+        loginSource: "console_profile",
+        profile: {
+          name: "default",
+          configDir: null,
+          authType: "user_oauth",
+          organizationId: null,
+          workspaceId: null,
+        },
+      }),
+    ).toBe(
+      `You're logged in through the ant CLI's "default" Console profile, which is not your Claude subscription. ${consequence}`,
+    );
+    expect(
+      logoutConfirmMessage({ email: null, loginSource: "environment_key", apiKeySource: "ANTHROPIC_API_KEY" }),
+    ).toBe(
+      `You're logged in through an API key from ANTHROPIC_API_KEY, which is not your Claude subscription. ${consequence}`,
+    );
+    expect(logoutConfirmMessage({ email: null, loginSource: "unknown" })).toBe(
+      `Tug can't tell which login Claude Code is using, so it may not be your Claude subscription. ${consequence}`,
+    );
+  });
+});
+
+describe("signedInRowCopy", () => {
+  const profile = {
+    name: "default",
+    configDir: "/Users/u/.config/anthropic",
+    authType: "user_oauth",
+    organizationId: "org-1",
+    workspaceId: null,
+  };
+
+  test("a subscription reads as its email and plan", () => {
+    expect(
+      signedInRowCopy({ email: "a@b.com", loginSource: "subscription", subscriptionType: "max" }),
+    ).toEqual({ label: "Logged in as a@b.com", detail: "Claude Max plan" });
+    expect(signedInRowCopy({ email: null, loginSource: "subscription" })).toEqual({
+      label: "Logged in with your Claude subscription",
+      detail: "Your Claude subscription",
+    });
+  });
+
+  test("every other source says where it lives, that it is not the subscription, and who it bills", () => {
+    expect(signedInRowCopy({ email: null, loginSource: "console_profile", profile })).toEqual({
+      label: `Logged in through the "default" Console profile`,
+      detail:
+        "Set up by Anthropic's ant CLI, in /Users/u/.config/anthropic. This is not your Claude subscription: it is billed per token to its Console organization.",
+    });
+    expect(
+      signedInRowCopy({ email: null, loginSource: "environment_key", apiKeySource: "ANTHROPIC_API_KEY" }),
+    ).toEqual({
+      label: "Logged in with an API key",
+      detail:
+        "Set by ANTHROPIC_API_KEY in Claude Code's settings. This is not your Claude subscription: it is billed per token to the organization that owns the key.",
+    });
+    expect(signedInRowCopy({ email: null, loginSource: "environment_token" }).label).toBe(
+      "Logged in with an auth token",
+    );
+    expect(signedInRowCopy({ email: null, loginSource: "settings_helper" }).detail).toBe(
+      "Claude Code's settings run an apiKeyHelper command to get a key. This is not your Claude subscription: it is billed per token to the organization that owns the key.",
+    );
+  });
+
+  test("unknown is said plainly, with what the CLI reported", () => {
+    expect(signedInRowCopy({ email: null, loginSource: "unknown", authMethod: "oauth_token" })).toEqual({
+      label: "Logged in through a login Tug can't identify",
+      detail: `Tug can't tell which login Claude Code is using (it reports "oauth_token"). It may not be your Claude subscription, and it may be billed per token.`,
+    });
+  });
+
+  test("a source outranking a stored subscription says so", () => {
+    expect(
+      signedInRowCopy({ email: null, loginSource: "settings_helper", subscriptionStored: true }).detail,
+    ).toContain("Your stored subscription login is being overridden by it.");
+    expect(
+      signedInRowCopy({ email: "a@b.com", loginSource: "subscription", subscriptionStored: true }).detail,
+    ).not.toContain("overridden");
   });
 });
 

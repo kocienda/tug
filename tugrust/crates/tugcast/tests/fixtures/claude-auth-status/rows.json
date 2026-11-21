@@ -1,0 +1,176 @@
+{
+  "_about": "`claude auth status --json` (Claude Code 2.1.325), recorded once per login-source combination with fake credentials; the stored subscription login's identity is replaced with placeholders. Each entry is one row of the precedence table: `sources` lists what was present, `exit` is the command's status, and `stdout` is what it printed.",
+  "rows": {
+    "helper": {
+      "sources": ["apiKeyHelper"],
+      "exit": 0,
+      "stdout": {
+        "loggedIn": true,
+        "authMethod": "api_key_helper",
+        "apiProvider": "firstParty",
+        "analyticsDisabled": false,
+        "projectsDirectory": "/tmp/claude-config/projects",
+        "configDirectory": "/tmp/claude-config",
+        "loginExpiresAt": null,
+        "consoleProfileSignInOffered": true,
+        "apiKeySource": "apiKeyHelper"
+      }
+    },
+    "helper-and-key": {
+      "sources": ["apiKeyHelper", "ANTHROPIC_API_KEY"],
+      "exit": 0,
+      "stdout": {
+        "loggedIn": true,
+        "authMethod": "api_key_helper",
+        "apiProvider": "firstParty",
+        "analyticsDisabled": false,
+        "projectsDirectory": "/tmp/claude-config/projects",
+        "configDirectory": "/tmp/claude-config",
+        "loginExpiresAt": null,
+        "consoleProfileSignInOffered": true,
+        "apiKeySource": "ANTHROPIC_API_KEY"
+      }
+    },
+    "auth-token": {
+      "sources": ["ANTHROPIC_AUTH_TOKEN"],
+      "exit": 0,
+      "stdout": {
+        "loggedIn": true,
+        "authMethod": "oauth_token",
+        "apiProvider": "firstParty",
+        "analyticsDisabled": false,
+        "projectsDirectory": "/tmp/claude-config/projects",
+        "configDirectory": "/tmp/claude-config",
+        "loginExpiresAt": null,
+        "consoleProfileSignInOffered": true
+      }
+    },
+    "auth-token-and-key": {
+      "sources": ["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"],
+      "exit": 0,
+      "stdout": {
+        "loggedIn": true,
+        "authMethod": "oauth_token",
+        "apiProvider": "firstParty",
+        "analyticsDisabled": false,
+        "projectsDirectory": "/tmp/claude-config/projects",
+        "configDirectory": "/tmp/claude-config",
+        "loginExpiresAt": null,
+        "consoleProfileSignInOffered": true,
+        "apiKeySource": "ANTHROPIC_API_KEY"
+      }
+    },
+    "api-key": {
+      "sources": ["ANTHROPIC_API_KEY"],
+      "exit": 0,
+      "stdout": {
+        "loggedIn": true,
+        "authMethod": "api_key",
+        "apiProvider": "firstParty",
+        "analyticsDisabled": false,
+        "projectsDirectory": "/tmp/claude-config/projects",
+        "configDirectory": "/tmp/claude-config",
+        "loginExpiresAt": null,
+        "consoleProfileSignInOffered": true,
+        "apiKeySource": "ANTHROPIC_API_KEY"
+      }
+    },
+    "subscription-and-key": {
+      "sources": ["subscription", "ANTHROPIC_API_KEY"],
+      "exit": 0,
+      "stdout": {
+        "loggedIn": true,
+        "authMethod": "api_key",
+        "apiProvider": "firstParty",
+        "analyticsDisabled": false,
+        "projectsDirectory": "/Users/user/.claude/projects",
+        "configDirectory": "/Users/user/.claude",
+        "loginExpiresAt": null,
+        "consoleProfileSignInOffered": true,
+        "apiKeySource": "ANTHROPIC_API_KEY"
+      }
+    },
+    "oauth-token": {
+      "sources": ["CLAUDE_CODE_OAUTH_TOKEN"],
+      "exit": 0,
+      "stdout": {
+        "loggedIn": true,
+        "authMethod": "oauth_token",
+        "apiProvider": "firstParty",
+        "analyticsDisabled": false,
+        "projectsDirectory": "/tmp/claude-config/projects",
+        "configDirectory": "/tmp/claude-config",
+        "loginExpiresAt": null,
+        "consoleProfileSignInOffered": true
+      }
+    },
+    "subscription": {
+      "sources": ["subscription"],
+      "exit": 0,
+      "stdout": {
+        "loggedIn": true,
+        "authMethod": "claude.ai",
+        "apiProvider": "firstParty",
+        "analyticsDisabled": false,
+        "projectsDirectory": "/Users/user/.claude/projects",
+        "configDirectory": "/Users/user/.claude",
+        "loginExpiresAt": "2026-12-19T23:01:21.009Z",
+        "consoleProfileSignInOffered": true,
+        "email": "user@example.com",
+        "orgId": "00000000-0000-4000-8000-000000000000",
+        "orgName": "Example Org",
+        "subscriptionType": "max",
+        "storedClaudeAiLogin": true,
+        "planTier": "max_20x"
+      }
+    },
+    "subscription-and-profile": {
+      "sources": ["subscription", "console-profile"],
+      "exit": 0,
+      "stdout": {
+        "loggedIn": true,
+        "authMethod": "claude.ai",
+        "apiProvider": "firstParty",
+        "analyticsDisabled": false,
+        "projectsDirectory": "/Users/user/.claude/projects",
+        "configDirectory": "/Users/user/.claude",
+        "loginExpiresAt": "2026-12-19T23:01:21.009Z",
+        "consoleProfileSignInOffered": true,
+        "email": "user@example.com",
+        "orgId": "00000000-0000-4000-8000-000000000000",
+        "orgName": "Example Org",
+        "subscriptionType": "max",
+        "storedClaudeAiLogin": true,
+        "planTier": "max_20x"
+      }
+    },
+    "console-profile": {
+      "sources": ["console-profile"],
+      "exit": 0,
+      "stdout": {
+        "loggedIn": true,
+        "authMethod": "oauth_token",
+        "apiProvider": "firstParty",
+        "analyticsDisabled": false,
+        "projectsDirectory": "/tmp/claude-config/projects",
+        "configDirectory": "/tmp/claude-config",
+        "loginExpiresAt": null,
+        "consoleProfileSignInOffered": true
+      }
+    },
+    "none": {
+      "sources": [],
+      "exit": 1,
+      "stdout": {
+        "loggedIn": false,
+        "authMethod": "none",
+        "apiProvider": "firstParty",
+        "analyticsDisabled": false,
+        "projectsDirectory": "/tmp/claude-config/projects",
+        "configDirectory": "/tmp/claude-config",
+        "loginExpiresAt": null,
+        "consoleProfileSignInOffered": true
+      }
+    }
+  }
+}

@@ -130,6 +130,13 @@ import {
   closeConfigureTugOnDemand,
 } from "@/lib/configure-tug-request-store";
 import { requestLogout } from "@/lib/logout-store";
+import { copyTextFrom } from "@/lib/copy-text";
+import {
+  PAID_LOGIN_DOMAIN,
+  PAID_LOGIN_CONFIRMED_KEY,
+  parseConfirmedIdentity,
+  revokePaidLogin,
+} from "@/lib/paid-login";
 import { useGateDeck, useWorkCardCount } from "@/lib/gate-deck";
 import {
   claudeVersionStore,
@@ -139,7 +146,10 @@ import { hostToolsStore, useHostTools } from "@/lib/host-tools-store";
 import { useNetworkPath } from "@/lib/network-path-store";
 import { formatBytes } from "@/lib/transfer-rate";
 import {
-  subscriptionLabel,
+  signedInRowCopy,
+  logoutActionFor,
+  logoutStepSentence,
+  ANT_LOGOUT_COMMAND,
   pendingOpenStepCopy,
   claudeInstalledCopy,
   claudeTooOldCopy,
@@ -153,6 +163,7 @@ import {
   deriveProbingHold,
   deriveConfigureTugRequired,
   deriveFirstRunComplete,
+  shellAuthVarsNote,
   CONFIGURE_TUG_PROBE_DEADLINE_MS,
 } from "./configure-tug-copy";
 import { TugPushButton } from "./tug-push-button";
@@ -319,6 +330,7 @@ export function ConfigureTug(): ReactElement {
     downloadComplete,
     verifyingInstall,
     installError,
+    shellAuthVars,
   } = useAuth();
   const {
     installed,
@@ -345,6 +357,14 @@ export function ConfigureTug(): ReactElement {
     DEFAULT_PROJECT_PATH_KEY,
     parseProjectPath,
     "",
+  );
+  // The pay-per-token login the user confirmed sessions may run on ([B08]),
+  // which the on-demand visit offers to forget.
+  const confirmedPaidLogin = useTugbankValue(
+    PAID_LOGIN_DOMAIN,
+    PAID_LOGIN_CONFIRMED_KEY,
+    parseConfirmedIdentity,
+    null,
   );
   const hostFacts = useHostFacts();
   const resolvedProjectPath =
@@ -886,6 +906,45 @@ export function ConfigureTug(): ReactElement {
   const offlineSignIn = authOfflineCopy(
     loggedOutOffline ? "logged_out_offline" : "probe_failed",
   );
+  const signInWayOut: Partial<Step> = (() => {
+    const action = logoutActionFor(account);
+    const copy = signedInRowCopy(account);
+    const step = logoutStepSentence(account);
+    const detail = step ? `${copy.detail ?? ""} ${step}`.trim() : copy.detail;
+    if (action === "offer_command") {
+      return {
+        detail,
+        secondaryCta: {
+          label: "Copy Logout Command",
+          onClick: () => void copyTextFrom(null, ANT_LOGOUT_COMMAND),
+        },
+      };
+    }
+    if (action === "explain") return { detail };
+    return { secondaryCta: { label: "Log Out…", onClick: requestLogout } };
+  })();
+  // A confirmed pay-per-token login is revocable here ([B08]): forgetting it
+  // makes the next session ask again before it bills per token.
+  const signInRevoke: Partial<Step> =
+    confirmedPaidLogin === null
+      ? {}
+      : {
+          body: () => (
+            <>
+              <span className="configure-tug-step-note">
+                You confirmed that sessions may run on a pay-per-token login.
+              </span>
+              <TugPushButton
+                size="sm"
+                emphasis="ghost"
+                neverDefaultButton
+                onClick={() => void revokePaidLogin()}
+              >
+                Forget Confirmation
+              </TugPushButton>
+            </>
+          ),
+        };
   const signInStep: Step = claudeMissing
     ? { key: "signin", status: "pending", label: "Log in to Claude" }
     : claudeTooOld && !effectiveLoggedIn && !signingIn
@@ -920,14 +979,16 @@ export function ConfigureTug(): ReactElement {
           ? {
             key: "signin",
             status: "done",
-            label: account?.email ? `Logged in as ${account.email}` : "Logged in to Claude",
-            detail: subscriptionLabel(account?.subscriptionType),
+            // The row names the login's source in words ([B01]): a login
+            // with no email is exactly the one that needs naming most.
+            ...signedInRowCopy(account),
             // The on-demand visit is the gesture for changing an answer, so it
             // offers the way out of a login; a first run just made this one.
-            // Logout owns the confirm and everything after it.
-            ...(showingOnDemand
-              ? { secondaryCta: { label: "Log Out…", onClick: requestLogout } }
-              : {}),
+            // The way out depends on the source ([B02]): Logout owns the
+            // confirm for a subscription; a Console profile's way out is the
+            // `ant` CLI's own command, offered to copy; a key, token or helper
+            // has no button, and the detail says where it is set.
+            ...(showingOnDemand ? { ...signInWayOut, ...signInRevoke } : {}),
           }
           : signInFailed
             ? {
@@ -944,6 +1005,30 @@ export function ConfigureTug(): ReactElement {
               detail: "Sessions run on your Claude subscription.",
               cta: { label: "Log In", onClick: handleSignIn },
             };
+
+  // The shell's auth variables ([B05]): named on the sign-in row when the user
+  // came to look, or when Tug finds no login the shell may well have. Sessions
+  // strip them and `claude` in a shell uses them, so the two can disagree about
+  // whether you are logged in; the note says so and offers nothing to press,
+  // because the shell is the user's to edit.
+  const shellNote = shellAuthVarsNote(shellAuthVars);
+  const signInRow: Step =
+    shellNote === null || (!showingOnDemand && effectiveLoggedIn)
+      ? signInStep
+      : {
+          ...signInStep,
+          body: (returnHome: boolean) => (
+            <>
+              <span
+                className="configure-tug-step-note"
+                data-testid="configure-tug-shell-auth-note"
+              >
+                {shellNote}
+              </span>
+              {signInStep.body?.(returnHome)}
+            </>
+          ),
+        };
 
   // Where the user's projects live. Always ends up persisted explicitly: the
   // session picker's seed chain reads the explicit value, so a post-setup user
@@ -1088,11 +1173,11 @@ export function ConfigureTug(): ReactElement {
     : probing
       ? probingSteps
       : loginOnly
-        ? [...toolsSteps, claudeStep, signInStep]
+        ? [...toolsSteps, claudeStep, signInRow]
         : [
             ...toolsSteps,
             claudeStep,
-            signInStep,
+            signInRow,
             projectDirStep,
             // …and the "open your first session" row is dead weight on a deck
             // that already has work in it; Done takes its place.

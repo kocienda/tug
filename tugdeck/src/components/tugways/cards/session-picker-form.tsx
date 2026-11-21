@@ -124,6 +124,13 @@ export interface SessionProjectPickerFormProps {
    * fresh-picker notice that doesn't carry retry context.
    */
   onRetryRestore: (() => void) | null;
+  /**
+   * Invoked when the user accepts a `paid_login` notice ([B08]): the
+   * session was refused because it would run on a pay-per-token login, and
+   * this confirms that login and opens the session. `null` for every other
+   * notice.
+   */
+  onConfirmPaidLogin: (() => void) | null;
 }
 
 /** Stable empty set — the no-groups-toggled value. */
@@ -201,6 +208,7 @@ export function SessionProjectPickerForm({
   onOpen,
   onCancel,
   onRetryRestore,
+  onConfirmPaidLogin,
 }: SessionProjectPickerFormProps) {
   const focusManager = useFocusManager();
   // Declared against the sheet's own trap, read from the enclosing
@@ -698,7 +706,16 @@ export function SessionProjectPickerForm({
                   icon={content.icon}
                   live="alert"
                   actions={
-                    onRetryRestore !== null ? (
+                    notice.category === "paid_login" && onConfirmPaidLogin !== null ? (
+                      <TugPushButton
+                        emphasis="outlined"
+                        role="action"
+                        onClick={onConfirmPaidLogin}
+                        data-testid="session-card-picker-notice-confirm-paid-login"
+                      >
+                        Use This Login
+                      </TugPushButton>
+                    ) : onRetryRestore !== null ? (
                       <TugPushButton
                         emphasis="outlined"
                         role={content.tone === "danger" ? "danger" : "action"}

@@ -346,6 +346,44 @@ impl AgentSupervisor {
         })
     }
 
+    /// **The pay-per-token gate ([B08]).** A session never starts on a login
+    /// that is not the user's subscription until the user has confirmed that
+    /// login. Asked before anything is acquired or retired, so the refusal
+    /// costs nothing and reaches the card's picker through the
+    /// spawn-rejection channel, whose Open is the retry. A re-held bridge is
+    /// a session already running, so the attach path never asks; nor does a
+    /// reconnect for a session the ledger already holds, which, as the spawn
+    /// budget reads it, starts no new subprocess.
+    async fn check_paid_login(
+        &self,
+        card_id: &str,
+        tug_session_id: &TugSessionId,
+        project_dir: &Path,
+    ) -> Result<(), ControlError> {
+        let Some(gate) = &self.paid_login_gate else {
+            return Ok(());
+        };
+        if self.ledger.lock().await.contains_key(tug_session_id) {
+            return Ok(());
+        }
+        let Some(login) = (gate.login)(project_dir.to_path_buf()).await else {
+            return Ok(());
+        };
+        if (gate.confirmed)().as_deref() == Some(login.identity.as_str()) {
+            return Ok(());
+        }
+        tracing::info!(
+            card_id,
+            session = %tug_session_id,
+            login_source = login.login_source,
+            from_project = login.from_project,
+            "spawn_session: refused on an unconfirmed pay-per-token login"
+        );
+        Err(ControlError::PaidLoginUnconfirmed {
+            login: Box::new(login),
+        })
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(in crate::feeds::agent_supervisor) async fn do_spawn_session(
         &self,
@@ -411,14 +449,26 @@ impl AgentSupervisor {
                             superseded = %held,
                             "the card is opening another segment of its line; retiring its bridge",
                         );
+                        // Asked before the held bridge goes, so a refusal
+                        // leaves the card's line as it was.
+                        self.check_paid_login(card_id, &tug_session_id, &project_dir)
+                            .await?;
                         self.close_card_session_keeping(card_id, &held, Some(&tug_session_id))
                             .await;
                         tug_session_id
                     }
-                    None => tug_session_id,
+                    None => {
+                        self.check_paid_login(card_id, &tug_session_id, &project_dir)
+                            .await?;
+                        tug_session_id
+                    }
                 }
             }
-            SessionMode::New => tug_session_id,
+            SessionMode::New => {
+                self.check_paid_login(card_id, &tug_session_id, &project_dir)
+                    .await?;
+                tug_session_id
+            }
         };
         // Name the page that sent this spawn, so a resume nobody on the shell
         // asked for can be traced to the page behind it.

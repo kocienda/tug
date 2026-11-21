@@ -1421,3 +1421,98 @@ async fn a_resumed_session_is_spawned_with_the_folders_its_row_holds() {
         "the resume spawn carries the folders the row holds, in order"
     );
 }
+
+// ---- the pay-per-token gate on session open ([B08]) ----
+
+/// A Console-profile login, as the gate's seam would report one.
+fn a_paid_login(identity: &str) -> crate::feeds::claude_auth::PaidLogin {
+    crate::feeds::claude_auth::PaidLogin {
+        identity: identity.to_string(),
+        login_source: "console_profile",
+        api_key_source: None,
+        org_name: Some("Example Org".to_string()),
+        profile_name: Some("default".to_string()),
+        from_project: false,
+    }
+}
+
+/// Wire a gate that answers `login` for every project and reads its
+/// confirmation from `confirmed`, which the test moves.
+fn gate_on(
+    sup: &mut AgentSupervisor,
+    login: Option<crate::feeds::claude_auth::PaidLogin>,
+    confirmed: Arc<std::sync::Mutex<Option<String>>>,
+) {
+    sup.set_paid_login_gate(PaidLoginGate {
+        login: Arc::new(move |_dir| {
+            let login = login.clone();
+            Box::pin(async move { login })
+        }),
+        confirmed: Arc::new(move || confirmed.lock().unwrap().clone()),
+    });
+}
+
+#[tokio::test]
+async fn a_session_on_an_unconfirmed_paid_login_is_refused_before_anything_starts() {
+    let (mut sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+    let confirmed = Arc::new(std::sync::Mutex::new(None));
+    gate_on(&mut sup, Some(a_paid_login("console_profile:default:org")), confirmed.clone());
+
+    let err = sup
+        .handle_control("spawn_session", &spawn_payload("card-1", "sess-1"), 10)
+        .await
+        .expect_error();
+    assert_eq!(
+        err,
+        ControlError::PaidLoginUnconfirmed {
+            login: Box::new(a_paid_login("console_profile:default:org")),
+        }
+    );
+    assert!(
+        sup.ledger.lock().await.is_empty(),
+        "a refused session leaves nothing in the ledger"
+    );
+
+    // Confirming that login opens the session.
+    *confirmed.lock().unwrap() = Some("console_profile:default:org".to_string());
+    sup.handle_control("spawn_session", &spawn_payload("card-1", "sess-1"), 10)
+        .await
+        .expect_handled_with("a confirmed paid login opens the session");
+}
+
+#[tokio::test]
+async fn a_changed_paid_login_asks_again() {
+    let (mut sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+    let confirmed = Arc::new(std::sync::Mutex::new(Some(
+        "console_profile:default:org".to_string(),
+    )));
+    gate_on(&mut sup, Some(a_paid_login("console_profile:work:org-2")), confirmed);
+    let err = sup
+        .handle_control("spawn_session", &spawn_payload("card-1", "sess-1"), 10)
+        .await
+        .expect_error();
+    assert!(matches!(err, ControlError::PaidLoginUnconfirmed { .. }));
+}
+
+#[tokio::test]
+async fn a_subscription_session_and_a_reconnect_pass_the_gate() {
+    // No paid login: the gate passes without asking.
+    let (mut sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+    gate_on(&mut sup, None, Arc::new(std::sync::Mutex::new(None)));
+    sup.handle_control("spawn_session", &spawn_payload("card-1", "sess-1"), 10)
+        .await
+        .expect_handled_with("a subscription session opens as before");
+
+    // A session this process already runs is a reconnect, which starts no
+    // new subprocess, so an unconfirmed login does not take it away.
+    let (mut sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+    preload_entry_in_state(&sup, &TugSessionId::new("sess-1"), SpawnState::Live).await;
+    gate_on(
+        &mut sup,
+        Some(a_paid_login("console_profile:default:org")),
+        Arc::new(std::sync::Mutex::new(None)),
+    );
+    sup.handle_control("spawn_session", &spawn_payload("card-1", "sess-1"), 10)
+        .await
+        .expect_handled_with("a reconnect passes the gate");
+}

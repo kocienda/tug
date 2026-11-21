@@ -384,6 +384,13 @@ pub enum ControlError {
     /// point past, silently.
     #[error("spawn_session is missing line_id")]
     MissingLineId,
+    /// The session would run on a login that is not the user's subscription,
+    /// and the user has not confirmed that login ([B08]). Refused before
+    /// anything is acquired, carrying the login so the deck can name it.
+    #[error("spawn_session on an unconfirmed pay-per-token login")]
+    PaidLoginUnconfirmed {
+        login: Box<crate::feeds::claude_auth::PaidLogin>,
+    },
 }
 
 /// Central owner of all Claude Code sessions for a single tugcast process.
@@ -467,6 +474,10 @@ pub struct AgentSupervisor {
     /// maintained-draft engine. `None` in tests, or a boot without wiring. Set
     /// via [`AgentSupervisor::set_scribe`] in `main.rs`.
     pub scribe: Option<ScribeContext>,
+    /// The pay-per-token gate on session open ([B08]). `None` in tests, or a
+    /// boot without wiring, which opens every session as before. Set via
+    /// [`AgentSupervisor::set_paid_login_gate`] at boot.
+    pub paid_login_gate: Option<PaidLoginGate>,
     /// Per-spawn factory for the backing subprocess. Swapped for a mock in
     /// tests so unit tests do not need a real tugcode binary.
     pub spawner_factory: SpawnerFactory,
@@ -1008,6 +1019,27 @@ fn session_ref_project_agrees(reference: &str, project_dir: &str) -> bool {
         }
         _ => true,
     }
+}
+
+/// The answer [`PaidLoginGate::login`] resolves to.
+pub type PaidLoginFuture = std::pin::Pin<
+    Box<dyn std::future::Future<Output = Option<crate::feeds::claude_auth::PaidLogin>> + Send>,
+>;
+
+/// The pay-per-token gate's wiring ([B08]): what login a session in a
+/// project would run on, and which login the user has confirmed. Both are
+/// seams so a test states the login it means instead of inheriting the
+/// machine's.
+#[derive(Clone)]
+pub struct PaidLoginGate {
+    /// The paid login a session opened in this project would run on, or
+    /// `None` for the subscription (production:
+    /// [`crate::feeds::claude_auth::session_paid_login`]).
+    pub login: Arc<dyn Fn(PathBuf) -> PaidLoginFuture + Send + Sync>,
+    /// The identity the user last confirmed (production: the tugbank default
+    /// `dev.tugapp.auth`/`paid_login_confirmed`, read per spawn so a revoke
+    /// applies at the next open).
+    pub confirmed: Arc<dyn Fn() -> Option<String> + Send + Sync>,
 }
 
 /// The changeset scribe's runtime wiring ([P11]): the spawner (production:
@@ -2105,6 +2137,7 @@ impl AgentSupervisor {
             semantic_index: None,
             digester: None,
             scribe: None,
+            paid_login_gate: None,
             spawner_factory,
             merger_register_tx,
             config,
@@ -3493,6 +3526,11 @@ impl AgentSupervisor {
     /// Called once in `main.rs` before the supervisor is shared.
     pub fn set_scribe(&mut self, scribe: ScribeContext) {
         self.scribe = Some(scribe);
+    }
+
+    /// Attach the pay-per-token gate on session open ([B08]).
+    pub fn set_paid_login_gate(&mut self, gate: PaidLoginGate) {
+        self.paid_login_gate = Some(gate);
     }
 
     /// The session id durable ink for `tug_session_id` is keyed under: its

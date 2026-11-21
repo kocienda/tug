@@ -13,6 +13,7 @@ import React from "react";
 import { FolderX, Info, LogOut, TriangleAlert } from "lucide-react";
 import type { TugInlineAlertTone } from "../tug-inline-alert";
 import type { PickerNotice } from "@/lib/picker-notice-store";
+import { paidLoginNoticeCopy } from "@/lib/paid-login";
 
 /** Title + message + icon a picker notice renders as, for {@link TugInlineAlert}. */
 export interface NoticeContent {
@@ -101,6 +102,21 @@ export function noticeContent(notice: PickerNotice): NoticeContent {
         tone: "caution",
         icon: React.createElement(TriangleAlert),
       };
+    case "paid_login":
+      // The session was refused before it started ([B08]): say which login it
+      // would have run on and who that bills, so the confirm is informed.
+      return notice.login
+        ? {
+            ...paidLoginNoticeCopy(notice.login),
+            tone: "caution",
+            icon: React.createElement(TriangleAlert),
+          }
+        : {
+            title: "This session would be billed per token",
+            message: notice.message,
+            tone: "caution",
+            icon: React.createElement(TriangleAlert),
+          };
     default:
       return { title: notice.message, tone: "muted", icon: React.createElement(Info) };
   }
