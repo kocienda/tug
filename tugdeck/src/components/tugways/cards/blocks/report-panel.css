@@ -247,7 +247,7 @@ body {
 
 .tug-report-panel-band {
   position: relative;
-  height: 10px;
+  height: 5px;
   border-radius: var(--tug-radius-xs);
   background-color: var(--tugx-report-band-track);
   overflow: hidden;
