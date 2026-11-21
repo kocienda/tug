@@ -185,7 +185,8 @@ final class BodyStagesTests: XCTestCase {
     func testAPageThatIsNotLiveShowsItsLastFrameElseItsSkeleton() {
         XCTAssertEqual(StagePicture.choose(facts(slept: true, lastFrame: true)), .lastFrame, "a slept card with a last frame")
         XCTAssertEqual(StagePicture.choose(facts(slept: true)), .skeleton, "a slept card with none")
-        XCTAssertEqual(StagePicture.choose(facts(stale: true, lastFrame: true)), .skeleton, "a stale card's last frame is behind")
+        XCTAssertEqual(StagePicture.choose(facts(stale: true, lastFrame: true)), .lastFrame, "a stale card's kept last frame is older, not wrong: it stands before a blank pane")
+        XCTAssertEqual(StagePicture.choose(facts(stale: true)), .skeleton, "a stale card with no frame kept: its shape or skin moved, or none was taken")
         XCTAssertEqual(StagePicture.choose(facts(painted: false)), .skeleton, "a page that has not painted its content")
         XCTAssertEqual(StagePicture.choose(facts(painted: false, lastFrame: true)), .lastFrame)
     }

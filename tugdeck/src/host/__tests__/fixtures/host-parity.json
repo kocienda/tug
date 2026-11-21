@@ -588,10 +588,36 @@
       "name": "bodyStale",
       "from": "body",
       "samples": [
-        {}
+        {
+          "parts": [
+            "deckCards.activity"
+          ],
+          "class": "content"
+        },
+        {
+          "parts": [
+            "cardTheme",
+            "deckCards.title"
+          ],
+          "class": "shape"
+        }
       ],
       "refused": [
-        null
+        null,
+        {},
+        {
+          "parts": [
+            "cardTheme"
+          ]
+        },
+        {
+          "parts": "cardTheme",
+          "class": "shape"
+        },
+        {
+          "parts": [],
+          "class": "skin"
+        }
       ]
     },
     {

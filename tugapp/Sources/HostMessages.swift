@@ -331,6 +331,26 @@ struct BodyPainted: Decodable, Equatable {
     var content: Bool
 }
 
+/// What a move while its page was hidden does to a card's last picture:
+/// `content` leaves it older and still the card's own, `shape` — its theme,
+/// its pane's chrome, the zoom, its fold — makes it wrong.
+enum StaleClass: String, Decodable, Equatable {
+    case content, shape
+}
+
+/// `bodyStale`: a hidden page's picture no longer stands for what it would
+/// draw. `parts` names what moved; `kind` (the message's `class`) is what
+/// that does to its last picture.
+struct BodyStale: Decodable, Equatable {
+    var parts: [String]
+    var kind: StaleClass
+
+    enum CodingKeys: String, CodingKey {
+        case parts
+        case kind = "class"
+    }
+}
+
 /// `bodyThemed`: a rail page's answer to `onBodyTheme`, sent one paint after
 /// applying `theme`, once the first frame drawn in it is rendered.
 /// `appliedMs` is the page's own time from being told to the theme applied.
@@ -1264,7 +1284,7 @@ enum ToHost {
     case bodyHello
     case painted(BodyPainted)
     case bodyThemed(BodyThemed)
-    case bodyStale
+    case bodyStale(BodyStale)
     case frontendReady
     case frontendLaunchStalled(FrontendLaunchStalled)
     case quitConfirmed
@@ -1336,7 +1356,7 @@ enum ToHost {
         case .bodyHello: _ = try read(EmptyPayload.self); return .bodyHello
         case .painted: return .painted(try read(BodyPainted.self))
         case .bodyThemed: return .bodyThemed(try read(BodyThemed.self))
-        case .bodyStale: _ = try read(EmptyPayload.self); return .bodyStale
+        case .bodyStale: return .bodyStale(try read(BodyStale.self))
         case .frontendReady: _ = try read(EmptyPayload.self); return .frontendReady
         case .crossingReady: return .crossingReady(try read(BodySurface.self))
         case .crossingSolved: return .crossingSolved(try read(CrossingSolved.self))

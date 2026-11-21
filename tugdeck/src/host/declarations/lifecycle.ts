@@ -8,7 +8,7 @@
  * @module host/declarations/lifecycle
  */
 
-import { arr, bool, empty, literal, nullable, num, obj, opaque, optional, rec, str, type Codec } from "../../bus/codec";
+import { arr, bool, empty, literal, nullable, num, obj, oneOf, opaque, optional, rec, str, type Codec } from "../../bus/codec";
 import { defineToHost, definePageCall, defineToPage, noReply } from "../declare";
 import type { TerminationVerdict } from "../../teardown";
 import type { CrossingAnchor, CrossingBand } from "../../lib/crossing-band";
@@ -86,16 +86,20 @@ export const bodyThemedToHost = defineToHost<{ theme: string; appliedMs: number 
 
 /**
  * A hidden page's picture no longer stands for what it would draw: a value
- * it draws from moved while it was hidden (`body/body-staleness.ts`). Said
- * at each move while hidden, so the host knows the page is not current, a
- * switch onto it cannot show it as it stands, and its last frame is behind.
+ * it draws from moved while it was hidden (`body/body-staleness.ts`). `parts`
+ * names what moved and `class` what that does to its last picture: `content`
+ * leaves it older, `shape` makes it wrong. Said once in a hidden period, and
+ * once more when the class rises from content to shape.
  */
-export const bodyStaleToHost = defineToHost<Record<string, never>>({
+export const bodyStaleToHost = defineToHost<{ parts: string[]; class: "content" | "shape" }>({
   name: "bodyStale",
   from: "body",
-  codec: obj({}),
-  samples: [{}],
-  refused: [null],
+  codec: obj({ parts: arr(str), class: oneOf(literal("content"), literal("shape")) }),
+  samples: [
+    { parts: ["deckCards.activity"], class: "content" },
+    { parts: ["cardTheme", "deckCards.title"], class: "shape" },
+  ],
+  refused: [null, {}, { parts: ["cardTheme"] }, { parts: "cardTheme", class: "shape" }, { parts: [], class: "skin" }],
 });
 
 /** The shell's ready reveals the window; a body's says it has painted its card. */

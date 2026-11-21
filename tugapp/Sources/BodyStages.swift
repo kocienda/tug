@@ -237,8 +237,8 @@ enum StagePicture: String {
         /// Its page has said its content painted.
         var contentPainted = false
         /// Its page said `bodyStale` while hidden, and has not painted as
-        /// shown since: what it would draw moved, and any last frame kept
-        /// for it is behind too.
+        /// shown since: what it would draw moved, so its layer is behind. A
+        /// last frame kept for it is older and still the card's own.
         var stale = false
         /// Its page slept since it was shown, or was shown since without
         /// painting again: its layer may be behind, its last frame is not.
@@ -246,7 +246,8 @@ enum StagePicture: String {
         /// Its body was brought back from an eviction and stands under that
         /// cover until its new page paints.
         var evicted = false
-        /// A last frame is kept for it: a parked page's, or an eviction's.
+        /// A last frame is kept for it: a parked page's, or an eviction's. A
+        /// move of its shape or skin while hidden lets the parked one go.
         var hasLastFrame = false
         /// An inactive tab: its pane's active card has the picture.
         var sibling = false
@@ -265,7 +266,8 @@ enum StagePicture: String {
         // A failed card shows what the shell draws for it: nothing stands over it.
         if facts.failed { return .live }
         if facts.hasBody, facts.contentPainted, !facts.evicted, facts.current || facts.pastHorizon { return .live }
-        if facts.hasLastFrame, !facts.stale { return .lastFrame }
+        // An older frame before a blank one: a skeleton only when none is kept.
+        if facts.hasLastFrame { return .lastFrame }
         return .skeleton
     }
 
@@ -508,6 +510,8 @@ final class StageCardPicture: NSView, StackedView {
     let content: NSView
     /// When it first stood on screen, media time; nil until then.
     var onScreenSince: CFTimeInterval?
+    /// Told when it leaves the screen, with how long it stood there, ms.
+    var whenLeft: ((StagePicture, Double) -> Void)?
     /// Its horizon, armed once it stood on screen over a painted page.
     var horizon: DispatchWorkItem?
     override var isFlipped: Bool { true }
@@ -530,8 +534,17 @@ final class StageCardPicture: NSView, StackedView {
 
     var skeleton: StageSkeletonView? { content as? StageSkeletonView }
 
+    /// The picture is off screen from here, taken down or its card no longer
+    /// shown: `whenLeft` hears how long it stood, once per time on screen.
+    func leftScreen() {
+        guard let since = onScreenSince else { return }
+        onScreenSince = nil
+        whenLeft?(kind, (CACurrentMediaTime() - since) * 1000)
+    }
+
     /// The picture leaves: its wave and its horizon with it.
     func takeDown() {
+        leftScreen()
         horizon?.cancel()
         horizon = nil
         skeleton?.setOnScreen(false)

@@ -297,6 +297,9 @@ final class BodyViewController {
         /// moved while it was, so its picture is not what it would draw.
         /// Cleared at its next paint as shown.
         var stale = false
+        /// What the moves it said `bodyStale` for do to its last picture: the
+        /// gravest class said since it was hidden. Nil while it is not stale.
+        var staleClass: StaleClass?
         /// The page was declared dormant since it was last shown: asleep, it
         /// heard nothing, so its picture may be behind. Cleared when shown.
         var sleptSinceShown = false
@@ -315,6 +318,10 @@ final class BodyViewController {
         /// When the page last said `bodyStale`, wall-clock ms: a last frame
         /// taken after it stands for what the page draws now.
         var staleAt: Double?
+        /// Parked in a hidden stage and still painting: hidden by opacity,
+        /// never `isHidden`, until it is declared dormant, so its layer is
+        /// what it would draw and a cut onto its workspace shows it live.
+        var paintsParked = false
         /// The picture standing over its painted page outlived its horizon
         /// ([P11]): the page is shown as it stands. Cleared when it is hidden.
         var pastHorizon = false
@@ -833,11 +840,13 @@ final class BodyViewController {
     }
 
     /// A hidden body's page said `bodyStale`: what it would draw moved while
-    /// it was hidden, so a switch onto it cannot show it as it stands. Its
-    /// last frame is behind too, and goes: the card stands as a skeleton
-    /// until its page paints as shown. No snapshot is taken for it — a page
-    /// is pictured only when it parks ([B07]).
-    func noteStale(_ body: Body) {
+    /// it was hidden, so a switch onto it cannot show it as it stands. A
+    /// move of its content — its title, its session's activity — leaves its
+    /// last frame older and still the card's own, and the frame is kept. A
+    /// move of its shape or skin makes the frame wrong, and it goes: the
+    /// card stands as a skeleton until its page paints as shown. No snapshot
+    /// is taken for it — a page is pictured only when it parks.
+    func noteStale(_ body: Body, _ said: BodyStale) {
         guard let cardId = body.cardId else { return }
         // A page the host has shown — a cut onto its workspace, made before
         // the shell moved the deck's keyboard to it — paints as shown in a
@@ -846,12 +855,27 @@ final class BodyViewController {
             TugLog.info("bodies", "stale while shown, kept", [TugLog.field("card", cardId)])
             return
         }
-        if !body.stale {
-            body.stale = true
-            TugLog.info("bodies", "stale", [TugLog.field("card", cardId)])
+        // A parked page that still paints has drawn the move already: its
+        // layer is current, and no picture changes. When it was said is
+        // kept, for the frame taken as the page goes dormant.
+        if body.paintsParked {
+            body.staleAt = Date().timeIntervalSince1970 * 1000
+            TugLog.info("bodies", "stale while painting, kept", [
+                TugLog.field("card", cardId), TugLog.field("class", said.kind.rawValue),
+                TugLog.field("parts", said.parts.joined(separator: ",")),
+            ])
+            return
         }
+        // A page says it once in a hidden period, and once more when the
+        // class rises: a shape move after a content one is never unsaid.
+        body.stale = true
+        if body.staleClass != .shape { body.staleClass = said.kind }
+        TugLog.info("bodies", "stale", [
+            TugLog.field("card", cardId), TugLog.field("class", said.kind.rawValue),
+            TugLog.field("parts", said.parts.joined(separator: ",")),
+        ])
         body.staleAt = Date().timeIntervalSince1970 * 1000
-        lifecycle.covers.dropParked(cardId)
+        if said.kind == .shape { lifecycle.covers.dropParked(cardId) }
         refreshPicture(body)
         // A page made ahead and never shown has not parked yet: its first
         // picture is still settling (its own title coming back to it), so it
@@ -873,6 +897,7 @@ final class BodyViewController {
         // kept for it is behind, and goes, and the picture over it with it.
         if content, body.seen {
             body.stale = false
+            body.staleClass = nil
             body.owedPaint = false
             body.paintedOnlyHidden = false
             lifecycle.paintTakesDownParkCover(body)
@@ -938,7 +963,8 @@ final class BodyViewController {
         guard let layer = body.container.layer else { return }
         defer { reportVisibility(body) }
         if showing {
-            let wasHidden = body.container.isHidden
+            let wasHidden = body.container.isHidden || body.paintsParked
+            body.paintsParked = false
             body.container.isHidden = false
             body.container.passesPointer = false
             // A page beneath its picture that has not painted is not shown
@@ -966,6 +992,21 @@ final class BodyViewController {
                 refreshRegion()
                 return
             }
+            if parkedPainting(body) {
+                // Parked in a hidden stage and not yet dormant: transparent
+                // and still painting, so the cut back finds its layer
+                // current. It gives up the keyboard as a hidden view would.
+                body.paintsParked = true
+                body.container.isHidden = false
+                body.container.passesPointer = true
+                layer.opacity = 0
+                if let responder = window.firstResponder as? NSView, responder.isDescendant(of: body.container) {
+                    window.makeFirstResponder(nil)
+                }
+                refreshRegion()
+                return
+            }
+            body.paintsParked = false
             // Shown before: hide it as any hidden page is, so WebKit
             // throttles a parked or folded body.
             body.container.isHidden = true
@@ -985,6 +1026,20 @@ final class BodyViewController {
             layer.opacity = 0
         }
         refreshRegion()
+    }
+
+    /// Whether `body` is a page parked by a cut that keeps painting: shown
+    /// once, painted and ready, a card that would show were its workspace
+    /// the one on screen, standing in that workspace's hidden stage, and not
+    /// declared dormant. A folded card, a card in the host's hand and a card
+    /// under a cover or a picture are hidden as before.
+    private func parkedPainting(_ body: Body) -> Bool {
+        guard !body.visible, !body.declaredDormant, body.contentPainted, body.state == .ready,
+              !body.covered, body.picture == nil, let cardId = body.cardId,
+              let placed = cardPlacements[cardId], placed.staged, placed.rail == nil,
+              let stage = stages.stage(placed.spaceId), stage !== stages.active,
+              body.container.superview === stage.view else { return false }
+        return true
     }
 
     /// Tell a bound body's page whether it is shown, when that has changed
@@ -1045,9 +1100,13 @@ final class BodyViewController {
         TugLog.info("bodies", "dormant", [TugLog.field("card", cardId), TugLog.field("dormant", dormant ? "yes" : "no")])
         tellTugcast?("body_dormant", ["card_id": cardId, "dormant": dormant])
         tellVisibility(body)
-        // Asleep, its page may fall behind: its picture is chosen again now,
-        // in its hidden stage, so the stage is right the moment it is shown.
-        if dormant { refreshPicture(body) }
+        // Asleep, its page may fall behind: it is hidden as a hidden page
+        // is from here, and its picture is chosen again now, in its hidden
+        // stage, so the stage is right the moment it is shown.
+        if dormant {
+            applyVisibility(body)
+            refreshPicture(body)
+        }
     }
 
     /// Say every standing declaration again, for a tugcast that has just
@@ -1534,14 +1593,17 @@ final class BodyViewController {
         var facts = StagePicture.Facts()
         facts.sibling = placed.sibling
         let kept = lifecycle.covers.parkedCover(for: cardId) ?? lifecycle.covers.keptCover(for: cardId)
-        facts.hasLastFrame = kept != nil || body?.covered == true
+        // A frame taken before its card's shape or skin moved is wrong, and
+        // is not shown; one taken before its content moved is only older.
+        let wrong = kept.map { cover in
+            body.map { $0.stale && $0.staleClass == .shape && ($0.staleAt ?? 0) >= cover.takenAt } ?? false
+        } ?? false
+        facts.hasLastFrame = (kept != nil && !wrong) || body?.covered == true
         if let body {
             facts.hasBody = true
             facts.contentPainted = body.contentPainted
-            // Stale since its last frame was taken: that frame is behind too.
-            // A frame taken after the page said so stands for it; its layer
-            // is still behind until it paints as shown.
-            facts.stale = body.stale && (kept.map { cover in (body.staleAt ?? 0) >= cover.takenAt } ?? true)
+            // Its layer is behind until it paints as shown.
+            facts.stale = body.stale
             facts.slept = body.sleptSinceShown || body.owedPaint || body.stale || body.paintedOnlyHidden
             facts.evicted = body.covered
             facts.pastHorizon = body.pastHorizon
@@ -1680,7 +1742,15 @@ final class BodyViewController {
             )
         }
         let made = kind == .lastFrame && content is StageSkeletonView ? StagePicture.skeleton : kind
-        return StageCardPicture(kind: made, content: content, frame: frame, serial: nextSerial())
+        let picture = StageCardPicture(kind: made, content: content, frame: frame, serial: nextSerial())
+        // What stood over the card and for how long, read from the log.
+        picture.whenLeft = { kind, ms in
+            TugLog.info("bodies", "picture down", [
+                TugLog.field("card", cardId), TugLog.field("kind", kind.rawValue),
+                TugLog.field("ms", String(format: "%.0f", ms)),
+            ])
+        }
+        return picture
     }
 
     /// Stand `picture` over `body`'s page, in its container above everything
@@ -1721,7 +1791,7 @@ final class BodyViewController {
         guard shown else {
             picture.horizon?.cancel()
             picture.horizon = nil
-            picture.onScreenSince = nil
+            picture.leftScreen()
             return
         }
         if picture.onScreenSince == nil { picture.onScreenSince = CACurrentMediaTime() }

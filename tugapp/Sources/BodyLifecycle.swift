@@ -191,8 +191,9 @@ final class BodyLifecycle {
 
     // MARK: - Park covers
 
-    /// The cards whose last frames are owed, oldest first, each once.
-    private var parkQueue: [String] = []
+    /// The cards whose last frames are owed, oldest first, each once, with
+    /// the one retry a miss earns and the cards that sleep once theirs is in.
+    private var parkQueue = ParkFrameQueue()
     /// A park cover's snapshot is answering: the queue takes one at a time.
     private var parkTaking = false
     /// When the last stage cut committed, wall-clock ms.
@@ -204,8 +205,39 @@ final class BodyLifecycle {
     /// stale while hidden. A card already owed one keeps its place.
     func queueParkCover(_ body: Body) {
         guard let cardId = body.cardId else { return }
-        if !parkQueue.contains(cardId) { parkQueue.append(cardId) }
+        parkQueue.owe(cardId)
         drainParkCovers()
+    }
+
+    /// `body`'s dormant clock fell due: its last frame is taken now, while
+    /// its page is still painted and current, and the page is told to sleep
+    /// once the frame is in — or at once when the frame kept for it is as
+    /// new as the page (nothing it draws has moved since it was hidden), or
+    /// when no frame may be taken at all.
+    func frameThenDormant(_ body: Body) {
+        guard let cardId = body.cardId else { return }
+        // A page says stale once in a hidden period, so one said at all
+        // means later moves went unsaid: only a period with none keeps its
+        // frame.
+        let current = covers.parkedCover(for: cardId) != nil
+            && (body.staleAt ?? 0) < (body.shown?.since ?? 0)
+        if current || pressure == .critical {
+            controller.declareDormant(body, true)
+            return
+        }
+        parkQueue.owe(cardId, thenSleep: true)
+        drainParkCovers()
+    }
+
+    /// A card's turn in the queue is over: one that was waiting on its frame
+    /// to sleep is declared dormant, if it is still hidden.
+    private func parkFrameAnswered(_ cardId: String, _ outcome: ParkFrameQueue.Outcome) {
+        let next = parkQueue.answered(cardId, outcome)
+        if next.retry {
+            TugLog.info("bodies", "park cover retry", [TugLog.field("card", cardId)])
+        }
+        guard next.sleep, let body = controller.body(forCard: cardId), body.shown?.value == false else { return }
+        controller.declareDormant(body, true)
     }
 
     /// A stage cut committed: the last frames it owes the cards it parked
@@ -233,9 +265,10 @@ final class BodyLifecycle {
             DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Int(max(wait, 50).rounded())), execute: work)
             return
         }
-        let cardId = parkQueue.removeFirst()
+        guard let cardId = parkQueue.next() else { return }
         guard let body = controller.body(forCard: cardId), body.state == .ready, body.contentPainted,
               !body.visible, !body.sibling, body.shown?.value == false else {
+            parkFrameAnswered(cardId, .passedOver)
             drainParkCovers()
             return
         }
@@ -251,12 +284,19 @@ final class BodyLifecycle {
             guard let self else { return }
             self.parkTaking = false
             // A page shown while its snapshot answered is its own picture.
-            if let frame, let body, body.cardId == cardId, body.shown?.value == false {
+            let hidden = body.map { $0.cardId == cardId && $0.shown?.value == false } ?? false
+            if !hidden {
+                self.parkFrameAnswered(cardId, .passedOver)
+            } else if let frame {
                 let cover = BodyCover(image: frame, size: size, surface: surface, insets: insets, takenAt: Date().timeIntervalSince1970 * 1000)
                 if self.covers.keepParked(cover, for: cardId, takenIn: generation) {
                     TugLog.info("bodies", "park cover", [TugLog.field("card", cardId), TugLog.field("bytes", "\(cover.bytes)")])
                     self.controller.lastFrameMoved(cardId)
                 }
+                self.parkFrameAnswered(cardId, .kept)
+            } else {
+                // No frame: the card is owed one more try, and no more.
+                self.parkFrameAnswered(cardId, .missed)
             }
             self.drainParkCovers()
         }
@@ -358,13 +398,14 @@ final class BodyLifecycle {
     func armDormancy(_ body: Body) {
         body.dormantDue?.cancel()
         body.dormantDue = nil
+        if let cardId = body.cardId { parkQueue.wakes(cardId) }
         guard body.cardId != nil, !body.declaredDormant, let shown = body.shown, !shown.value else { return }
         let delay = max(0, dormantAfterMs - (Date().timeIntervalSince1970 * 1000 - shown.since))
         let work = DispatchWorkItem { [weak self, weak body] in
             guard let self, let body else { return }
             body.dormantDue = nil
             guard body.shown?.value == false else { return }
-            self.controller.declareDormant(body, true)
+            self.frameThenDormant(body)
         }
         body.dormantDue = work
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Int(delay.rounded())), execute: work)

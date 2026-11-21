@@ -279,3 +279,92 @@ private final class Tag {
     }
     func fire() { onFree() }
 }
+
+// A parked card's last frame is taken in turn, a miss is tried once more and
+// no more, and a card going dormant sleeps only when its turn has ended.
+final class ParkFrameQueueTests: XCTestCase {
+    func testACardIsOwedOnceAndTakenInOrder() {
+        var queue = ParkFrameQueue()
+        queue.owe("a")
+        queue.owe("b")
+        queue.owe("a")
+        XCTAssertEqual(queue.owed, ["a", "b"])
+        XCTAssertEqual(queue.next(), "a")
+        XCTAssertEqual(queue.next(), "b")
+        XCTAssertNil(queue.next())
+    }
+
+    func testAMissIsTriedOnceMoreBehindTheOthers() {
+        var queue = ParkFrameQueue()
+        queue.owe("a")
+        queue.owe("b")
+        XCTAssertEqual(queue.next(), "a")
+        XCTAssertTrue(queue.answered("a", .missed).retry)
+        XCTAssertEqual(queue.owed, ["b", "a"])
+    }
+
+    func testASecondMissIsFinal() {
+        var queue = ParkFrameQueue()
+        queue.owe("a")
+        _ = queue.next()
+        XCTAssertTrue(queue.answered("a", .missed).retry)
+        XCTAssertEqual(queue.next(), "a")
+        XCTAssertFalse(queue.answered("a", .missed).retry)
+        XCTAssertTrue(queue.isEmpty)
+        // Owed afresh later, it has its one retry again.
+        queue.owe("a")
+        _ = queue.next()
+        XCTAssertTrue(queue.answered("a", .missed).retry)
+    }
+
+    func testAKeptFrameSpendsNoRetry() {
+        var queue = ParkFrameQueue()
+        queue.owe("a")
+        _ = queue.next()
+        XCTAssertFalse(queue.answered("a", .kept).retry)
+        XCTAssertTrue(queue.isEmpty)
+        queue.owe("a")
+        _ = queue.next()
+        XCTAssertTrue(queue.answered("a", .missed).retry)
+    }
+
+    func testACardSleepsWhenItsFrameIsIn() {
+        var queue = ParkFrameQueue()
+        queue.owe("a", thenSleep: true)
+        _ = queue.next()
+        XCTAssertTrue(queue.answered("a", .kept).sleep)
+        // Told once: a later frame for the same card declares nothing.
+        queue.owe("a")
+        _ = queue.next()
+        XCTAssertFalse(queue.answered("a", .kept).sleep)
+    }
+
+    func testACardWaitingToSleepWaitsOutItsRetry() {
+        var queue = ParkFrameQueue()
+        queue.owe("a", thenSleep: true)
+        _ = queue.next()
+        let first = queue.answered("a", .missed)
+        XCTAssertTrue(first.retry)
+        XCTAssertFalse(first.sleep)
+        _ = queue.next()
+        let second = queue.answered("a", .missed)
+        XCTAssertFalse(second.retry)
+        XCTAssertTrue(second.sleep)
+    }
+
+    func testAPassedOverCardStillSleeps() {
+        var queue = ParkFrameQueue()
+        queue.owe("a", thenSleep: true)
+        _ = queue.next()
+        XCTAssertTrue(queue.answered("a", .passedOver).sleep)
+    }
+
+    func testACardShownAgainNoLongerWaitsToSleep() {
+        var queue = ParkFrameQueue()
+        queue.owe("a", thenSleep: true)
+        queue.wakes("a")
+        XCTAssertEqual(queue.owed, ["a"])
+        _ = queue.next()
+        XCTAssertFalse(queue.answered("a", .kept).sleep)
+    }
+}

@@ -10,7 +10,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { DeckFactsValue } from "../../bus/declarations/deck";
-import { drawnParts, drawnSignature, movedParts, staleAfter, type DrawnValues } from "../body-staleness";
+import { drawnParts, drawnSignature, movedParts, saysStale, staleAfter, staleClass, type DrawnValues } from "../body-staleness";
 
 const FACTS: DeckFactsValue = {
   theme: "ironclad",
@@ -80,5 +80,49 @@ describe("drawnSignature", () => {
   test("the moved parts name what made a page stale", () => {
     expect(movedParts(sig(BASE), sig({ ...BASE, cardTheme: "sloop", deckFacts: { ...FACTS, zoom: 2 } }))).toEqual(["cardTheme", "deckFacts"]);
     expect(movedParts(sig(BASE), sig(BASE))).toEqual([]);
+  });
+});
+
+describe("what a move does to the last picture", () => {
+  const moved = (values: DrawnValues): string[] => movedParts(sig(BASE), sig(values));
+
+  test("the card's own entry and its context are content: the picture is older, and still the card's", () => {
+    expect(staleClass(moved({ ...BASE, deckCards: { ...BASE.deckCards, me: { title: "Me", activity: "streaming" } } }))).toBe("content");
+    expect(staleClass(moved({ ...BASE, deckCards: { ...BASE.deckCards, me: { title: "Renamed" } } }))).toBe("content");
+    expect(staleClass(moved({ ...BASE, cardContext: { project: "/p", firstResponderCardId: "me" } }))).toBe("content");
+    expect(staleClass(moved({ ...BASE, cardContext: { project: "/q" } }))).toBe("content");
+  });
+
+  test("what the pane's chrome says without changing its form is content: a running session's close-asks, the title", () => {
+    const chrome = { tabs: ["me"], title: "Me", close: { confirm: false } };
+    const base = { ...BASE, paneChrome: chrome };
+    const from = (values: DrawnValues): string[] => movedParts(sig(base), sig(values));
+    expect(from({ ...base, paneChrome: { ...chrome, close: { confirm: true } } })).toEqual(["paneChrome.close"]);
+    expect(staleClass(from({ ...base, paneChrome: { ...chrome, close: { confirm: true } } }))).toBe("content");
+    expect(staleClass(from({ ...base, paneChrome: { ...chrome, title: "Renamed" } }))).toBe("content");
+    expect(staleClass(from({ ...base, paneChrome: { ...chrome, tabs: ["me", "other"] } }))).toBe("shape");
+    expect(staleClass(from({ ...base, paneChrome: null }))).toBe("shape");
+  });
+
+  test("the theme, the pane's chrome, the deck facts and the fold are shape: the picture is wrong", () => {
+    expect(staleClass(moved({ ...BASE, cardTheme: "sloop" }))).toBe("shape");
+    expect(staleClass(moved({ ...BASE, paneChrome: { tabs: ["me", "other"] } }))).toBe("shape");
+    expect(staleClass(moved({ ...BASE, deckFacts: { ...FACTS, zoom: 0.8 } }))).toBe("shape");
+    expect(staleClass(moved({ ...BASE, cardContext: { project: "/p", folded: true } }))).toBe("shape");
+  });
+
+  test("one shape part among content parts makes the move shape", () => {
+    const both = moved({ ...BASE, cardTheme: "sloop", deckCards: { ...BASE.deckCards, me: { title: "Me", activity: "streaming" } } });
+    expect(both).toContain("deckCards.activity");
+    expect(staleClass(both)).toBe("shape");
+  });
+
+  test("a page says stale once in a hidden period, and once more when content rises to shape", () => {
+    expect(saysStale(null, "content")).toBe(true);
+    expect(saysStale(null, "shape")).toBe(true);
+    expect(saysStale("content", "content")).toBe(false);
+    expect(saysStale("content", "shape")).toBe(true);
+    expect(saysStale("shape", "content")).toBe(false);
+    expect(saysStale("shape", "shape")).toBe(false);
   });
 });

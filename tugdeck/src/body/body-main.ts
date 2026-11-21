@@ -148,7 +148,7 @@ import { beginResizeEpisode, type ResizeEpisodeHandle } from "../lib/resize-epis
 import { landRecorder } from "../lib/land-frame-record";
 import { CARD_FOLD_ATTR } from "../lib/folded-body";
 import { runCrossingSolve } from "./crossing-solve";
-import { drawnSignature, movedParts, staleAfter } from "./body-staleness";
+import { drawnSignature, movedParts, saysStale, staleAfter, staleClass, type StaleClass } from "./body-staleness";
 import { paneChrome } from "../bus/declarations/pane";
 import { flushOwedReflows, reflowOwed } from "../lib/owed-reflow";
 import { readCrossingAnchor, readCrossingBand } from "../lib/crossing-band";
@@ -419,27 +419,28 @@ function sayDrawnWhenQuiet(): void {
  */
 let signatureNow: (() => string) | null = null;
 let drawnAtHide: string | null = null;
-/** The signature this page last said `bodyStale` for while hidden, or null when it has said none. */
-let staleSaid: string | null = null;
+/** The class this page last said `bodyStale` for while hidden, or null when it has said none. */
+let staleSaid: StaleClass | null = null;
 let sleptHidden = false;
 
 /**
  * A store this page draws from applied a value: while hidden, say `bodyStale`
- * if what it would draw moved — once in the hidden period, never again until
- * the page is next hidden. The host drops the card's last frame at the first
- * and takes no other ([B07]), so a later move tells it nothing.
+ * if what it would draw moved — once in the hidden period, and once more if
+ * a later move is of shape or skin where the first was of content alone
+ * (`saysStale`). The host sorts what it keeps of the card's last frame by
+ * the class, so a rise must reach it and nothing else need.
  */
 function noteDrawnStoreApplied(): void {
-  if (drawnAtHide === null || signatureNow === null || staleSaid !== null) return;
+  if (drawnAtHide === null || signatureNow === null || staleSaid === "shape") return;
   const now = signatureNow();
   if (!staleAfter(drawnAtHide, now)) return;
-  staleSaid = now;
+  const parts = movedParts(drawnAtHide, now);
+  const moved = staleClass(parts);
+  if (!saysStale(staleSaid, moved)) return;
+  staleSaid = moved;
   // What moved, for a reading: the last stale period's parts, on the page.
-  (window as { __tugBodyStale?: { parts: string[]; at: number } }).__tugBodyStale = {
-    parts: movedParts(drawnAtHide, signatureNow()),
-    at: Date.now(),
-  };
-  postToHost(bodyStaleToHost, {});
+  (window as { __tugBodyStale?: { parts: string[]; class: StaleClass; at: number } }).__tugBodyStale = { parts, class: moved, at: Date.now() };
+  postToHost(bodyStaleToHost, { parts, class: moved });
 }
 
 /** Follow every store this page bound to `cardId` draws from, for its staleness. */

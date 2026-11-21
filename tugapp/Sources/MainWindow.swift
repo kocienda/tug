@@ -3152,10 +3152,10 @@ extension MainWindow {
         case .bodyThemed(let themed):
             // A rail page wears the theme the host told it ahead of a cut.
             if let fromBody { bodies.didTheme(fromBody, theme: themed.theme, appliedMs: themed.appliedMs) }
-        case .bodyStale:
+        case .bodyStale(let stale):
             // A hidden body's picture no longer stands for what it would
             // draw: a switch onto it cannot show it as it stands.
-            if let fromBody { bodies.noteStale(fromBody) }
+            if let fromBody { bodies.noteStale(fromBody, stale) }
         case .bodyCreate(let create):
             // The shell always names the kind: a body is bound to mount it.
             guard !create.componentId.isEmpty else {

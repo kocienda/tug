@@ -246,3 +246,58 @@ final class BodyCovers {
         generation += 1
     }
 }
+
+/// The last frames owed to parked cards: which card is next, the one retry a
+/// miss earns, and the cards that are told to sleep once their frame is in.
+/// It holds the order and the counts and takes no snapshot itself.
+struct ParkFrameQueue {
+    /// How a card's turn ended.
+    enum Outcome {
+        /// Its frame was taken.
+        case kept
+        /// The snapshot returned no frame.
+        case missed
+        /// It was no longer a hidden, painted page, so none was taken.
+        case passedOver
+    }
+
+    /// The cards owed a frame, oldest first, each once.
+    private(set) var owed: [String] = []
+    /// The cards whose one retry is spent or under way.
+    private var retried: Set<String> = []
+    /// The cards whose dormant declaration waits on their frame.
+    private var sleepers: Set<String> = []
+
+    var isEmpty: Bool { owed.isEmpty }
+
+    /// Owe `cardId` a frame. One already owed keeps its place; `thenSleep`
+    /// marks it to be declared dormant when its turn ends for good.
+    mutating func owe(_ cardId: String, thenSleep: Bool = false) {
+        if !owed.contains(cardId) { owed.append(cardId) }
+        if thenSleep { sleepers.insert(cardId) }
+    }
+
+    /// The card whose turn it is, taken off the queue.
+    mutating func next() -> String? {
+        owed.isEmpty ? nil : owed.removeFirst()
+    }
+
+    /// `cardId`'s turn ended. A first miss puts it at the back for one more
+    /// try (`retry`); a second miss is final. `sleep` says the card was
+    /// waiting on this frame to be declared dormant and its turn is over.
+    mutating func answered(_ cardId: String, _ outcome: Outcome) -> (retry: Bool, sleep: Bool) {
+        if outcome == .missed, !retried.contains(cardId) {
+            retried.insert(cardId)
+            if !owed.contains(cardId) { owed.append(cardId) }
+            return (true, false)
+        }
+        retried.remove(cardId)
+        return (false, sleepers.remove(cardId) != nil)
+    }
+
+    /// `cardId` was shown, or its dormant clock was set again: it no longer
+    /// waits on a frame to sleep. A frame it is owed is still owed.
+    mutating func wakes(_ cardId: String) {
+        sleepers.remove(cardId)
+    }
+}
