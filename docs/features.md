@@ -261,7 +261,7 @@ Press the arc reading at the right of a session's status row, or Option-Command-
 
 With an arc bound to the session, the shade is four panels in a grid, two across and two down, numbered in the order a piece of work climbs:
 
-- **Idea** and **Sketch** show the prompt the work began as and a few sentences on how the conversation took it to the brief, as `/arc` recorded them when the arc opened. An arc with no record, such as one opened before records were kept, says nothing is recorded.
+- **Idea** and **Sketch** show the prompt the work began as and a few sentences on how the conversation took it to the brief, as `/arc` recorded them when the arc opened. An arc with no record, such as one opened before records were kept, says None.
 - **Brief** shows the arc's brief: its title, its path, which opens the brief in a text card when pressed, and the findings and decisions the brief marks.
 - **Arc** is the arc itself: its name and the session bound to it, the stage it is in, its steps, and its verbs.
 

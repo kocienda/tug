@@ -31,7 +31,7 @@
  *   7. The Brief panel names the arc's brief and its path and lists the
  *      findings and decisions it marks. The Idea panel shows the arc's idea
  *      record as written, without its heading or its `Source:` line, and
- *      the Sketch panel, with no record, says nothing is recorded.
+ *      the Sketch panel, with no record, says None.
  *   8. Discard on the Arc panel arms a confirm that stands on the panel, and
  *      Cancel dismisses it with the arc untouched.
  *   9. The Brief panel's path opens the brief's file.
@@ -512,7 +512,7 @@ describe.skipIf(!SHOULD_RUN)("AT0860: the arc shade's four panels", () => {
                  text: text(document.querySelector(${JSON.stringify(`${GRID} [data-rung="idea"] [data-slot="session-arc-panel-text"]`)})),
                  title: document.querySelectorAll(${JSON.stringify(`${GRID} [data-rung="idea"] .session-arc-panel-title`)}).length,
                },
-               sketch: text(document.querySelector(${JSON.stringify(`${GRID} [data-rung="sketch"] .session-arc-panel-title`)})),
+               sketch: text(document.querySelector(${JSON.stringify(`${GRID} [data-rung="sketch"] [data-slot="tug-empty-line"]`)})),
              };
            })()`,
         );
@@ -525,9 +525,7 @@ describe.skipIf(!SHOULD_RUN)("AT0860: the arc shade's four panels", () => {
         ]);
         expect(briefPanel.idea.text, "the Idea panel shows the record as written").toBe(IDEA_TEXT);
         expect(briefPanel.idea.title, "under no heading of its own").toBe(0);
-        expect(briefPanel.sketch, "the Sketch panel, with no record, says so").toBe(
-          "Nothing recorded for this arc yet",
-        );
+        expect(briefPanel.sketch, "the Sketch panel, with no record, says so").toBe("None");
 
         // ── Discard's confirm stands on the Arc panel ─────────────────────
         await app.body("A").click(arcVerb("discard"));

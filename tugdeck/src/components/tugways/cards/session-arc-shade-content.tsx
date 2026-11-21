@@ -11,7 +11,7 @@
  * it has one: its title, its path, which opens it, and the findings
  * and decisions it marks. The Idea and Sketch panels show the arc's records
  * of the prompt the work began as and of how the conversation took it to
- * the brief, as written; an arc with no record says nothing is recorded.
+ * the brief, as written; an arc with no record says None.
  * With no arc there are no panels: the body is
  * the short form's hint, which says so in the one word the ARC cell says,
  * says what an arc is and how to start one, and links to the guide.
@@ -36,6 +36,7 @@ import React, { useCallback, useContext, useMemo, useRef } from "react";
 
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
+import { TugEmptyLine } from "@/components/tugways/tug-empty-line";
 import type { ArcShadeController } from "@/lib/arc-shade-controller";
 import { useArcForSession } from "@/lib/arc-session-index";
 import { CardIdContext } from "@/lib/card-id-context";
@@ -52,10 +53,13 @@ import { ArcPopoverContent, useArcPopoverVerbs } from "./session-card-telemetry-
 /** The session fields the arc's reading and its verbs draw on. */
 const ARC_CONTENT_FIELDS = ["tugSessionId", "phase", "canSubmit"] as const;
 
-/** A rung nothing records yet: an empty seat that says so. */
+/**
+ * A rung nothing records yet: an empty seat, which says so as every empty
+ * list in the app does, with the one centred word.
+ */
 export const NOT_RECORDED: SessionArcPanel = {
   state: "pending",
-  title: "Nothing recorded for this arc yet",
+  body: <TugEmptyLine>None</TugEmptyLine>,
 };
 
 /**

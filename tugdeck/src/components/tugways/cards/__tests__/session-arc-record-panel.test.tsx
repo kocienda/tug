@@ -5,6 +5,7 @@
 
 import { describe, expect, test } from "bun:test";
 import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 
 import { isArcDocuments } from "@/lib/changeset-types";
 
@@ -15,7 +16,8 @@ describe("recordPanel", () => {
     expect(recordPanel(undefined)).toBe(NOT_RECORDED);
     expect(recordPanel("  \n ")).toBe(NOT_RECORDED);
     expect(NOT_RECORDED.state).toBe("pending");
-    expect(NOT_RECORDED.title).toBe("Nothing recorded for this arc yet");
+    expect(NOT_RECORDED.title).toBeUndefined();
+    expect(renderToStaticMarkup(<>{NOT_RECORDED.body}</>)).toContain(">None<");
   });
 
   test("a record is a settled panel showing its text as written", () => {
