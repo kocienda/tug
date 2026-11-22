@@ -88,6 +88,19 @@
   display: none;
 }
 
+/* The lead holds the leading edge alone and every other verb rides the
+   trailing edge, the view with the housekeeping: a verb opening into its word
+   grows into the space between, so the lead never moves under the pointer. */
+.tug-arc-verb-row[data-labels="lead-only"] > .tug-arc-verb:not([data-lead="true"]) {
+  margin-inline-start: auto;
+}
+
+.tug-arc-verb-row[data-labels="lead-only"]
+  > .tug-arc-verb:not([data-lead="true"])
+  ~ .tug-arc-verb-row-housekeeping {
+  margin-inline-start: 0;
+}
+
 /* Muted, never hidden: a refused verb that vanished would leave no way to
    find out why the act is unavailable. */
 .tug-arc-verb[data-refused="true"] {

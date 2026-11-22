@@ -19,7 +19,8 @@
  *      grid is at rest again when the motion ends. A second press puts it
  *      back, and nothing moves when focus enters a panel.
  *   5. The Arc panel shows its whole verb row on one line, the next move in
- *      its word and the rest as icons, under the reading's scroller and
+ *      its word at the leading edge and the rest as icons at the trailing
+ *      edge, under the reading's scroller and
  *      never over it.
  *   6. Nothing overflows sideways: the grid is as wide as the shade's body,
  *      every panel is inside the grid, the body never scrolls across, and
@@ -485,6 +486,15 @@ describe.skipIf(!SHOULD_RUN)("AT0860: the arc shade's four panels", () => {
         expect(Math.max(...tops) - Math.min(...tops), "the verbs stand on one line").toBeLessThanOrEqual(1);
         expectFloorClear(rest, "at rest");
         expect(rest.verbs[0]?.lead, "the next move leads the row").toBe(true);
+        // The next move holds the leading edge alone and the rest ride the
+        // trailing edge, so a verb opening into its word under the pointer
+        // grows into the space between and never moves the next move.
+        const lead = rest.verbs[0]!.box;
+        const after = rest.verbs[1]!.box;
+        const last = rest.verbs[rest.verbs.length - 1]!.box;
+        expect(Math.abs(lead.l - rest.verbRow.l), "the next move is at the row's leading edge").toBeLessThanOrEqual(1);
+        expect(Math.abs(rest.verbRow.r - last.r), "the last verb is at the row's trailing edge").toBeLessThanOrEqual(1);
+        expect(after.l - lead.r, "the other verbs stand apart from the next move").toBeGreaterThan(8);
         expect(rest.verbRow.b, "the verbs are in the shade's view when it rises").toBeLessThanOrEqual(rest.body.b + 1);
 
         // ── The cap binding: the short row keeps its height ───────────────
