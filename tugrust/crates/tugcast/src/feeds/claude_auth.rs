@@ -163,11 +163,9 @@ impl LocalFacts {
     }
 
     fn read_from(env: &dyn Fn(&str) -> Option<OsString>, home: Option<&Path>) -> Self {
-        let claude_settings = tugcore::claude_home::ClaudeHome::resolve(
-            env("CLAUDE_CONFIG_DIR").as_deref(),
-            home,
-        )
-        .settings_path();
+        let claude_settings =
+            tugcore::claude_home::ClaudeHome::resolve(env("CLAUDE_CONFIG_DIR").as_deref(), home)
+                .settings_path();
         // With `CLAUDE_CONFIG_DIR` set the config file lives inside it;
         // otherwise it is `~/.claude.json`, beside the directory.
         let claude_json = match set_var(env, "CLAUDE_CONFIG_DIR") {
@@ -274,7 +272,10 @@ pub struct PaidLogin {
 pub fn paid_login_of(state: &AuthState, project: SettingsAuth) -> Option<PaidLogin> {
     if project.api_key || project.auth_token {
         let (source, identity) = match (project.auth_token, project.api_key) {
-            (true, true) => ("environment_token", "environment_token+environment_key:ANTHROPIC_API_KEY"),
+            (true, true) => (
+                "environment_token",
+                "environment_token+environment_key:ANTHROPIC_API_KEY",
+            ),
             (true, false) => ("environment_token", "environment_token"),
             _ => ("environment_key", "environment_key:ANTHROPIC_API_KEY"),
         };
@@ -920,7 +921,10 @@ mod tests {
     #[test]
     fn a_subscription_or_an_unknown_answer_is_not_a_paid_login() {
         let none = SettingsAuth::default();
-        assert_eq!(paid_login_of(&logged_in(LoginSource::Subscription, None), none), None);
+        assert_eq!(
+            paid_login_of(&logged_in(LoginSource::Subscription, None), none),
+            None
+        );
         assert_eq!(paid_login_of(&AuthState::Unknown, none), None);
         assert_eq!(paid_login_of(&AuthState::LoggedOut, none), None);
     }
@@ -946,7 +950,10 @@ mod tests {
             none,
         )
         .unwrap();
-        assert_eq!(both.identity, "settings_helper+environment_key:ANTHROPIC_API_KEY");
+        assert_eq!(
+            both.identity,
+            "settings_helper+environment_key:ANTHROPIC_API_KEY"
+        );
         assert_ne!(both.identity, key.identity);
         // A lone helper reports itself as the key source; no key rides with it.
         let helper = paid_login_of(
@@ -961,14 +968,24 @@ mod tests {
     fn a_project_env_block_outranks_what_the_probe_saw() {
         // `auth status` cannot see a project's `env` block, and sessions use
         // it, so a subscription answer does not stand over one.
-        let project = SettingsAuth { api_key: true, ..SettingsAuth::default() };
+        let project = SettingsAuth {
+            api_key: true,
+            ..SettingsAuth::default()
+        };
         let login = paid_login_of(&logged_in(LoginSource::Subscription, None), project).unwrap();
         assert_eq!(login.identity, "environment_key:ANTHROPIC_API_KEY");
         assert!(login.from_project);
-        let both = SettingsAuth { api_key: true, auth_token: true, helper: false };
+        let both = SettingsAuth {
+            api_key: true,
+            auth_token: true,
+            helper: false,
+        };
         let login = paid_login_of(&AuthState::LoggedOut, both).unwrap();
         assert_eq!(login.login_source, "environment_token");
-        assert_eq!(login.identity, "environment_token+environment_key:ANTHROPIC_API_KEY");
+        assert_eq!(
+            login.identity,
+            "environment_token+environment_key:ANTHROPIC_API_KEY"
+        );
     }
 
     #[test]
@@ -988,23 +1005,45 @@ mod tests {
         .unwrap();
         let auth = SettingsAuth::of_project(tmp.path());
         // An empty value reads as unset, as it does to Claude Code.
-        assert_eq!(auth, SettingsAuth { api_key: true, auth_token: false, helper: true });
-        assert_eq!(SettingsAuth::of_project(&tmp.path().join("absent")), SettingsAuth::default());
+        assert_eq!(
+            auth,
+            SettingsAuth {
+                api_key: true,
+                auth_token: false,
+                helper: true
+            }
+        );
+        assert_eq!(
+            SettingsAuth::of_project(&tmp.path().join("absent")),
+            SettingsAuth::default()
+        );
     }
 
     #[test]
     fn only_files_that_show_a_plain_subscription_skip_the_probe() {
-        let stored = LocalFacts { subscription_stored: true, ..LocalFacts::default() };
+        let stored = LocalFacts {
+            subscription_stored: true,
+            ..LocalFacts::default()
+        };
         let none = SettingsAuth::default();
         assert!(plainly_subscription(&stored, none, none));
         // A profile beneath a stored subscription does not outrank it.
-        let with_profile = LocalFacts { profile: Some(a_profile()), ..stored.clone() };
+        let with_profile = LocalFacts {
+            profile: Some(a_profile()),
+            ..stored.clone()
+        };
         assert!(plainly_subscription(&with_profile, none, none));
-        let helper = SettingsAuth { helper: true, ..none };
+        let helper = SettingsAuth {
+            helper: true,
+            ..none
+        };
         assert!(!plainly_subscription(&stored, helper, none));
         assert!(!plainly_subscription(&stored, none, helper));
         assert!(!plainly_subscription(&LocalFacts::default(), none, none));
-        let token = LocalFacts { settings_auth_token: true, ..stored };
+        let token = LocalFacts {
+            settings_auth_token: true,
+            ..stored
+        };
         assert!(!plainly_subscription(&token, none, none));
     }
 
@@ -1354,7 +1393,10 @@ mod tests {
             .await
             .expect("sh runs");
         let stdout = String::from_utf8_lossy(&output.stdout);
-        assert!(!stdout.contains("fake-token-value"), "a value was printed: {stdout}");
+        assert!(
+            !stdout.contains("fake-token-value"),
+            "a value was printed: {stdout}"
+        );
         assert_eq!(parse_shell_auth_vars(&stdout), vec!["ANTHROPIC_AUTH_TOKEN"]);
     }
 

@@ -1456,7 +1456,11 @@ fn gate_on(
 async fn a_session_on_an_unconfirmed_paid_login_is_refused_before_anything_starts() {
     let (mut sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
     let confirmed = Arc::new(std::sync::Mutex::new(None));
-    gate_on(&mut sup, Some(a_paid_login("console_profile:default:org")), confirmed.clone());
+    gate_on(
+        &mut sup,
+        Some(a_paid_login("console_profile:default:org")),
+        confirmed.clone(),
+    );
 
     let err = sup
         .handle_control("spawn_session", &spawn_payload("card-1", "sess-1"), 10)
@@ -1486,7 +1490,11 @@ async fn a_changed_paid_login_asks_again() {
     let confirmed = Arc::new(std::sync::Mutex::new(Some(
         "console_profile:default:org".to_string(),
     )));
-    gate_on(&mut sup, Some(a_paid_login("console_profile:work:org-2")), confirmed);
+    gate_on(
+        &mut sup,
+        Some(a_paid_login("console_profile:work:org-2")),
+        confirmed,
+    );
     let err = sup
         .handle_control("spawn_session", &spawn_payload("card-1", "sess-1"), 10)
         .await

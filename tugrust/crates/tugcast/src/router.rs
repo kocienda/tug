@@ -1652,10 +1652,16 @@ async fn intercept_session_control(
             login: None,
         },
         ControlOutcome::Error(ControlError::InvalidProjectDir { reason }) => {
-            ControlIntercept::HandledError { detail: reason, login: None }
+            ControlIntercept::HandledError {
+                detail: reason,
+                login: None,
+            }
         }
         ControlOutcome::Error(ControlError::CapExceeded { reason }) => {
-            ControlIntercept::HandledError { detail: reason, login: None }
+            ControlIntercept::HandledError {
+                detail: reason,
+                login: None,
+            }
         }
         ControlOutcome::Error(ControlError::MissingLineId) => ControlIntercept::HandledError {
             detail: "missing_line_id",
@@ -4094,10 +4100,15 @@ mod tests {
         );
         // Text that quotes the word is parsed, and is no mark.
         assert_eq!(
-            bracket_mark(br#"{"tug_session_id":"s","type":"assistant_text","text":"\"replay_started\""}"#),
+            bracket_mark(
+                br#"{"tug_session_id":"s","type":"assistant_text","text":"\"replay_started\""}"#
+            ),
             None
         );
-        assert_eq!(bracket_mark(br#"{"tug_session_id":"s","type":"turn_complete"}"#), None);
+        assert_eq!(
+            bracket_mark(br#"{"tug_session_id":"s","type":"turn_complete"}"#),
+            None
+        );
     }
 
     #[test]
@@ -4123,7 +4134,15 @@ mod tests {
 
         assert_eq!(tally.opener, Some(Some(Refusal::Scope)));
         assert_eq!(tally.close, Some(None));
-        assert_eq!((tally.sent, tally.dropped_scope, tally.dropped_dormant, tally.dropped_feed), (2, 2, 1, 0));
+        assert_eq!(
+            (
+                tally.sent,
+                tally.dropped_scope,
+                tally.dropped_dormant,
+                tally.dropped_feed
+            ),
+            (2, 2, 1, 0)
+        );
         assert_eq!(CatchUpTally::fate(tally.opener), "dropped:scope");
         assert_eq!(CatchUpTally::fate(tally.close), "sent");
     }

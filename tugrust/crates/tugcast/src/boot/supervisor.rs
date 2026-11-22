@@ -264,7 +264,11 @@ pub(crate) async fn supervisor(
         let bank = bank_client.clone();
         Arc::new(move || {
             bank.as_ref()
-                .and_then(|b| b.get("dev.tugapp.auth", "paid_login_confirmed").ok().flatten())
+                .and_then(|b| {
+                    b.get("dev.tugapp.auth", "paid_login_confirmed")
+                        .ok()
+                        .flatten()
+                })
                 .and_then(|v| match v {
                     tugbank_core::Value::String(s) if !s.is_empty() => Some(s),
                     _ => None,

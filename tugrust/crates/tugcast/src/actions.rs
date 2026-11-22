@@ -19,7 +19,10 @@ fn broadcast_auth_result(
     tug_session_id: Option<String>,
 ) {
     let Some(cat) = cat else { return };
-    send_control(&cat, auth_result_body(state, shell_auth_vars, tug_session_id));
+    send_control(
+        &cat,
+        auth_result_body(state, shell_auth_vars, tug_session_id),
+    );
 }
 
 /// The `claude_auth_result` body for a resolved auth state. Every logged-in
@@ -681,7 +684,10 @@ mod tests {
         );
         assert_eq!(body["profile"]["organizationId"], "org-1");
         assert!(body["apiKeySource"].is_null());
-        assert_eq!(body["shellAuthVars"], serde_json::json!(["ANTHROPIC_API_KEY"]));
+        assert_eq!(
+            body["shellAuthVars"],
+            serde_json::json!(["ANTHROPIC_API_KEY"])
+        );
 
         // A signed-out answer names no source, rather than `unknown`, which
         // would claim a login Tug merely cannot name.

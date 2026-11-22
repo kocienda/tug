@@ -103,10 +103,7 @@ fn stat_paths(paths: &[String], kind: StatKind) -> Value {
                             if entry.as_object().is_some_and(|o| !o.is_empty()) {
                                 identity.insert(raw.clone(), entry);
                             }
-                            mtime.insert(
-                                raw.clone(),
-                                Value::from(crate::fs_read::mtime_ms(&md)),
-                            );
+                            mtime.insert(raw.clone(), Value::from(crate::fs_read::mtime_ms(&md)));
                         }
                         matched
                     })
