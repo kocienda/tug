@@ -1,8 +1,13 @@
 /**
- * at0467-cards-slot-badge.test.ts — a Cards row says where its card stands
- * INSIDE its slot.
+ * at0467-cards-slot-badge.test.ts — a Cards row says where its card stands,
+ * with the two badges its masthead wears.
  *
- * The slot run on a Cards Sessions row says which numbered place the card holds.
+ * A Cards row carries the masthead's pair: the slot badge, one numbered chip
+ * saying which place the card holds, then the stack badge. The slot badge
+ * replaced a run of one chip per place, which cost the row's title its width
+ * on every deck with more than a few places.
+ *
+ * The slot badge says which numbered place the card holds.
  * It has never said the rest of the coordinate: whether that place is shared,
  * by how many, and — when the place is split — which band the card is. The
  * slot badge is that fact, drawn in the slot chip's own footprint so the two
@@ -25,17 +30,26 @@
  *      order.** A is the topmost band. This is the one place letters appear,
  *      and it is what makes a Cards row and the pane's own cluster the same
  *      address rather than two descriptions.
+ *   4. **The pair is quiet at rest and holds one column.** The slot chip rests
+ *      (no lit chip on the row: accent is for the popup's current place), the
+ *      stack badge takes the row's own ink, and the slot badge's box is the box
+ *      a row with no slot holds open, so the trailing column stays ruled.
+ *   5. **Pressing the slot badge opens every place, and a pick moves the card —
+ *      a selected row's pick moves the whole selection.** A row outside the
+ *      selection moves only its own card.
  *
- * The badge on a Cards row is a READOUT — the row is its own door, and the
- * member picker's door is the badge on the pane's cluster (at0455). So there is
- * no gesture here to drive; the claims are about what the row says.
+ * The stack badge on a Cards row is a READOUT — the row is its own door, and
+ * the member picker's door is the badge on the pane's cluster (at0455).
  *
  * @covers tugdeck/src/components/cards/cards-slot-badge.tsx
  * @covers tugdeck/src/components/cards/cards-session-cell.tsx
  * @covers tugdeck/src/components/cards/cards-card.tsx
  * @covers tugdeck/src/deck-store-selectors.ts
  * @covers tugdeck/src/components/tugways/tug-slot-badge.tsx
- * @covers tugdeck/src/components/cards/slot-picker.tsx
+ * @covers tugdeck/src/components/cards/cards-row-slot.tsx
+ * @covers tugdeck/src/components/cards/cards-row-slot.css
+ * @covers tugdeck/src/components/cards/cards-slot-badge.css
+ * @covers tugdeck/src/components/tugways/card-slot-badge.tsx
  */
 
 import { describe, expect, test } from "bun:test";
@@ -122,9 +136,9 @@ interface RowBadge {
   character: string | null;
   lit: string | null;
   /**
-   * Whether the row's own slot run says this card is the one on screen — the
-   * run draws a `filled` chip only for the card at the front of its slot. Read
-   * from the run rather than from the fixture, so the claim below does not
+   * Whether this card is the one on screen in its slot — the last pane in the
+   * deck's order that holds the slot is the one on top of it. Read from the
+   * live deck rather than from the fixture, so the claim below does not
    * depend on predicting which pane a seed's focus raise left on top.
    */
   front: boolean;
@@ -132,7 +146,19 @@ interface RowBadge {
 
 /** Every Cards Sessions row, with whatever slot badge it carries. */
 async function rowBadges(app: App): Promise<RowBadge[]> {
-  return app.body("L").evalJS<RowBadge[]>(
+  // card-dom: shell
+  const fronts = await app.evalJS<string[]>(
+    `(function () {
+      var deck = window.tugdeck.diag.getDeckState();
+      var top = {};
+      for (var i = 0; i < deck.panes.length; i += 1) {
+        var pane = deck.panes[i];
+        if (pane.slot !== undefined) top[pane.slot] = pane.activeCardId;
+      }
+      return Object.keys(top).map(function (k) { return top[k]; });
+    })()`,
+  );
+  const rows = await app.body("L").evalJS<Omit<RowBadge, "front">[]>(
     `Array.prototype.slice.call(
       document.querySelectorAll('.cards-list .cards-row[data-session-id]')
     ).map(function (row) {
@@ -150,14 +176,15 @@ async function rowBadges(app: App): Promise<RowBadge[]> {
           : (badge.querySelector('[data-region][data-lit="true"]') || {
               getAttribute: function () { return "none"; },
             }).getAttribute("data-region"),
-        front: row.querySelector(
-          '[data-testid="cards-slot-picker"] [data-slot="tug-slot"][data-state="filled"]',
-        ) !== null,
       };
     }).sort(function (a, b) {
       return a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0;
     })`,
   );
+  return rows.map((r) => ({
+    ...r,
+    front: fronts.some((cardId) => sessionIdOf(cardId) === r.sessionId),
+  }));
 }
 
 /**
@@ -184,7 +211,7 @@ async function contentRowBadge(app: App): Promise<string> {
 
 describe.skipIf(!SHOULD_RUN)("at0467 — the Cards row's slot badge", () => {
   test(
-    "every row says where its card stands, one card deep or shared",
+    "every row says where its card stands, and its slot badge moves it",
     async () => {
       const app = await launchTugApp({ testName: "at0467-cards-slot-badge" });
       try {
@@ -235,22 +262,22 @@ describe.skipIf(!SHOULD_RUN)("at0467 — the Cards row's slot badge", () => {
           "three cards in one place mark three different slices",
         ).toEqual(["bottom", "middle", "top"]);
         // And the marks are not merely distinct, they are oriented: the card
-        // the RUN says is on screen — the row whose slot chip is filled — is
-        // the one at the front of the glyph. Read from the run rather than
-        // from the fixture, because which pane a seed's focus raise leaves on
-        // top is not something this file should be predicting.
+        // the deck has on top of the slot is the one at the front of the
+        // glyph. Read from the live deck rather than from the fixture, because
+        // which pane a seed's focus raise leaves on top is not something this
+        // file should be predicting.
         expect(
           sharers.filter((r) => r.front).map((r) => r.lit),
-          "the card the run says you are looking at is the front of the glyph",
+          "the card on top of the slot is the front of the glyph",
         ).toEqual(["top"]);
 
         // ── The two sections draw the coordinate at the same width. ──
         // A Sessions cell and an ordinary Cards row are different components
         // that compose the same pair, and they have drifted apart twice: once
-        // on the gap (the content row's headline gap applied between the run
-        // and the badge on top of the badge's own standoff) and once on the
-        // alignment (the push to the trailing edge lived on the picker, and
-        // survived only as long as the picker was a direct child of the
+        // on the gap (the content row's headline gap applied between the two
+        // badges on top of the stack badge's own standoff) and once on the
+        // alignment (the push to the trailing edge lived on the first badge,
+        // and survived only as long as it was a direct child of the
         // headline). Both are measured here, in rects, because both were
         // invisible to every claim this file made about what the rows SAY.
         const geometry = await app.body("L").evalJS<{
@@ -259,20 +286,14 @@ describe.skipIf(!SHOULD_RUN)("at0467 — the Cards row's slot badge", () => {
         }>(
           `(function () {
              function measure(row) {
-               // The RUN's own box, not its last chip. The run draws a window
-               // now, and a card at the end of the arrangement has a stub in
-               // the position past it — so the last chip and the last drawn
-               // position are different elements, and only one of them is what
-               // the badge stands next to. The claim is about the run and the
-               // badge being one coordinate, and the run is this box.
                var last = row
-                 .querySelector('[data-testid="cards-slot-picker"]')
+                 .querySelector('[data-testid="cards-row-slot"]')
                  .getBoundingClientRect();
                var badge = row
                  .querySelector('[data-testid="cards-slot-badge"]')
                  .getBoundingClientRect();
                // How much room is left after the badge, out to the row's own
-               // content edge — the run is pushed to the trailing edge, so
+               // content edge — the pair is pushed to the trailing edge, so
                // this is the row's inset and nothing more.
                var content = row.getBoundingClientRect();
                return {
@@ -297,17 +318,17 @@ describe.skipIf(!SHOULD_RUN)("at0467 — the Cards row's slot badge", () => {
            })()`,
         );
         note(
-          `run→badge gap: session ${geometry.gaps[0]}px, content ${geometry.gaps[1]}px | ` +
+          `slot→stack gap: session ${geometry.gaps[0]}px, content ${geometry.gaps[1]}px | ` +
             `trailing slack: ${geometry.trailingSlack.join("px, ")}px`,
         );
         expect(
           geometry.gaps[1],
-          "the run and the badge stand the same distance apart in both sections",
+          "the two badges stand the same distance apart in both sections",
         ).toBe(geometry.gaps[0]);
         // And the coordinate ends on ONE vertical down the whole list, which
-        // is what the trailing inset is for. It also catches the run losing
+        // is what the trailing inset is for. It also catches the pair losing
         // its push to the trailing edge altogether: a row is ~420px wide, so a
-        // run left hugging the title reads hundreds of pixels of slack here.
+        // pair left hugging the title reads hundreds of pixels of slack here.
         expect(
           geometry.trailingSlack[1],
           "both sections end the coordinate on one vertical",
@@ -322,6 +343,41 @@ describe.skipIf(!SHOULD_RUN)("at0467 — the Cards row's slot badge", () => {
           content,
           "the text card's row says where it stands too",
         ).toBe("stack:1");
+
+        // ── Quiet at rest, and one column. ──
+        const rest = await app.body("L").evalJS<{
+          badges: number;
+          litChips: number;
+          stackInkIsRow: boolean;
+          badgeWidth: number;
+          reserveWidth: number;
+        }>(
+          `(function () {
+             var first = document.querySelector('.cards-list [data-testid="cards-row-slot"]');
+             var stack = document.querySelector('.cards-list [data-testid="cards-slot-badge"]');
+             return {
+               badges: document.querySelectorAll(
+                 '.cards-list [data-testid="cards-row-slot"] [data-testid="card-slot-badge"]',
+               ).length,
+               litChips: document.querySelectorAll(
+                 '.cards-list [data-testid="cards-row-slot"] [data-slot="tug-slot"]:not([data-state="rest"])',
+               ).length,
+               stackInkIsRow: getComputedStyle(stack).color === getComputedStyle(stack.parentElement).color,
+               badgeWidth: first.querySelector('[data-testid="card-slot-badge"]').getBoundingClientRect().width,
+               reserveWidth: parseFloat(getComputedStyle(first).minInlineSize),
+             };
+           })()`,
+        );
+        note(`at rest: ${JSON.stringify(rest)}`);
+        expect(rest.badges, "every row draws one slot badge, not a chip per place").toBe(
+          SESSION_CARDS.length + 1,
+        );
+        expect(rest.litChips, "no row's chip is lit at rest").toBe(0);
+        expect(rest.stackInkIsRow, "the stack badge takes the row's own ink").toBe(true);
+        expect(
+          rest.badgeWidth,
+          "the box a slotless row holds open is the slot badge's own width",
+        ).toBe(rest.reserveWidth);
 
         // ── Split: the same two rows become an address. ──
         // card-dom: shell
@@ -345,6 +401,68 @@ describe.skipIf(!SHOULD_RUN)("at0467 — the Cards row's slot badge", () => {
           `${sessionIdOf("C")}:stack:1:top`,
           `${sessionIdOf("D")}:split:C:bottom`,
         ]);
+
+        // ── The slot badge moves the card, and a selected row its selection. ──
+        // Driven after the split, on the same launch: the moves are about which
+        // place a card stands in, which a split does not change.
+        const body = app.body("L");
+        const slotOf = async (): Promise<Record<string, number | null>> =>
+          // card-dom: shell
+          app.evalJS<Record<string, number | null>>(
+            `(function () {
+              var deck = window.tugdeck.diag.getDeckState();
+              var out = {};
+              for (var i = 0; i < deck.panes.length; i += 1) {
+                var pane = deck.panes[i];
+                for (var j = 0; j < pane.cardIds.length; j += 1) {
+                  out[pane.cardIds[j]] = pane.slot === undefined ? null : pane.slot;
+                }
+              }
+              return out;
+            })()`,
+          );
+        const PICKER = '[data-testid="card-slot-badge-picker"]';
+        /** Open the row's popup for `cardId` and pick place `slot`. */
+        const pick = async (cardId: string, slot: number): Promise<void> => {
+          await body.evalJS<boolean>(
+            `(function () {
+              var row = document.querySelector('.cards-list .cards-row[data-session-id="${sessionIdOf(cardId)}"]');
+              row.querySelector('[data-testid="card-slot-badge-trigger"]').click();
+              return true;
+            })()`,
+          );
+          await body.waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(PICKER)}) !== null`,
+            { timeoutMs: 5_000 },
+          );
+          await body.evalJS<boolean>(
+            `(document.querySelector(${JSON.stringify(PICKER)}).children[${slot}].click(), true)`,
+          );
+          await body.waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(PICKER)}) === null`,
+            { timeoutMs: 5_000 },
+          );
+          await wait(AFTER_LAND_MS);
+        };
+
+        // A (place 1) and C (place 2) selected; B (place 1) left out.
+        // card-dom: shell
+        await app.evalJS<null>(`(window.__tug.setLayoutSelection(["A", "C"]), null)`);
+        await wait(300);
+        await pick("A", 2);
+        const grouped = await slotOf();
+        note(`after the group move: ${JSON.stringify(grouped)}`);
+        expect(grouped.A, "the pressed row's card went to place 3").toBe(2);
+        expect(grouped.C, "and so did the other selected card").toBe(2);
+        expect(grouped.B, "the unselected card stayed where it was").toBe(0);
+
+        // B's row is outside the selection: its pick is B's alone.
+        await pick("B", 1);
+        const single = await slotOf();
+        note(`after the single move: ${JSON.stringify(single)}`);
+        expect(single.B, "B moved to place 2").toBe(1);
+        expect(single.A, "A did not follow it").toBe(2);
+        expect(single.C, "nor did C").toBe(2);
       } finally {
         await app.close();
       }

@@ -1,7 +1,7 @@
 /**
  * cards-slot-badge.tsx — where a Cards card row's card stands inside its slot.
  *
- * The slot run beside it says which slot the card holds. This says the rest of
+ * The slot badge beside it says which slot the card holds. This says the rest of
  * the coordinate: how many cards share that slot when it stacks, and which band
  * the card is when it splits. Nothing renders only when there is no place at
  * all to describe — a deck with no imposition, or a row whose card has no host
@@ -46,7 +46,6 @@ export function CardsSlotBadge({
   return (
     <TugSlotBadge
       className="cards-slot-badge"
-      tone="action"
       data-testid="cards-slot-badge"
       kind={facts.kind}
       count={facts.count}

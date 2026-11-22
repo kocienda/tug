@@ -12,7 +12,7 @@
  *
  *   A. **A single-card pane's row IS the card's row.** No subrow, no fold
  *      affordance, and the accessories the row has always had (close box, slot
- *      picker) still present.
+ *      badge) still present.
  *   B. **A multi-card pane's outline is open on arrival.** Four gallery tabs
  *      seeded by `addCard("gallery-buttons")` render as four subrows with zero
  *      clicks, and there is no per-pane fold control anywhere in the row. The
@@ -136,7 +136,7 @@ describe.skipIf(!SHOULD_RUN)("at0312 — Cards is two-level, never a folder", ()
           return {
             title: title === null ? "" : title.innerText,
             hasClose: row.querySelector(".cards-row-close") !== null,
-            hasSlots: row.querySelector('[data-testid="cards-slot-picker"]') !== null,
+            hasSlots: row.querySelector('[data-testid="cards-row-slot"]') !== null,
             // Any disclosure affordance at all — the section renders exactly
             // one fold cue kind, and it belongs to group headers.
             foldControls: row.querySelectorAll(

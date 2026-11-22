@@ -30,7 +30,6 @@ import {
   toggleSidebarCard,
   toggleSidebars,
 } from "./sidebar-toggle";
-import { isSlotWindowSize, writeSlotWindow } from "@/lib/slot-window-pref";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { isCommandId } from "@/components/tugways/command-registry";
 import { advanceKeyViewFocus, getFocusManager, BASE_FOCUS_MODE } from "@/components/tugways/focus-manager";
@@ -961,21 +960,6 @@ function wireActionDispatch(
     }
   });
 
-  // set-slot-window: how many places a Cards card row draws around its own.
-  // Dispatched by the Layout card's Slot Window row. The only action
-  // in this neighbourhood that touches no deck state at all — nothing moves,
-  // nothing is arranged, the rows simply state the same fact at another width
-  // — so it writes the preference and stops. Every row reads it through
-  // `useSlotWindow` ([L02]) and redraws from the local cache write.
-  registerAction(TUG_ACTIONS.SET_SLOT_WINDOW, (payload) => {
-    const size = payload.size;
-    if (!isSlotWindowSize(size)) {
-      console.warn("set-slot-window: missing or invalid size", payload);
-      return;
-    }
-    writeSlotWindow(size);
-  });
-
   // set-slot-mode: stack or split the cards sharing one numbered slot.
   // Dispatched by the title bar's stack badge menu, the Layout card's
   // place toggles, and ⌃⌘/. A slot is a stack or a split — all of its
@@ -1037,9 +1021,9 @@ function wireActionDispatch(
   });
 
   // assign-slot: put a card's pane at a numbered position in the active
-  // imposition. Dispatched by ⌘1..⌘9 on the deck canvas and by the `SlotPicker`
-  // cluster on the Cards card's session and text-file rows. `slot` is 0-based (the
-  // buttons render 1-based).
+  // imposition. Dispatched by ⌘1..⌘9 on the deck canvas, by a card's masthead slot
+  // badge, and by the same badge on the Cards card's rows. `slot` is 0-based
+  // (the badge renders 1-based).
   //
   // The assignment always flashes the card's pane, including when the card was
   // already in the slot the caller named. A chord that lands on the slot the
@@ -1048,8 +1032,8 @@ function wireActionDispatch(
   // the gesture's receipt, not a decoration on the motion ([P04], [L06]).
   registerAction("assign-slot", (payload) => {
     // One card or several, through one door. `cardIds` is what the ⌘-digit
-    // chord sends once the deck has a layout selection; `cardId` is the
-    // SlotPicker's single-row shape. Both land in the batched mutator, which
+    // chord sends once the deck has a layout selection; `cardId` is a slot
+    // badge's single-card shape. Both land in the batched mutator, which
     // commits the whole group's geometry once — a notify per card would
     // re-arm the FLIP settle mid-flight and break the motion.
     const raw = Array.isArray(payload.cardIds)

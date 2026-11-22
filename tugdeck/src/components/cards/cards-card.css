@@ -177,13 +177,11 @@
   min-inline-size: 0;
 }
 
-/* Both margins used to sit on `.slot-picker`, which was right while the picker
-   was the trailing member of the headline and is wrong now that the badge is:
-   the start margin had no slack to spend from inside a shrink-to-fit box and
-   went to zero, and the end margin turned into four pixels of air BETWEEN the
-   run and its badge — the very gap the box exists to make match the session
-   rows'. They are the box's margins, and the box is what stands at the end of
-   the line. */
+/* The margins are the slots box's, not its members': the box is what stands
+   at the end of the line, and a member's own margin would have no slack to
+   spend inside a shrink-to-fit box, or would open air BETWEEN the slot badge
+   and the stack badge — the very gap the box exists to make match the session
+   rows'. */
 
 /* Where this file is, shown only when its name alone would be ambiguous. Muted
    and a step down so it reads as an annotation on the filename, never as a
@@ -652,6 +650,9 @@ body {
   gap: var(--tug-space-xs);
   flex: 0 0 auto;
   margin-inline-end: auto;
+  /* The popup's face sits at the level of its calm `View:` label: the
+     button's face-ink knob takes the card's secondary-text ink at rest. */
+  --tugx-button-option-face-ink: var(--tug7-element-global-text-normal-subtle-rest);
 }
 
 .cards-view-label {

@@ -41,7 +41,7 @@
 import React from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
-import { SlotPicker } from "./slot-picker";
+import { CardsRowSlot } from "./cards-row-slot";
 import { CardsSlotBadge } from "./cards-slot-badge";
 import { groupRunKey } from "./cards-groups";
 import { SessionIdentityRow } from "@/components/tugways/session-identity-row";
@@ -167,7 +167,7 @@ export function CardsSessionRow({
         slots={
           <>
             {place}
-            <SlotPicker cardId={cardId} />
+            <CardsRowSlot cardId={cardId} />
             <CardsSlotBadge cardId={cardId} />
           </>
         }
@@ -257,7 +257,7 @@ export function CardsUnconnectedSessionRow({
       slots={
         <>
           {place}
-          <SlotPicker cardId={cardId} />
+          <CardsRowSlot cardId={cardId} />
           <CardsSlotBadge cardId={cardId} />
         </>
       }

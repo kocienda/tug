@@ -1023,9 +1023,13 @@ body {
 
 /* --- outlined-option: Calm configuration control (neutral muted border) --- */
 
+/* `--tugx-button-option-face-ink` is the face-ink knob: a consumer that wants
+   a quieter face at rest (a picker beside a calm label) sets it to a text
+   token, and the label and chevron take it. Hover and press keep the
+   button's own ink, so the control still answers the pointer. */
 .tug-button-outlined-option {
   background-color: var(--tug7-surface-control-primary-outlined-option-rest);
-  color: var(--tug7-element-control-text-outlined-option-rest);
+  color: var(--tugx-button-option-face-ink, var(--tug7-element-control-text-outlined-option-rest));
   border-color: var(--tug7-element-control-border-outlined-option-rest);
   /* Left padding aligns button label with menu item text:
      menu content padding (0.25rem) + item padding-left (0.5rem) = 0.75rem */
@@ -1034,7 +1038,7 @@ body {
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
 .tug-button-outlined-option svg {
-  color: var(--tug7-element-control-icon-outlined-option-rest);
+  color: var(--tugx-button-option-face-ink, var(--tug7-element-control-icon-outlined-option-rest));
 }
 
 .tug-button-outlined-option:hover:not(:disabled):not([aria-disabled="true"]) {

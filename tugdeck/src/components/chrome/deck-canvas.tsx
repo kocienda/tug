@@ -2430,7 +2430,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // Every gate below is a silent return, never a warn: the digit row
       // is bound in full, and a number the current arrangement doesn't
       // have is a chord the user simply hasn't configured. `assign-slot`
-      // does the work, so the keyboard and the Cards card's SlotPicker share
+      // does the work, so the keyboard and every slot badge share
       // one path (detach-from-tab-group, raise, clamp, persist).
       [TUG_ACTIONS.MOVE_TO_SLOT]: (event: ActionEvent) => {
         if (typeof event.value !== "number") return;

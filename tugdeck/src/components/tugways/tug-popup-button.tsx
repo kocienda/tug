@@ -82,6 +82,17 @@
  *            [D04] TugPopupButton defaults are not configurable,
  *            [D08] TugPopupButton inherits service semantics through
  *                  TugPopupMenu (popup-bindings plan)
+ *
+ * ## Width-stabilized mode
+ *
+ * A value picker whose labels differ in length changes width every time its
+ * value changes, and moves whatever is laid out beside it. `stableWidth`
+ * turns that off: the face stacks every item's label in one grid cell under
+ * the visible one, so the browser sizes the cell to the longest of them with
+ * no measuring and no state [L06]. The stacked labels are `visibility:
+ * hidden` and `aria-hidden`, which keeps them out of the accessibility tree
+ * and out of Find, so only the visible label is read. It is opt-in, so no
+ * existing picker's width moves.
  */
 
 import "./tug-popup-button.css";
@@ -227,6 +238,11 @@ export interface TugPopupButtonProps<V extends TugPopupButtonPayload = never>
   senderId?: string;
   /** Trigger button size. Default: "md". */
   size?: TugButtonSize;
+  /**
+   * Hold the trigger at the width of its widest item, so changing the value
+   * never changes the button's width. Default: false.
+   */
+  stableWidth?: boolean;
   /** data-testid forwarded to the menu content element. */
   "data-testid"?: string;
 
@@ -277,6 +293,7 @@ function TugPopupButtonImpl<V extends TugPopupButtonPayload = never>(
     items,
     senderId,
     size = "md",
+    stableWidth = false,
     className,
     "data-testid": dataTestId,
     focusGroup,
@@ -339,7 +356,7 @@ function TugPopupButtonImpl<V extends TugPopupButtonPayload = never>(
       focusOrder={focusOrder}
       focusPolicy={focusPolicy}
     >
-      {label}
+      {stableWidth ? <TugPopupButtonStableLabel label={label} items={items} /> : label}
     </TugButton>
   );
 
@@ -359,6 +376,31 @@ function TugPopupButtonImpl<V extends TugPopupButtonPayload = never>(
       <span className="tug-popup-button-top-label">{topLabel}</span>
       {menu}
     </div>
+  );
+}
+
+/**
+ * The face of a width-stabilized popup button: the visible label and every
+ * item's label stacked in one grid cell. Only the visible one paints; the
+ * rest hold the cell open to the widest of them and are hidden from the
+ * accessibility tree and from Find.
+ */
+export function TugPopupButtonStableLabel({
+  label,
+  items,
+}: {
+  label: React.ReactNode;
+  items: ReadonlyArray<{ label: string }>;
+}): React.ReactElement {
+  return (
+    <span className="tug-popup-button-stable" data-slot="tug-popup-button-stable">
+      <span className="tug-popup-button-stable-visible">{label}</span>
+      {items.map((item, index) => (
+        <span key={index} className="tug-popup-button-stable-reserve" aria-hidden="true">
+          {item.label}
+        </span>
+      ))}
+    </span>
   );
 }
 

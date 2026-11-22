@@ -278,13 +278,8 @@ const ZOOM_CAPTION_ID = "layout-card-zoom-caption";
  *  row here: it is asked at the picture, by the place toggles under the strip,
  *  and a `Slot N` row under Gap restated that toggle in words.
  *
- *  A fourth stood here for a while: the slot window, how many places a Cards
- *  row draws around its card's own. It was the odd one — every other row
- *  states a DECK fact, and that one stated how the Cards card draws a fact — and the
- *  window settled at five, which is where it stays. The preference and the
- *  `set-slot-window` action it dispatched are untouched, so the size is still
- *  switchable; what is gone is a row asking the reader to choose in a card
- *  otherwise entirely about the deck. */
+ *  Every row states a DECK fact; a row choosing how another card draws a fact
+ *  has no seat here. */
 const LAYOUTS_KIND_FOCUS_ORDER = 0;
 const LAYOUTS_ZOOM_FOCUS_ORDER = 1;
 const LAYOUTS_LAYOUT_FOCUS_ORDER = 2;

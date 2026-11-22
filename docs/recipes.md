@@ -417,9 +417,9 @@ Press Control-Command-L to show the Layout card, and choose from One Up to Six U
 Press Control-Command-L to show the Layout card, and choose **Fit** or **Flow**. Fit keeps every card in the window, overlapping when it must. Flow keeps each card at full width and lets the row run past the window's edge. There is no chord or menu item for it.
 
 ### Move a card to another slot
-<!-- source: tugdeck/src/components/tugways/command-registry.ts (Command-1 through Command-6); tugdeck/src/components/cards/slot-picker.tsx; docs/features.md (Moving cards) -->
+<!-- source: tugdeck/src/components/tugways/command-registry.ts (Command-1 through Command-6); tugdeck/src/components/tugways/card-slot-badge.tsx; tugdeck/src/components/cards/cards-row-slot.tsx; docs/features.md (Moving cards) -->
 
-Press Command-1 through Command-6, click the slot badge in the card's masthead and pick from the miniature of the deck, or drag the card by its masthead. Escape cancels a drag. Option-Shift-Command-Left Bracket and Option-Shift-Command-Right Bracket nudge the card one slot left or right.
+Press Command-1 through Command-6, click the slot badge in the card's masthead or on its row in the Workspaces sidebar and pick from the miniature of the deck, or drag the card by its masthead. Escape cancels a drag. Option-Shift-Command-Left Bracket and Option-Shift-Command-Right Bracket nudge the card one slot left or right.
 
 ### Go to another card
 <!-- source: tugapp/Sources/MenuBarBuilder.swift (go.previousCard, go.nextCard, go.previousCardInStack, go.nextCardInStack, go.goToSlot, go.revealStack); tugdeck/src/components/tugways/command-registry.ts -->

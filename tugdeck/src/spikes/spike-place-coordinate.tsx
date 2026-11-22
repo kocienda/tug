@@ -447,15 +447,15 @@ function LensRow({
   );
 }
 
-/** Today's row: the exhaustive run at the `slot-picker` cut, then the badge
- *  as a readout — the shipping classes, so this IS the current drawing. */
+/** The row as it stood when this spike was drawn: the exhaustive run at the
+ *  row's chip cut (`sp-pc-run`), then the badge as a readout. */
 function LensRowNow({ row }: { row: LensRowFixture }): React.ReactElement {
   const [facts, setFacts] = useState<PlaceFacts>(row.facts);
   return (
     <LensRow title={row.title} icon={row.icon}>
       <SlotPress onPick={(slot) => setFacts((f) => ({ ...f, held: slot }))}>
       <TugSlotLayout size="sm"
-        className="slot-picker"
+        className="sp-pc-run"
         count={6}
         states={runStates(6, facts)}
         slotLabel={(slot) => `Put at position ${slot + 1}`}

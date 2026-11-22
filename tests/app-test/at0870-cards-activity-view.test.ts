@@ -13,8 +13,10 @@
  *     popup and on its Activity item turns the list into Activity — no
  *     workspace headers, a chip on every row — and the choice is written to
  *     the cards domain, so a relaunch on the same tugbank opens the card in
- *     Activity. Fails if the item's `set-value` never reaches the picker's
- *     responder, if the store forgets to persist, or if hydration drops it.
+ *     Activity. The popup's face is drawn in the subtle ink at rest and
+ *     holds one width across both choices. Fails if the item's `set-value`
+ *     never reaches the picker's responder, if the store forgets to
+ *     persist, if hydration drops it, or if the face changes width or ink.
  *
  *   - **Files order by their time on disk, across workspaces (B).** Three
  *     files in two workspaces, given disk times that interleave the
@@ -37,6 +39,8 @@
  * @covers tugdeck/src/components/cards/cards-session-cell.tsx
  * @covers tugdeck/src/components/cards/cards-store/cards-store.ts
  * @covers tugdeck/src/lib/file-modified-store.ts
+ * @covers tugdeck/src/components/tugways/tug-popup-button.tsx
+ * @covers tugdeck/src/components/tugways/tug-popup-button.css
  */
 
 import { describe, expect, test } from "bun:test";
@@ -235,6 +239,19 @@ describe.skipIf(!SHOULD_RUN)("at0870 — the Workspaces card's Activity view", (
           "a card with no stored view opens in Workspaces",
         ).toBe("workspaces");
         await settle();
+        const face = await cards.evalJS<{ width: number; ink: string; subtle: string }>(
+          `(() => {
+            const t = document.querySelector(${JSON.stringify(TRIGGER)});
+            const probe = document.createElement("span");
+            probe.style.color = "var(--tug7-element-global-text-normal-subtle-rest)";
+            t.parentElement.appendChild(probe);
+            const subtle = getComputedStyle(probe).color;
+            probe.remove();
+            return { width: t.getBoundingClientRect().width, ink: getComputedStyle(t).color, subtle };
+          })()`,
+        );
+        note(`at0870 face at rest: ${JSON.stringify(face)}`);
+        expect(face.ink, "the popup's face takes the subtle ink at rest").toBe(face.subtle);
 
         // ---- A. The popup, then its Activity item, by real clicks. --------
         await cards.nativeClickAtElement(TRIGGER);
@@ -250,6 +267,10 @@ describe.skipIf(!SHOULD_RUN)("at0870 — the Workspaces card's Activity view", (
           { timeoutMs: 10_000 },
         );
         await settle(600);
+        const widthAfter = await cards.evalJS<number>(
+          `document.querySelector(${JSON.stringify(TRIGGER)}).getBoundingClientRect().width`,
+        );
+        expect(widthAfter, "changing the view leaves the popup's width as it was").toBe(face.width);
       } finally {
         await app.close().catch(() => undefined);
       }

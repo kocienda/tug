@@ -34,7 +34,7 @@ export function slotFactsIn(deck: DeckState, cardId: string): SlotFacts | null |
   if (kind === undefined || slotCount(kind) <= 1) return null;
   if (host.slot === undefined) return null;
   // A sidebar — the Cards card among them — is the imposition's fixed end rather
-  // than a member of the chain it bounds. The same guard `SlotPicker` applies.
+  // than a member of the chain it bounds. The Cards rows read their badge through this same guard.
   if (findSidebarPanes(deck).some((entry) => entry.pane.id === host.id)) return null;
   return { count: slotCount(kind), held: host.slot };
 }

@@ -23,3 +23,20 @@
   color: var(--tug7-element-field-text-normal-label-rest);
   text-align: center;
 }
+
+/* Width-stabilized face: every label shares one grid cell, so the cell is as
+   wide as the longest. Only the visible label paints; the reserves are
+   hidden, which also keeps them out of the accessibility tree and Find. */
+.tug-popup-button-stable {
+  display: inline-grid;
+  justify-items: start;
+}
+
+.tug-popup-button-stable > * {
+  grid-area: 1 / 1;
+  white-space: nowrap;
+}
+
+.tug-popup-button-stable-reserve {
+  visibility: hidden;
+}

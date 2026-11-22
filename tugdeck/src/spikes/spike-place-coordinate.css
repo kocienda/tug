@@ -174,8 +174,20 @@
   min-width: 0;
 }
 
+/* ── The run as it stood ────────────────────────────────────────────────────
+   The Cards row's chip cut, held here because the row no longer draws one:
+   a step up from the primitive's `sm` default (15×19 at 10px). */
+
+.sp-pc-run {
+  font-family: var(--tug-font-family-sans);
+  margin-inline-start: auto;
+  --tugx-slot-width-sm: 18px;
+  --tugx-slot-height-sm: 22px;
+  --tugx-slot-font-size-sm: 11px;
+}
+
 /* ── The proposed window ────────────────────────────────────────────────────
-   The `slot-picker` cut restated — same chip size, same 3px gap the layout
+   The `sp-pc-run` cut restated — same chip size, same 3px gap the layout
    primitive uses — so a proposed row's chips are pixel-identical to a current
    row's and only the count differs. Right-aligned exactly as the run is. */
 

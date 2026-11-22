@@ -1,0 +1,15 @@
+/* @tug-pairings: none — the row's slot badge is the composed `CardSlotBadge`,
+   whose chip is its button's icon and takes the button's own ink ([L20]).
+   This file holds only the box the badge stands in. */
+
+/* The badge's own box, held open on a row whose card stands in no slot so the
+   trailing column stays ruled down the rail. The width is the badge button's:
+   an `sm` icon button is square, as wide as it is tall. An empty reserve and a
+   drawn badge are asserted to match in the app-test. */
+.cards-row-slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-inline-size: var(--tug-button-sm-height);
+}

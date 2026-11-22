@@ -93,6 +93,12 @@ export interface CardSlotBadgeProps {
    * badge reads the deck.
    */
   facts?: SlotFacts | null;
+  /**
+   * What a slot picked in the popup does, for a mount that moves more than
+   * the badge's own card — a Cards card row that is one of several selected
+   * carries the whole selection. Omitted, the badge moves its own card.
+   */
+  onAssign?: (slot: number) => void;
 }
 
 /**
@@ -102,16 +108,25 @@ export interface CardSlotBadgeProps {
 export const CardSlotBadge = React.memo(function CardSlotBadge({
   cardId,
   facts,
+  onAssign,
 }: CardSlotBadgeProps): React.ReactElement | null {
   if (cardId === undefined) return null;
   // Keyed on the card, because the derivations below are functions of the
   // snapshot alone ([L02], `useStoreDerived`): a pane that fronts another card
   // gets a fresh badge deriving for that card, rather than a cached answer
   // about the last one.
-  return <CardSlotBadgeFor key={cardId} cardId={cardId} given={facts} />;
+  return <CardSlotBadgeFor key={cardId} cardId={cardId} given={facts} onAssign={onAssign} />;
 });
 
-function CardSlotBadgeFor({ cardId, given }: { cardId: string; given: SlotFacts | null | undefined }): React.ReactElement | null {
+function CardSlotBadgeFor({
+  cardId,
+  given,
+  onAssign,
+}: {
+  cardId: string;
+  given: SlotFacts | null | undefined;
+  onAssign: ((slot: number) => void) | undefined;
+}): React.ReactElement | null {
   const deckStore = getCardDeck();
   const deckView = getDeckView();
   // The two facts the chip draws, derived rather than read whole. The badge
@@ -178,7 +193,8 @@ function CardSlotBadgeFor({ cardId, given }: { cardId: string; given: SlotFacts 
     actions: {
       [TUG_ACTIONS.SELECT_SLOT]: (event: ActionEvent) => {
         if (typeof event.value !== "number") return;
-        dispatchCommand("assign-slot", { cardId, slot: event.value });
+        if (onAssign !== undefined) onAssign(event.value);
+        else dispatchCommand("assign-slot", { cardId, slot: event.value });
         setOpen(false);
       },
     },

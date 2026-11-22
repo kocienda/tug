@@ -93,7 +93,7 @@ import {
   setLayoutCursorCard,
 } from "@/lib/cards-selection-store";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
-import { SlotPicker } from "./slot-picker";
+import { CardsRowSlot } from "./cards-row-slot";
 import { CardsSlotBadge } from "./cards-slot-badge";
 import { TugFilterField } from "@/components/tugways/tug-filter-field";
 import { useAttachedFilter } from "@/components/tugways/attached-filter";
@@ -455,7 +455,7 @@ function OneLineRow({
             the row keeps taking everything else as props. */}
         {showSlots ? (
           <span className="cards-row-slots">
-            <SlotPicker cardId={identity.cardId} />
+            <CardsRowSlot cardId={identity.cardId} />
             <CardsSlotBadge cardId={identity.cardId} />
           </span>
         ) : null}
@@ -880,6 +880,7 @@ function CardsViewPicker(): React.ReactElement {
           size="sm"
           label={CARDS_VIEW_LABEL[view]}
           items={CARDS_VIEW_ITEMS}
+          stableWidth
           senderId={senderId}
           data-testid="cards-view-menu"
           data-cards-view={view}
