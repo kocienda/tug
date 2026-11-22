@@ -23,10 +23,9 @@
  *   folded card's Z2 row, so the line it rises from is the line the row it
  *   hands the run to stands on, and the motion reveals the handoff rather than
  *   a transcript ([B06] of the compaction-fold-door brief).
- * - **The attachment preview** keeps the top anchor for a reason about its
- *   sizing rather than its geometry: it is the only aspect-locked sheet, so its
- *   only cap is a width cap, and anchoring it makes that cap bind against a box
- *   whose definition belongs to the preview's own sizing contract.
+ *
+ *   The **attachment preview** once stood here too, over a width-cap question
+ *   about its aspect-locked sizing; it now takes the line like everything else.
  *
  * A host without a view slot (the settings session card body) matches nothing and
  * falls back to the sheet's default top anchor, which is the right answer there

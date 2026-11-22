@@ -76,6 +76,7 @@ import {
 import { decorateChipLabel } from "./atom-text-body";
 import type { TurnAddress } from "../tug-transcript-entry";
 import { useTugSheet } from "@/components/tugways/tug-sheet";
+import { MODAL_REST_LINE } from "./modal-rest-line";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { BlockCopyButton } from "@/components/tugways/body-kinds/affordances/block-copy-button";
 import { useFocusable, useSeedKeyView } from "@/components/tugways/use-focusable";
@@ -104,13 +105,19 @@ export type AttachmentPreviewDensity = "comfortable" | "compact";
  * lightbox — the widest tier, 90% of the card. The compact pair is the
  * decision width capped well short of the card's edges, because on a rail the
  * margin IS the difference between a panel and a lid.
+ *
+ * The fraction is of the PANE FRAME, which is a couple of pixels wider than
+ * the card box a reader sees, so the compact cap sits at 0.84 to land at or
+ * under 85% of the card itself. At 0.85 it came out at 85.1% of a rail card —
+ * hidden while the preview entered by scaling (the panel was measured
+ * mid-scale), exposed once it rose onto the rest line by translation.
  */
 const SHEET_GEOMETRY: Record<
   AttachmentPreviewDensity,
   { displayWidth: "sm" | "xl"; maxHostFraction: number }
 > = {
   comfortable: { displayWidth: "xl", maxHostFraction: 0.9 },
-  compact: { displayWidth: "sm", maxHostFraction: 0.85 },
+  compact: { displayWidth: "sm", maxHostFraction: 0.84 },
 };
 
 /**
@@ -494,7 +501,14 @@ export const AttachmentPreview = React.forwardRef<
         // short of its edges. Drag-resize gives the image real room either
         // way, and `aspectLockContent` locks the panel to the image's aspect
         // so the margin around it stays uniform at every size.
+        //
+        // On a Session card it rests on the modal rest line — the top of Z2 —
+        // and rises onto it like every other modal surface there ([B01],
+        // `tuglaws/modal-rest-line.md`). A host with no view slot (the
+        // overview rail, a text card) matches nothing and keeps the top anchor.
         hideHeader: true,
+        presentation: "rise",
+        bottomAnchorSelector: MODAL_REST_LINE,
         displayWidth: SHEET_GEOMETRY[density].displayWidth,
         resizable: true,
         aspectLockContent: true,
