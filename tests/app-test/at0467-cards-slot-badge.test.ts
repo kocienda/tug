@@ -435,6 +435,23 @@ describe.skipIf(!SHOULD_RUN)("at0467 — the Cards row's slot badge", () => {
             `document.querySelector(${JSON.stringify(PICKER)}) !== null`,
             { timeoutMs: 5_000 },
           );
+          // The popup stands inside the Workspaces card. The row's badge sits
+          // at the card's trailing edge, so a popup that opened flush from it
+          // ran off the card and off the window.
+          await wait(300);
+          const bounds = await body.evalJS<{ popup: number[]; card: number[] }>(
+            `(function () {
+              var popup = document.querySelector(${JSON.stringify(PICKER)}).closest('[data-slot="tug-popover"]').getBoundingClientRect();
+              var card = document.querySelector('.cards-card').getBoundingClientRect();
+              return {
+                popup: [Math.round(popup.left), Math.round(popup.right)],
+                card: [Math.round(card.left), Math.round(card.right)],
+              };
+            })()`,
+          );
+          note(`popup for ${cardId}: ${JSON.stringify(bounds)}`);
+          expect(bounds.popup[0], "the popup starts inside the card").toBeGreaterThanOrEqual(bounds.card[0]);
+          expect(bounds.popup[1], "the popup ends inside the card").toBeLessThanOrEqual(bounds.card[1]);
           await body.evalJS<boolean>(
             `(document.querySelector(${JSON.stringify(PICKER)}).children[${slot}].click(), true)`,
           );

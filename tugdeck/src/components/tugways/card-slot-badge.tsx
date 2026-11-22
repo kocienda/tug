@@ -68,6 +68,7 @@ import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { TugSlotLayout } from "@/components/tugways/tug-slot-layout";
 import type { TugSlotLayoutHandle } from "@/components/tugways/tug-slot-layout";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
+import { RAIL_CARD_CLASS } from "@/components/tugways/cards/rail-card-shell";
 import type { ActionEvent } from "@/components/tugways/responder-chain";
 import { useOptionalResponder } from "@/components/tugways/use-responder";
 import {
@@ -278,6 +279,17 @@ function CardSlotBadgeFor({
         <TugPopoverContent
           side="bottom"
           align="start"
+          // Pinned inside the card the badge belongs to. A badge at a card's
+          // trailing edge (every Workspaces row's is) opened flush from it and
+          // ran off the card and off the window, because a body page's
+          // viewport is wider than the card in it. Bounded, the popup slides
+          // back inside; `sticky="always"` lets it slide the whole way rather
+          // than stopping at the trigger, and the padding keeps it off the
+          // card's border. The translate below only ever moves it further in
+          // from the trailing edge.
+          collisionBoundary={badgeRef.current?.closest<HTMLElement>(`.tug-pane-chrome, .${RAIL_CARD_CLASS}`) ?? null}
+          sticky="always"
+          collisionPadding={6}
           data-testid="card-slot-badge-popup"
           /* Two things happen on open, and both need the popup's own DOM.
 
