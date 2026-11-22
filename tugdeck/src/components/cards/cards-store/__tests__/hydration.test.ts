@@ -79,6 +79,7 @@ describe("CardsStore — where the state resolves from", () => {
     expect(snap.cardsGroupOrder).toEqual([]);
     expect(snap.collapsedCardGroups).toEqual([]);
     expect(snap.collapsedSpaces).toEqual([]);
+    expect(snap.view).toBe("workspaces");
   });
 
   it("a stored workspace fold hydrates, so a relaunch keeps it", () => {
@@ -86,6 +87,35 @@ describe("CardsStore — where the state resolves from", () => {
       fakeClient({ [CARDS_KEYS.CARDS_COLLAPSED_SPACES]: jsonArray(["s1"]) }),
     );
     expect(cardsStore.getSnapshot().collapsedSpaces).toEqual(["s1"]);
+  });
+
+  it("a stored view hydrates, so the card reopens in it", () => {
+    setTugbankClient(
+      fakeClient({
+        [CARDS_KEYS.CARDS_VIEW]: { kind: "json", value: "activity" } as TaggedValue,
+      }),
+    );
+    expect(cardsStore.getSnapshot().view).toBe("activity");
+  });
+
+  it("a stored view this build does not know keeps the default", () => {
+    setTugbankClient(
+      fakeClient({
+        [CARDS_KEYS.CARDS_VIEW]: { kind: "json", value: "timeline" } as TaggedValue,
+      }),
+    );
+    expect(cardsStore.getSnapshot().view).toBe("workspaces");
+  });
+
+  it("the Activity folds hydrate from their own key", () => {
+    setTugbankClient(
+      fakeClient({
+        [CARDS_KEYS.CARDS_ACTIVITY_COLLAPSED_GROUPS]: jsonArray(["files"]),
+      }),
+    );
+    const snap = cardsStore.getSnapshot();
+    expect(snap.activityCollapsedGroups).toEqual(["files"]);
+    expect(snap.collapsedCardGroups).toEqual([]);
   });
 });
 
@@ -104,11 +134,13 @@ describe("CardsStore — the retired fields leave no trace", () => {
     );
     const snap = cardsStore.getSnapshot();
     expect(Object.keys(snap).sort()).toEqual([
+      "activityCollapsedGroups",
       "cardsGroupOrder",
       "cardsRowOrder",
       "collapsedCardGroups",
       "collapsedSpaces",
       "filterQuery",
+      "view",
     ]);
     expect(snap.cardsRowOrder).toEqual({ sessions: [], files: [], tools: [] });
   });

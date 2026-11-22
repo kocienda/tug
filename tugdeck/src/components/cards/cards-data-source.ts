@@ -35,7 +35,7 @@
  */
 
 import { Subscribable } from "@/lib/subscribable";
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { getRegistration } from "@/card-registry";
@@ -65,7 +65,15 @@ import {
   getOpenFileViewCardsVersion,
   subscribeOpenFileViewCards,
 } from "@/lib/file-view-open-registry";
-import type { CardsRowOrder } from "@/components/cards/cards-store/types";
+import type {
+  CardsRowOrder,
+  CardsView,
+} from "@/components/cards/cards-store/types";
+import { fileModifiedStore } from "@/lib/file-modified-store";
+import {
+  getSessionLedgerStore,
+  subscribeSessionLedger,
+} from "@/lib/session-ledger-store";
 import {
   sessionDisplayTitleForBinding,
   sessionIdentityLineForBinding,
@@ -276,6 +284,13 @@ export type CardsRow =
       readonly closable: boolean;
       readonly rowKind: CardsPaneRowKind;
       readonly disambiguator: string | null;
+      /**
+       * Set on an Activity row, and only there. An Activity row is one CARD,
+       * not one pane — a stack's cards each list on their own, at their own
+       * time — and it carries the place it lives, which the Workspaces view
+       * said with a header and Activity has to say on the row.
+       */
+      readonly activity?: ActivityPlace;
     }
   | {
       readonly type: "card";
@@ -298,6 +313,30 @@ export type CardsRow =
       readonly filtered: boolean;
     };
 
+/** Where an Activity row lives, and when it was last active. */
+export interface ActivityPlace {
+  /** The workspace's name, which the row's chip shows. */
+  readonly spaceName: string;
+  /** The theme the workspace wears, for the chip's swatch. */
+  readonly spaceTheme: string | undefined;
+  /**
+   * When the thing was last active, in ms since the epoch — a session's last
+   * completed turn, or `Infinity` while its turn is running; a file's time on
+   * disk. `null` when nothing knows, and the row sorts last in its group.
+   */
+  readonly at: number | null;
+}
+
+/**
+ * The scope an Activity group header files under. Activity's two groups
+ * belong to no workspace, and this is not a workspace id, so a fold or a list
+ * id keyed by it can never collide with one.
+ */
+export const ACTIVITY_SCOPE = "@activity";
+
+/** The groups the Activity view lists, in the order it lists them. */
+export const ACTIVITY_GROUPS: readonly CardsGroup[] = ["sessions", "files"];
+
 /** The cell renderer key `TugListView` dispatches on. */
 export function kindOfRow(row: CardsRow): string {
   if (row.type === "space-header") return "space-header";
@@ -317,7 +356,10 @@ export function idOfRow(row: CardsRow): string {
       // mint the same list id twice.
       return `header:${row.spaceId}:${row.group}`;
     case "pane":
-      return `pane:${row.paneId}`;
+      // An Activity row is one card, and two cards of one stack are two rows.
+      return row.activity !== undefined
+        ? `activity:${row.identity.cardId}`
+        : `pane:${row.paneId}`;
     case "card":
       return `card:${row.identity.cardId}`;
     case "space-empty":
@@ -395,6 +437,18 @@ export interface CardsResolvers {
    * running, and a Delete over it would look free.
    */
   cachedSessionLive: (cardId: string) => boolean;
+  /**
+   * When a session card's session was last live, for the Activity view's
+   * order: `Infinity` while its turn is running, the end of its last
+   * completed turn otherwise, and `null` when the ledger knows neither.
+   */
+  sessionLiveAt: (identity: CardIdentity) => number | null;
+  /**
+   * When a file card's content last changed, for the Activity view's order:
+   * the file's modification time on disk, or a buffer with no file's in-app
+   * save time; `null` when nothing knows.
+   */
+  fileModifiedAt: (identity: CardIdentity) => number | null;
 }
 
 export const DEFAULT_RESOLVERS: CardsResolvers = {
@@ -455,6 +509,31 @@ export const DEFAULT_RESOLVERS: CardsResolvers = {
     const row = spaceBindingsLedgerStore.get(cardId);
     if (row === undefined) return false;
     return row.is_alive === true || row.has_jsonl === true || row.turn_count > 0;
+  },
+  sessionLiveAt: (identity) => {
+    const store = getSessionLedgerStore();
+    if (store === null) return null;
+    const row =
+      (identity.tugSessionId !== null ? store.findRow(identity.tugSessionId) : null) ??
+      store.liveRowForCard(identity.cardId);
+    if (row === null) return null;
+    // A running turn is live now, ahead of any turn that has ended.
+    if (row.turn_active === true) return Number.POSITIVE_INFINITY;
+    const ended = row.last_turn_end_at ?? 0;
+    return ended > 0 ? ended : null;
+  },
+  fileModifiedAt: (identity) => {
+    // The newest of what this page has seen of the file and what the page the
+    // card is mounted in last published: a save in a body page reaches the
+    // shell as that page's published identity.
+    const published = cardIdentityElsewhere.get(identity.cardId)?.modifiedAt ?? null;
+    const own =
+      identity.path !== null
+        ? fileModifiedStore.get(identity.path)
+        : (getOpenTextCard(identity.cardId)?.getLastSavedAt() ?? null);
+    if (own === null) return published;
+    if (published === null) return own;
+    return Math.max(own, published);
   },
 };
 
@@ -550,6 +629,20 @@ export interface LensCardsInputs {
    * itself reaches the rows through {@link CardsResolvers.cachedSessionLive}.
    */
   readonly bindingsCache: ReadonlyMap<string, unknown>;
+  /**
+   * Which arrangement to project: `workspaces` (one block per workspace) or
+   * `activity` (two flat groups across every workspace, newest first).
+   * Absent reads as `workspaces`.
+   */
+  readonly view?: CardsView;
+  /** The Activity view's folded groups, by bare group name. */
+  readonly activityCollapsedGroups?: readonly string[];
+  /**
+   * Version token for what the Activity view orders by — the session ledger
+   * and the file times. Moves only while the Activity view is showing, so the
+   * Workspaces view never re-runs for a turn ending somewhere.
+   */
+  readonly activityVersion?: unknown;
 }
 
 /** Which cell renders a single-card pane of this group. */
@@ -751,6 +844,7 @@ export function buildCardsRows(
   resolvers: Partial<CardsResolvers> = {},
 ): CardsRow[] {
   const r: CardsResolvers = { ...DEFAULT_RESOLVERS, ...resolvers };
+  if (inputs.view === "activity") return buildActivityRows(inputs, r);
   const rows: CardsRow[] = [];
   for (const space of inputs.spaces) {
     const { rows: inner, paneCount: count } = buildSpaceRows(space, inputs, r);
@@ -786,6 +880,157 @@ export function buildCardsRows(
     rows.push({ type: "space-empty", spaceId: space.id, filtered });
   }
   return rows;
+}
+
+/** One card as the Activity view lists it, before ordering and filtering. */
+interface ActivityEntry {
+  readonly space: SpaceRowsInput;
+  /** The workspace's position in the user's order, for ties. */
+  readonly spaceIndex: number;
+  readonly pane: TugPaneState;
+  readonly identity: CardIdentity;
+  readonly group: CardsGroup;
+  readonly seq: number;
+  readonly at: number | null;
+}
+
+/**
+ * Project every workspace into the Activity view: two groups, Sessions then
+ * Files, each one flat list across every workspace, newest first.
+ *
+ * The things come first and their place second. There are no workspace
+ * headers and no Tools group, so a tool card does not list at all. Each row is
+ * one CARD — a stack's cards list on their own, each at its own time — and it
+ * carries its workspace's name and theme for the chip that says where it
+ * lives.
+ *
+ * Sessions order by when they were last live: a running turn is live now and
+ * sorts first, otherwise the end of the last completed turn. Files order by
+ * their time on disk, which survives a relaunch and counts a save made outside
+ * Tug; a buffer with no file falls back to its in-app save time. Anything with
+ * no known time sorts to the bottom of its group. Ties keep the Workspaces
+ * view's footing: the user's workspace order, then each deck's insertion
+ * order, so equal times never shuffle.
+ *
+ * A group with no survivors emits nothing; a folded group emits its header
+ * and nothing else. The folds are Activity's own, keyed by bare group name.
+ */
+export function buildActivityRows(
+  inputs: LensCardsInputs,
+  r: CardsResolvers,
+): CardsRow[] {
+  const arcs =
+    inputs.changesets === null ? null : arcSessionIndex(inputs.changesets);
+  const arcName = (identity: CardIdentity): string | null =>
+    arcs === null || identity.tugSessionId === null
+      ? null
+      : (arcs.get(identity.tugSessionId)?.name ?? null);
+
+  const entries: ActivityEntry[] = [];
+  inputs.spaces.forEach((space, spaceIndex) => {
+    const deck = space.deck;
+    const cardsById = new Map(deck.cards.map((c) => [c.id, c]));
+    const cardSeq = new Map(deck.cards.map((c, i) => [c.id, i]));
+    for (const pane of workspacePanes(deck)) {
+      for (const cardId of pane.cardIds) {
+        const card = cardsById.get(cardId);
+        if (card === undefined) continue;
+        const group = r.group(card.componentId);
+        if (group !== "sessions" && group !== "files") continue;
+        const identity = resolveCard(card, group, inputs.bindings, r);
+        entries.push({
+          space,
+          spaceIndex,
+          pane,
+          identity,
+          group,
+          seq: cardSeq.get(card.id) ?? Number.MAX_SAFE_INTEGER,
+          at: group === "sessions" ? r.sessionLiveAt(identity) : r.fileModifiedAt(identity),
+        });
+      }
+    }
+  });
+
+  // Over the UNFILTERED files, and across every workspace: two `README.md`
+  // rows from two workspaces sit side by side here, and only their directory
+  // tells them apart.
+  const fileEntries = entries.filter((e) => e.group === "files");
+  const suffixes = assignDisambiguators(fileEntries.map((e) => e.identity));
+  const disambiguatorByCard = new Map<string, string | null>();
+  fileEntries.forEach((entry, i) => {
+    disambiguatorByCard.set(entry.identity.cardId, suffixes[i]);
+  });
+
+  const query = inputs.filterQuery;
+  const filtering = query.trim().length > 0;
+  const collapsed = new Set(inputs.activityCollapsedGroups ?? []);
+  const rows: CardsRow[] = [];
+
+  for (const group of ACTIVITY_GROUPS) {
+    const ordered = entries
+      .filter((e) => e.group === group)
+      .sort(compareActivity);
+    const survivors = filtering
+      ? filterAndRank(ordered, query, (entry) => [
+          ...matchFields(entry.identity),
+          arcName(entry.identity),
+          // With no workspace headers above them, a row's place is part of
+          // what it is called here: typing a workspace's name narrows to it.
+          entry.space.name,
+        ])
+      : ordered;
+    if (survivors.length === 0) continue;
+
+    const isCollapsed = collapsed.has(group);
+    rows.push({
+      type: "group-header",
+      spaceId: ACTIVITY_SCOPE,
+      group,
+      count: survivors.length,
+      summary: summarizeGroup(
+        group,
+        survivors.map((entry) => entry.identity),
+      ),
+      collapsed: isCollapsed,
+    });
+    if (isCollapsed) continue;
+
+    for (const entry of survivors) {
+      rows.push({
+        type: "pane",
+        spaceId: entry.space.id,
+        group,
+        paneId: entry.pane.id,
+        identity: entry.identity,
+        orderKey: entry.identity.tugSessionId ?? entry.identity.cardId,
+        cardCount: 1,
+        closable: entry.identity.closable,
+        rowKind: PANE_KIND_FOR_GROUP[group],
+        disambiguator: disambiguatorByCard.get(entry.identity.cardId) ?? null,
+        activity: {
+          spaceName: entry.space.name,
+          spaceTheme: entry.space.theme,
+          at: entry.at,
+        },
+      });
+    }
+  }
+  return rows;
+}
+
+/**
+ * Newest first; an unknown time after every known one; ties by the user's
+ * workspace order, then deck insertion order.
+ */
+function compareActivity(a: ActivityEntry, b: ActivityEntry): number {
+  if (a.at !== b.at) {
+    if (a.at === null) return 1;
+    if (b.at === null) return -1;
+    // Two running sessions are both `Infinity`, which the equality above
+    // already sent to the tie-break.
+    return b.at - a.at;
+  }
+  return a.spaceIndex - b.spaceIndex || a.seq - b.seq;
 }
 
 /**
@@ -997,6 +1242,8 @@ export class CardsDataSource extends Subscribable implements TugListViewDataSour
   private rows: CardsRow[] = [];
   private readonly resolvers: Partial<CardsResolvers>;
   private version = 0;
+  private filePathsAt = -1;
+  private filePathsKey = "";
 
   /** `resolvers` overrides the registry / open-registry defaults; production
    *  passes none. Held for the source's lifetime — a resolver set is a wiring
@@ -1195,7 +1442,10 @@ export class CardsDataSource extends Subscribable implements TugListViewDataSour
       this.inputs.tagVersion === next.tagVersion &&
       this.inputs.nameVersion === next.nameVersion &&
       this.inputs.bindingsCache === next.bindingsCache &&
-      this.inputs.changesets === next.changesets
+      this.inputs.changesets === next.changesets &&
+      this.inputs.view === next.view &&
+      this.inputs.activityCollapsedGroups === next.activityCollapsedGroups &&
+      this.inputs.activityVersion === next.activityVersion
     ) {
       return false;
     }
@@ -1207,6 +1457,15 @@ export class CardsDataSource extends Subscribable implements TugListViewDataSour
   /** Whether a filter is narrowing the list right now. */
   isFiltering(): boolean {
     return this.inputs.filterQuery.trim().length > 0;
+  }
+
+  /**
+   * Whether the list is the Activity view. Time sets its order, so nothing in
+   * it is a reorder handle, and nothing done there moves the Workspaces view's
+   * arrangement.
+   */
+  isActivity(): boolean {
+    return this.inputs.view === "activity";
   }
 
   /**
@@ -1279,6 +1538,7 @@ export class CardsDataSource extends Subscribable implements TugListViewDataSour
         ...this.inputs,
         filterQuery: "",
         collapsedGroups: [],
+        activityCollapsedGroups: [],
         // Every workspace, expanded — the census answers "how many cards does
         // this instance hold", and a workspace the reader has not opened is
         // still holding its cards ([P09]).
@@ -1300,6 +1560,30 @@ export class CardsDataSource extends Subscribable implements TugListViewDataSour
     return out;
   }
 
+  /**
+   * Every file path the Activity view lists, filter and folds aside — the set
+   * whose times on disk it needs — one per line. Empty in the Workspaces view,
+   * which orders by nothing on disk.
+   */
+  activityFilePathsKey(): string {
+    if (this.inputs.view !== "activity") return "";
+    // Kept per projection, so a render that recomputed nothing pays nothing.
+    if (this.filePathsAt === this.version) return this.filePathsKey;
+    const rows = buildActivityRows(
+      { ...this.inputs, filterQuery: "", activityCollapsedGroups: [] },
+      { ...DEFAULT_RESOLVERS, ...this.resolvers },
+    );
+    const out: string[] = [];
+    for (const row of rows) {
+      if (row.type === "pane" && row.group === "files" && row.identity.path !== null) {
+        out.push(row.identity.path);
+      }
+    }
+    this.filePathsAt = this.version;
+    this.filePathsKey = out.join("\n");
+    return this.filePathsKey;
+  }
+
   /** How many pane rows exist, filter or no filter. */
   unfilteredCount(): number {
     const census = this.censusByGroup();
@@ -1311,6 +1595,27 @@ export class CardsDataSource extends Subscribable implements TugListViewDataSour
     this.version += 1;
   }
 }
+
+/**
+ * A version token over what the Activity view orders by: the session ledger
+ * (a turn starting or ending) and the file times. The ledger names no version
+ * of its own, so a notify moves this one.
+ */
+let activityTick = 0;
+function subscribeActivityInputs(listener: () => void): () => void {
+  const bump = (): void => {
+    activityTick += 1;
+    listener();
+  };
+  const offLedger = subscribeSessionLedger(bump);
+  const offFiles = fileModifiedStore.subscribe(bump);
+  return () => {
+    offLedger();
+    offFiles();
+  };
+}
+const getActivityTick = (): number => activityTick;
+const getZero = (): number => 0;
 
 const NOOP_SUBSCRIBE = (): (() => void) => () => {};
 
@@ -1334,7 +1639,15 @@ const EMPTY_SPACES: SpacesSnapshot = {
  * spaces list re-read on every pane move.
  */
 export function useCardsDataSource(
-  inputs: Omit<LensCardsInputs, "spaces" | "registryVersion" | "bindingsCache">,
+  inputs: Omit<
+    LensCardsInputs,
+    | "spaces"
+    | "registryVersion"
+    | "bindingsCache"
+    | "view"
+    | "activityCollapsedGroups"
+    | "activityVersion"
+  >,
 ): CardsDataSource {
   const deckStore = getDeckView();
   const deck = useSyncExternalStore(
@@ -1357,6 +1670,26 @@ export function useCardsDataSource(
   const collapsedSpaces = useMemo(
     () => new Set(collapsedSpaceList),
     [collapsedSpaceList],
+  );
+  // Which arrangement the card shows, and the Activity view's own folds.
+  const view = useSyncExternalStore(
+    cardsStore.subscribe,
+    () => cardsStore.getSnapshot().view,
+    () => cardsStore.getSnapshot().view,
+  );
+  const activityCollapsedGroups = useSyncExternalStore(
+    cardsStore.subscribe,
+    () => cardsStore.getSnapshot().activityCollapsedGroups,
+    () => cardsStore.getSnapshot().activityCollapsedGroups,
+  );
+  // What Activity orders by moves on every turn and every save, which the
+  // Workspaces view has no use for, so it is listened to only while Activity
+  // is showing.
+  const activity = view === "activity";
+  const activityVersion = useSyncExternalStore(
+    activity ? subscribeActivityInputs : NOOP_SUBSCRIBE,
+    activity ? getActivityTick : getZero,
+    activity ? getActivityTick : getZero,
   );
   // The workspace headers' `· N live` reads the bindings cache, so a frame
   // landing after the list is drawn has to re-run the projection.
@@ -1433,6 +1766,9 @@ export function useCardsDataSource(
     spaces,
     bindingsCache: cacheRows,
     registryVersion: textVersion + viewVersion + elsewhereVersion,
+    view,
+    activityCollapsedGroups,
+    activityVersion,
   };
   if (ref.current === null) {
     ref.current = new CardsDataSource(full);
@@ -1444,6 +1780,18 @@ export function useCardsDataSource(
     if (didChange) ds.notify();
     // didChange is captured per render; intentional.
   });
+
+  // A file whose card has no buffer on this page — one in a workspace nobody
+  // has stood up, or mounted in another page — has its time on disk read by a
+  // stat. Asked again whenever the listed files or their cards' facts move,
+  // and whenever the view comes to Activity, since a file can be written by
+  // something this page never hears from.
+  const filePathsKey = ds.activityFilePathsKey();
+  const registryVersion = full.registryVersion;
+  useEffect(() => {
+    if (filePathsKey.length === 0) return;
+    void fileModifiedStore.request(filePathsKey.split("\n"));
+  }, [filePathsKey, registryVersion]);
 
   return ds;
 }

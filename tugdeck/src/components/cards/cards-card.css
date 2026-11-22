@@ -635,3 +635,49 @@ body {
    authored here, so the card cannot drift from the fit the gallery approved.
    That now includes the tape, whose `flex-shrink: 0` was a rail-only class on
    a rail-only copy of the instrument and is the row's rule. */
+
+/* The toolbar: filter, `View:` popup, `+`. The shell lets a rail card's filter
+   take the whole row; here it holds the width of its own placeholder ("Filter
+   Workspaces", seventeen characters on the field's width dial) so the view
+   popup has room beside it, and it still gives when the rail is narrow. The
+   `+` keeps the trailing edge in both views. */
+.rail-card-toolbar.cards-toolbar > [data-slot="tug-filter-field"] {
+  --tugx-filter-field-width: 17ch;
+  flex: 0 1 auto;
+}
+
+.cards-view-picker {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-xs);
+  flex: 0 0 auto;
+  margin-inline-end: auto;
+}
+
+.cards-view-label {
+  white-space: nowrap;
+}
+
+/* Activity's workspace chip: where a row lives, said by the workspace's own
+   swatch and its name, in the disambiguator's annotation voice. When the row
+   is narrow the name elides and the swatch stays. */
+.cards-activity-place {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-2xs);
+  flex: 0 1 auto;
+  min-inline-size: 0;
+  font-size: 0.9em;
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+}
+
+.cards-activity-place > .cards-space-swatch {
+  flex: 0 0 auto;
+}
+
+.cards-activity-place-name {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

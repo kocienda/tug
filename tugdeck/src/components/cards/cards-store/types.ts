@@ -28,6 +28,22 @@ export type CardsRowOrder = Readonly<Record<CardsGroup, readonly string[]>>;
 /** Tugbank domain owning the Cards card's persisted presentation state. */
 export const CARDS_DOMAIN = "dev.tugapp.cards";
 
+/**
+ * How the card arranges its rows. `workspaces` mirrors the deck: one header
+ * per workspace with its Sessions, Files and Tools under it. `activity` puts
+ * the things first and their place second: one flat Sessions list and one
+ * flat Files list across every workspace, newest first.
+ */
+export type CardsView = "workspaces" | "activity";
+
+/** Every view, in the order the card's `View:` popup offers them. */
+export const CARDS_VIEWS: readonly CardsView[] = ["workspaces", "activity"];
+
+/** Whether a persisted value names a view this build knows. */
+export function isCardsView(value: unknown): value is CardsView {
+  return value === "workspaces" || value === "activity";
+}
+
 /** Individual key names within the domain. */
 export const CARDS_KEYS = {
   CARDS_ROW_ORDER: "cardsRowOrder",
@@ -35,6 +51,8 @@ export const CARDS_KEYS = {
   CARDS_COLLAPSED_GROUPS: "cardsCollapsedGroups",
   CARDS_COLLAPSED_SPACES: "cardsCollapsedSpaces",
   CARDS_FILTER_QUERY: "cardsFilterQuery",
+  CARDS_VIEW: "cardsView",
+  CARDS_ACTIVITY_COLLAPSED_GROUPS: "cardsActivityCollapsedGroups",
 } as const;
 
 /**
@@ -84,4 +102,18 @@ export interface CardsSnapshot {
    * every card's page hears a query typed in another.
    */
   filterQuery: string;
+  /**
+   * Which arrangement the card shows. One fact for the deck, like the filter:
+   * every workspace mounts its own Workspaces card, and a switch of workspace
+   * that also switched the view would read as the card forgetting. Persisted
+   * beside the folds, so the card reopens in the view it was left in.
+   */
+  view: CardsView;
+  /**
+   * The Activity view's folded groups, by bare group name (`sessions`,
+   * `files`). Apart from {@link collapsedCardGroups} because Activity's two
+   * groups belong to no workspace: folding Files in Activity says nothing
+   * about any workspace's Files, and the reverse.
+   */
+  activityCollapsedGroups: readonly string[];
 }

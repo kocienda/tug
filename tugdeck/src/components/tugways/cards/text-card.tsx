@@ -857,6 +857,7 @@ export function TextCardContent({ cardId }: { cardId: string }) {
         const snap = store.getSnapshot();
         return snap.saveMode === "manual" && snap.saveState !== "clean";
       },
+      getLastSavedAt: () => store.getSnapshot().lastSavedAt,
       revealLine: (line, endLine, columns) =>
         editorRef.current?.revealLine(line, endLine, columns),
       openFile: (path, line, endLine, columns) => {
@@ -883,13 +884,24 @@ export function TextCardContent({ cardId }: { cardId: string }) {
     let lastPath = store.getSnapshot().path;
     let lastName = store.getSnapshot().fileName;
     let lastMark = unsavedMark(store.getSnapshot());
+    let lastSaved = store.getSnapshot().lastSavedAt;
     const unsubscribe = store.subscribe(() => {
       const snap = store.getSnapshot();
       const mark = unsavedMark(snap);
-      if (snap.path !== lastPath || snap.fileName !== lastName || mark !== lastMark) {
+      // A save moves where a path-less buffer sorts in the Workspaces card's
+      // Activity view, so it rides the same channel. A buffer with a file is
+      // ordered by the file's time on disk, which reaches that view through
+      // `fileModifiedStore`, so its saves stay off this channel.
+      if (
+        snap.path !== lastPath ||
+        snap.fileName !== lastName ||
+        mark !== lastMark ||
+        (snap.path === null && snap.lastSavedAt !== lastSaved)
+      ) {
         lastPath = snap.path;
         lastName = snap.fileName;
         lastMark = mark;
+        lastSaved = snap.lastSavedAt;
         notifyOpenTextCardsChanged();
       }
     });

@@ -40,6 +40,13 @@ export interface TextCardOpenEntry {
    */
   hasUnsavedMark(): boolean;
   /**
+   * When this buffer last saved in the app, in ms, or null when it has not
+   * this run. In memory only, so it is gone after a relaunch: the Activity
+   * view orders files by their time on disk and reads this only for a buffer
+   * with no file on disk to have one.
+   */
+  getLastSavedAt(): number | null;
+  /**
    * Reveal line(s) and momentarily flash them in the theme accent —
    * caret at `line` (1-based), a fading accent wash over `line`..`endLine`
    * (or just `line`). No persistent selection. A `columns` pair narrows the

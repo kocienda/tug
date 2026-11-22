@@ -105,6 +105,17 @@ import { useAnnotationClicks } from "@/components/tugways/use-annotation-clicks"
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
 import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
 import { TugIconButton } from "@/components/tugways/tug-icon-button";
+import { TugLabel } from "@/components/tugways/tug-label";
+import {
+  TugPopupButton,
+  type TugPopupButtonItem,
+} from "@/components/tugways/tug-popup-button";
+import { useResponderForm } from "@/components/tugways/use-responder-form";
+import {
+  CARDS_VIEWS,
+  isCardsView,
+  type CardsView,
+} from "@/components/cards/cards-store/types";
 import { fileTip } from "@/components/tugways/entity-tips";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { TugListRow, TugListRowTitle } from "@/components/tugways/tug-list-row";
@@ -129,9 +140,11 @@ import { sessionNameStore } from "@/lib/session-name-store";
 import { sessionTagStore } from "@/lib/session-tag-store";
 
 import {
+  ACTIVITY_SCOPE,
   displayPath,
   idOfRow,
   useCardsDataSource,
+  type ActivityPlace,
   type CardIdentity,
   type CardsRow,
   type CardsDataSource,
@@ -150,7 +163,8 @@ import {
   useCellContext,
   type CardsCellContextValue,
 } from "./cards-cell-context";
-import { SpaceHeaderCell } from "./cards-space-header";
+import { SpaceHeaderCell, ThemeSwatch } from "./cards-space-header";
+import { themeCatalogEntry } from "@/theme-catalog";
 
 /** The card's focus group — its chrome and its rows both live here, so the Tab
  *  walk runs the filter field and then the list. */
@@ -451,6 +465,42 @@ function OneLineRow({
 }
 
 // ---------------------------------------------------------------------------
+// Activity's workspace chip
+// ---------------------------------------------------------------------------
+
+/**
+ * Where an Activity row lives ([B06]). The Workspaces view says it with the
+ * header the row sits under; Activity has no such header, so each row carries
+ * its workspace's theme swatch and name — the same swatch the workspace's own
+ * header wears, so the two read as one mark. The name takes the filter's
+ * highlight, since the filter matches it here.
+ */
+function ActivityPlaceChip({ place }: { place: ActivityPlace }): React.ReactElement {
+  const ctx = useCellContext();
+  return (
+    <span
+      className="cards-activity-place"
+      data-testid="cards-activity-place"
+      data-cards-activity-space={place.spaceName}
+      title={`In ${place.spaceName}`}
+    >
+      {/* A workspace that never chose a theme wears the catalog's first, as its header shows. */}
+      <ThemeSwatch theme={themeCatalogEntry(place.spaceTheme).name} />
+      <span className="cards-activity-place-name">
+        {renderFilterHighlight(place.spaceName, ctx.filterQuery)}
+      </span>
+    </span>
+  );
+}
+
+/** The chip for a row that is in the Activity view, and nothing otherwise. */
+function placeOf(row: CardsRow): React.ReactNode {
+  return row.type === "pane" && row.activity !== undefined ? (
+    <ActivityPlaceChip place={row.activity} />
+  ) : null;
+}
+
+// ---------------------------------------------------------------------------
 // Cell renderers
 // ---------------------------------------------------------------------------
 
@@ -477,6 +527,10 @@ const GroupHeaderCell: TugListViewCellRenderer<CardsDataSource> = ({
   const ctx = useCellContext();
   if (row === undefined || row.type !== "group-header") return null;
   const title = GROUP_TITLES[row.group];
+  // An Activity header belongs to no workspace, so it is never another
+  // workspace's block: it is never dimmed and a click on it goes nowhere.
+  const here =
+    row.spaceId === ACTIVITY_SCOPE || row.spaceId === dataSource.activeSpaceId();
   return (
     <TugListRow
       className="cards-header"
@@ -484,8 +538,8 @@ const GroupHeaderCell: TugListViewCellRenderer<CardsDataSource> = ({
       data-cards-group-run={groupRunKey(row.spaceId, row.group)}
       data-group-collapsed={row.collapsed ? "true" : "false"}
       data-testid="cards-header"
-      {...spaceRowAttrs(row.spaceId, row.spaceId === dataSource.activeSpaceId())}
-      state={row.spaceId === dataSource.activeSpaceId() ? undefined : "dimmed"}
+      {...spaceRowAttrs(row.spaceId, here)}
+      state={here ? undefined : "dimmed"}
       // The header IS the group's drag handle: a press arms the carry of the
       // whole run, and travel past the threshold engages it.
       onPointerDown={(e) => ctx.onGroupPointerDown(row.spaceId, row.group, e)}
@@ -500,7 +554,7 @@ const GroupHeaderCell: TugListViewCellRenderer<CardsDataSource> = ({
       // reads it as a pick and the fold state is untouched.
       onClick={(e) => {
         e.stopPropagation();
-        ctx.onActivateSpace(row.spaceId);
+        if (row.spaceId !== ACTIVITY_SCOPE) ctx.onActivateSpace(row.spaceId);
       }}
       trailing={
         <BlockFoldCue
@@ -565,6 +619,7 @@ const SessionPaneCell: TugListViewCellRenderer<CardsDataSource> = ({
         onRowPointerDown={ctx.onRowPointerDown}
         spaceId={row.spaceId}
         spaceActive={row.spaceId === dataSource.activeSpaceId()}
+        place={placeOf(row)}
       />
     );
   }
@@ -579,6 +634,7 @@ const SessionPaneCell: TugListViewCellRenderer<CardsDataSource> = ({
       onRowPointerDown={ctx.onRowPointerDown}
       spaceId={row.spaceId}
       spaceActive={row.spaceId === dataSource.activeSpaceId()}
+      place={placeOf(row)}
     />
   );
 };
@@ -605,6 +661,7 @@ const FilePaneCell: TugListViewCellRenderer<CardsDataSource> = ({
       subrow={false}
       showSlots
       showClose={row.identity.closable}
+      trailing={placeOf(row)}
     />
   );
 };
@@ -772,6 +829,63 @@ function NewSpaceButton({ cardId }: { cardId: string }): React.ReactElement {
       data-testid="cards-new-space"
       size="2xs"
     />
+  );
+}
+
+/** The words the `View:` popup shows for each view. */
+const CARDS_VIEW_LABEL: Record<CardsView, string> = {
+  workspaces: "Workspaces",
+  activity: "Activity",
+};
+
+const CARDS_VIEW_ITEMS: TugPopupButtonItem<string>[] = CARDS_VIEWS.map(
+  (view) => ({
+    action: TUG_ACTIONS.SET_VALUE,
+    value: view,
+    label: CARDS_VIEW_LABEL[view],
+  }),
+);
+
+/**
+ * The `View:` label and popup. The chosen view is read from `cardsStore`
+ * ([L02]) and the popup's item dispatches `set-value` up the chain to this
+ * component's own form responder ([L11]), which writes it back to the store.
+ * It is the one fact every workspace's card shows, so the store, not this
+ * component, holds it.
+ */
+function CardsViewPicker(): React.ReactElement {
+  const view = useSyncExternalStore(
+    cardsStore.subscribe,
+    useCallback(() => cardsStore.getSnapshot().view, []),
+  );
+  const senderId = useId();
+  const { ResponderScope, responderRef } = useResponderForm({
+    setValueString: {
+      [senderId]: (v: string) => {
+        if (isCardsView(v)) cardsStore.setView(v);
+      },
+    },
+  });
+  return (
+    <ResponderScope>
+      <div
+        className="cards-view-picker"
+        data-testid="cards-view-picker"
+        ref={responderRef as (el: HTMLDivElement | null) => void}
+      >
+        <TugLabel className="cards-view-label" size="sm" emphasis="calm">
+          View:
+        </TugLabel>
+        <TugPopupButton
+          size="sm"
+          label={CARDS_VIEW_LABEL[view]}
+          items={CARDS_VIEW_ITEMS}
+          senderId={senderId}
+          data-testid="cards-view-menu"
+          data-cards-view={view}
+        />
+      </div>
+    </ResponderScope>
   );
 }
 
@@ -1044,7 +1158,9 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
   // The gesture is simply never armed.
   const onRowPointerDown = useCallback(
     (orderKey: string, event: React.PointerEvent): void => {
-      if (filtering) return;
+      // Nor in Activity ([B09]): time sets that order, so a carry would have
+      // nothing to change, and the Workspaces arrangement must not move.
+      if (filtering || dataSource.isActivity()) return;
       const at = dataSource.groupByOrderKey().get(orderKey) ?? null;
       // A parked workspace's rows carry too ([P09], [B01]): `getVisibleOrder`
       // is scoped to one group in one workspace, so a committed order can
@@ -1093,7 +1209,9 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
   // committing it would drop the missing group's place.
   const onGroupPointerDown = useCallback(
     (spaceId: string, group: CardsGroup, event: React.PointerEvent): void => {
-      if (filtering) return;
+      // Activity's two groups stand in a fixed order, Sessions then Files, and
+      // the group order this would commit is the Workspaces view's ([B09]).
+      if (filtering || spaceId === ACTIVITY_SCOPE) return;
       // A parked workspace's headers carry too ([P09], [B01]). The group order
       // this commits is one arrangement shared by every deck, so which
       // workspace it was arranged from does not enter into it.
@@ -1147,6 +1265,12 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
   // folding Sessions here leaves every other workspace's Sessions as it was.
   const onToggleGroup = useCallback(
     (spaceId: string, group: CardsGroup): void => {
+      // Activity's two groups fold on their own, apart from every workspace's.
+      if (spaceId === ACTIVITY_SCOPE) {
+        const folded = cardsStore.getSnapshot().activityCollapsedGroups;
+        cardsStore.setActivityGroupCollapsed(group, !folded.includes(group));
+        return;
+      }
       const collapsed = cardsStore.getSnapshot().collapsedCardGroups;
       cardsStore.setCardGroupCollapsed(
         spaceId,
@@ -1641,6 +1765,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
           focusGroup={CARDS_FOCUS_GROUP}
           focusOrder={CARDS_FILTER_FOCUS_ORDER}
         />
+        <CardsViewPicker />
         <NewSpaceButton cardId={cardId} />
       </RailCardToolbar>
       {!hasContent ? (

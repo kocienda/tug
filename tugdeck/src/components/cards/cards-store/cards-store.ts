@@ -43,6 +43,8 @@ import {
   CARDS_KEYS,
   type CardsRowOrder,
   type CardsSnapshot,
+  type CardsView,
+  isCardsView,
 } from "./types";
 
 class CardsStore {
@@ -96,6 +98,10 @@ class CardsStore {
       this._read(CARDS_KEYS.CARDS_ROW_ORDER),
     );
     const filterQuery = readString(this._read(CARDS_KEYS.CARDS_FILTER_QUERY));
+    const view = readView(this._read(CARDS_KEYS.CARDS_VIEW));
+    const activityCollapsedGroups = readStringArray(
+      this._read(CARDS_KEYS.CARDS_ACTIVITY_COLLAPSED_GROUPS),
+    );
     this._dispatch(
       {
         type: "hydrate",
@@ -104,6 +110,10 @@ class CardsStore {
         ...(collapsedCardGroups !== undefined ? { collapsedCardGroups } : {}),
         ...(collapsedSpaces !== undefined ? { collapsedSpaces } : {}),
         ...(filterQuery !== undefined ? { filterQuery } : {}),
+        ...(view !== undefined ? { view } : {}),
+        ...(activityCollapsedGroups !== undefined
+          ? { activityCollapsedGroups }
+          : {}),
       },
       { persist: false },
     );
@@ -140,6 +150,15 @@ class CardsStore {
     }
     if (prev.filterQuery !== next.filterQuery) {
       putJson(CARDS_KEYS.CARDS_FILTER_QUERY, next.filterQuery);
+    }
+    if (prev.view !== next.view) {
+      putJson(CARDS_KEYS.CARDS_VIEW, next.view);
+    }
+    if (prev.activityCollapsedGroups !== next.activityCollapsedGroups) {
+      putJson(
+        CARDS_KEYS.CARDS_ACTIVITY_COLLAPSED_GROUPS,
+        next.activityCollapsedGroups,
+      );
     }
   }
 
@@ -200,6 +219,25 @@ class CardsStore {
   setFilterQuery = (query: string): void => {
     this._ensureInitialized();
     this._dispatch({ type: "set_filter_query", query });
+  };
+
+  /**
+   * Choose how the card arranges its rows. Persists, so the card reopens in
+   * the view it was left in and every workspace's card hears the switch
+   * through the domain push.
+   */
+  setView = (view: CardsView): void => {
+    this._ensureInitialized();
+    this._dispatch({ type: "set_view", view });
+  };
+
+  /**
+   * Fold or open one of the Activity view's groups. Persists, apart from the
+   * per-workspace folds.
+   */
+  setActivityGroupCollapsed = (group: CardsGroup, collapsed: boolean): void => {
+    this._ensureInitialized();
+    this._dispatch({ type: "set_activity_group_collapsed", group, collapsed });
   };
 
   /**
@@ -291,6 +329,16 @@ function readCardsRowOrder(
 function readString(entry: TaggedValue | undefined): string | undefined {
   if (!entry || entry.kind !== "json") return undefined;
   return typeof entry.value === "string" ? entry.value : undefined;
+}
+
+/**
+ * Read the persisted view. A value this build does not know (a view a later
+ * build added, or anything malformed) is rejected as `undefined`, so the card
+ * keeps the view it has rather than landing on nothing.
+ */
+function readView(entry: TaggedValue | undefined): CardsView | undefined {
+  if (!entry || entry.kind !== "json") return undefined;
+  return isCardsView(entry.value) ? entry.value : undefined;
 }
 
 function putJson(key: string, value: unknown): void {

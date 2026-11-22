@@ -281,7 +281,7 @@ function SpaceRenameField({
 }
 
 /** A theme's Key hue as a chip — the row's swatch and each menu item's. */
-function ThemeSwatch({ theme }: { theme: string }): React.ReactElement {
+export function ThemeSwatch({ theme }: { theme: string }): React.ReactElement {
   return (
     <span
       className="cards-space-swatch"

@@ -16,6 +16,8 @@
  * @module lib/file-io
  */
 
+import { fileModifiedStore } from "./file-modified-store";
+
 /** Successful `/api/fs/read` payload. */
 export interface FileReadResult {
   /** Canonicalized absolute path (symlinks/firmlinks resolved). */
@@ -137,6 +139,11 @@ export async function readFileFromDisk(path: string): Promise<FileReadOutcome> {
   ) {
     return { ok: false, error: "internal" };
   }
+  const mtimeMs = typeof body.mtimeMs === "number" ? body.mtimeMs : 0;
+  // The time this read saw is the file's time, on the clock the Activity view
+  // orders files by — recorded under the path asked for and the canonical one.
+  fileModifiedStore.record(path, mtimeMs);
+  fileModifiedStore.record(body.path, mtimeMs);
   return {
     ok: true,
     file: {
@@ -144,7 +151,7 @@ export async function readFileFromDisk(path: string): Promise<FileReadOutcome> {
       content: body.content,
       sha256: body.sha256,
       size: typeof body.size === "number" ? body.size : body.content.length,
-      mtimeMs: typeof body.mtimeMs === "number" ? body.mtimeMs : 0,
+      mtimeMs,
       readOnly: body.readOnly === true,
       ...(typeof body.dev === "number" ? { dev: body.dev } : {}),
       ...(typeof body.ino === "number" ? { ino: body.ino } : {}),
@@ -186,9 +193,14 @@ export async function writeFileToDisk(
     }
     return { ok: false, error: coerceWriteError(body.error) };
   }
+  const mtimeMs = typeof body.mtimeMs === "number" ? body.mtimeMs : 0;
+  // A save is the activity the Activity view orders by; a delete leaves no
+  // file to have a time.
+  if (request.delete === true) fileModifiedStore.forget(request.path);
+  else fileModifiedStore.record(request.path, mtimeMs);
   return {
     ok: true,
     sha256: typeof body.sha256 === "string" ? body.sha256 : "",
-    mtimeMs: typeof body.mtimeMs === "number" ? body.mtimeMs : 0,
+    mtimeMs,
   };
 }

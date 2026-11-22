@@ -78,6 +78,9 @@ export interface CardsSessionRowProps {
    *  the workspace run's block key and the where-you-are mark ([P09], [P10]). */
   spaceId: string;
   spaceActive: boolean;
+  /** Where the row lives, drawn before the slots — the Activity view's
+   *  workspace chip, which no header above the row says for it. */
+  place?: React.ReactNode;
 }
 
 /** One monitor row: the shared `SessionIdentityRow`, at the Cards card's settings.
@@ -97,6 +100,7 @@ export function CardsSessionRow({
   selected,
   spaceId,
   spaceActive,
+  place,
 }: CardsSessionRowProps): React.ReactElement {
   // The binding's workspace key — the row already holds the project directory,
   // and the key is what scopes the file index the annotator's path resolver
@@ -162,6 +166,7 @@ export function CardsSessionRow({
         // everything as props.
         slots={
           <>
+            {place}
             <SlotPicker cardId={cardId} />
             <CardsSlotBadge cardId={cardId} />
           </>
@@ -196,6 +201,8 @@ export interface CardsUnconnectedSessionRowProps {
   selected: boolean;
   spaceId: string;
   spaceActive: boolean;
+  /** Where the row lives — the Activity view's workspace chip. */
+  place?: React.ReactNode;
 }
 
 /**
@@ -219,6 +226,7 @@ export function CardsUnconnectedSessionRow({
   selected,
   spaceId,
   spaceActive,
+  place,
 }: CardsUnconnectedSessionRowProps): React.ReactElement {
   const seedPath = useSeedPath();
   const project = seedPath.length > 0 ? projectLeafName(seedPath) : "";
@@ -248,6 +256,7 @@ export function CardsUnconnectedSessionRow({
       sparkline={<SessionActivitySparkline sessionId="" />}
       slots={
         <>
+          {place}
           <SlotPicker cardId={cardId} />
           <CardsSlotBadge cardId={cardId} />
         </>

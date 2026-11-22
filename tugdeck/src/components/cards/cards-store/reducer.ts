@@ -14,7 +14,7 @@ import {
   spaceOfRunKey,
   type CardsGroup,
 } from "@/components/cards/cards-groups";
-import type { CardsRowOrder, CardsSnapshot } from "./types";
+import type { CardsRowOrder, CardsSnapshot, CardsView } from "./types";
 
 /**
  * Reducer-internal state. Currently identical to the public snapshot,
@@ -27,6 +27,8 @@ export interface CardsState {
   collapsedCardGroups: readonly string[];
   collapsedSpaces: readonly string[];
   filterQuery: string;
+  view: CardsView;
+  activityCollapsedGroups: readonly string[];
 }
 
 export type CardsEvent =
@@ -53,6 +55,13 @@ export type CardsEvent =
       live: ReadonlySet<string>;
     }
   | { type: "set_filter_query"; query: string }
+  | { type: "set_view"; view: CardsView }
+  | {
+      /** Fold or open one of the Activity view's two groups. */
+      type: "set_activity_group_collapsed";
+      group: CardsGroup;
+      collapsed: boolean;
+    }
   | {
       /**
        * Apply hydrated values from tugbank. Each field is optional — a
@@ -66,6 +75,8 @@ export type CardsEvent =
       collapsedCardGroups?: readonly string[];
       collapsedSpaces?: readonly string[];
       filterQuery?: string;
+      view?: CardsView;
+      activityCollapsedGroups?: readonly string[];
     };
 
 export function createInitialState(): CardsState {
@@ -75,6 +86,8 @@ export function createInitialState(): CardsState {
     collapsedCardGroups: [],
     collapsedSpaces: [],
     filterQuery: "",
+    view: "workspaces",
+    activityCollapsedGroups: [],
   };
 }
 
@@ -198,6 +211,21 @@ export function reduce(state: CardsState, event: CardsEvent): CardsState {
       return { ...state, filterQuery: event.query };
     }
 
+    case "set_view": {
+      if (state.view === event.view) return state;
+      return { ...state, view: event.view };
+    }
+
+    case "set_activity_group_collapsed": {
+      const next = withMembership(
+        state.activityCollapsedGroups,
+        event.group,
+        event.collapsed,
+      );
+      if (next === state.activityCollapsedGroups) return state;
+      return { ...state, activityCollapsedGroups: next };
+    }
+
     case "hydrate": {
       let next = state;
       const bump = (): void => {
@@ -241,6 +269,17 @@ export function reduce(state: CardsState, event: CardsEvent): CardsState {
       ) {
         bump();
         next.filterQuery = event.filterQuery;
+      }
+      if (event.view !== undefined && state.view !== event.view) {
+        bump();
+        next.view = event.view;
+      }
+      if (
+        event.activityCollapsedGroups !== undefined &&
+        !listsEqual(state.activityCollapsedGroups, event.activityCollapsedGroups)
+      ) {
+        bump();
+        next.activityCollapsedGroups = [...event.activityCollapsedGroups];
       }
       return next;
     }

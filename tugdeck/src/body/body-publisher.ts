@@ -40,6 +40,7 @@ import {
 import { cardActivate } from "../bus/declarations/verbs";
 import { chordCaptureState } from "../lib/chord-capture-state";
 import { cardTitleStore } from "../lib/card-title-store";
+import { fileModifiedStore } from "../lib/file-modified-store";
 import { cardServicesStore } from "../lib/card-services-store";
 import { restorePassGate, sessionRestoreRegistry } from "../lib/session-restore";
 import { readCardCloseAdvice } from "../lib/card-close-advice";
@@ -371,6 +372,9 @@ export function installBodyPublisher(
     // The card's arc binding, which the phase key's join offer reads.
     cardSessionBindingStore.subscribe(publish),
     cardTitleStore.subscribe(publish),
+    // A save or reload on this page moves the file's time on disk, which the
+    // facts' identity carries to the shell's Activity view.
+    fileModifiedStore.subscribe(publish),
     // The page going dormant, or waking — and only that. The facts carry
     // `dormant` and nothing else of the page's visibility, and a publish on
     // every shown/hidden edge — a placement's hide and show — lands inside a

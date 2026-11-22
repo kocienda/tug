@@ -146,6 +146,13 @@ export interface CardIdentityFacts {
   icon?: string | null;
   /** The card wears its unsaved-changes mark. */
   unsaved?: boolean;
+  /**
+   * When what the card holds last changed, in ms since the epoch: a file's
+   * modification time on disk, or an unsaved-to-disk buffer's in-app save
+   * time. What the Workspaces card's Activity view orders files by, carried
+   * here so a card mounted in another page reports it too.
+   */
+  modifiedAt?: number | null;
 }
 
 /**

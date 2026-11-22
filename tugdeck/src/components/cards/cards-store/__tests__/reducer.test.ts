@@ -216,6 +216,75 @@ describe("CardsStore reducer — set_filter_query", () => {
   });
 });
 
+describe("CardsStore reducer — set_view", () => {
+  it("starts in the Workspaces view and switches to Activity", () => {
+    expect(fresh().view).toBe("workspaces");
+    const next = reduce(fresh(), { type: "set_view", view: "activity" });
+    expect(next.view).toBe("activity");
+  });
+
+  it("the same view keeps the state reference", () => {
+    const next = reduce(fresh(), { type: "set_view", view: "activity" });
+    expect(reduce(next, { type: "set_view", view: "activity" })).toBe(next);
+  });
+
+  it("leaves the folds, orders and filter untouched", () => {
+    const before = reduce(fresh(), { type: "toggle_space_collapsed", spaceId: "s1" });
+    const next = reduce(before, { type: "set_view", view: "activity" });
+    expect(next.collapsedSpaces).toBe(before.collapsedSpaces);
+    expect(next.collapsedCardGroups).toBe(before.collapsedCardGroups);
+    expect(next.cardsRowOrder).toBe(before.cardsRowOrder);
+    expect(next.filterQuery).toBe(before.filterQuery);
+  });
+});
+
+describe("CardsStore reducer — set_activity_group_collapsed", () => {
+  it("folds and opens one Activity group by bare name", () => {
+    const folded = reduce(fresh(), {
+      type: "set_activity_group_collapsed",
+      group: "files",
+      collapsed: true,
+    });
+    expect(folded.activityCollapsedGroups).toEqual(["files"]);
+    const opened = reduce(folded, {
+      type: "set_activity_group_collapsed",
+      group: "files",
+      collapsed: false,
+    });
+    expect(opened.activityCollapsedGroups).toEqual([]);
+  });
+
+  it("leaves every workspace's group folds untouched, and the reverse", () => {
+    const workspaceFold = reduce(fresh(), {
+      type: "set_cards_group_collapsed",
+      key: "s1:files",
+      collapsed: true,
+    });
+    const both = reduce(workspaceFold, {
+      type: "set_activity_group_collapsed",
+      group: "files",
+      collapsed: true,
+    });
+    expect(both.collapsedCardGroups).toBe(workspaceFold.collapsedCardGroups);
+    expect(workspaceFold.activityCollapsedGroups).toEqual([]);
+  });
+
+  it("a fold already in place keeps the state reference", () => {
+    const folded = reduce(fresh(), {
+      type: "set_activity_group_collapsed",
+      group: "sessions",
+      collapsed: true,
+    });
+    expect(
+      reduce(folded, {
+        type: "set_activity_group_collapsed",
+        group: "sessions",
+        collapsed: true,
+      }),
+    ).toBe(folded);
+  });
+});
+
 describe("CardsStore reducer — hydrate", () => {
   it("missing fields keep the existing in-state value (same-ref)", () => {
     const seeded: CardsState = {
@@ -224,6 +293,8 @@ describe("CardsStore reducer — hydrate", () => {
       collapsedCardGroups: ["files"],
       collapsedSpaces: ["s1"],
       filterQuery: "w1",
+      view: "activity",
+      activityCollapsedGroups: [],
     };
     expect(reduce(seeded, { type: "hydrate" })).toBe(seeded);
   });
@@ -236,6 +307,7 @@ describe("CardsStore reducer — hydrate", () => {
       collapsedCardGroups: ["files"],
       collapsedSpaces: ["s1"],
       filterQuery: "w1",
+      view: "activity",
     });
     expect(next.cardsRowOrder).toEqual({
       sessions: ["s1"],
@@ -246,6 +318,7 @@ describe("CardsStore reducer — hydrate", () => {
     expect(next.collapsedCardGroups).toEqual(["files"]);
     expect(next.collapsedSpaces).toEqual(["s1"]);
     expect(next.filterQuery).toBe("w1");
+    expect(next.view).toBe("activity");
   });
 
   it("equal hydrate values do not bump the reference", () => {
@@ -255,6 +328,8 @@ describe("CardsStore reducer — hydrate", () => {
       collapsedCardGroups: [],
       collapsedSpaces: ["s1"],
       filterQuery: "w1",
+      view: "workspaces",
+      activityCollapsedGroups: [],
     };
     const next = reduce(seeded, {
       type: "hydrate",
@@ -282,6 +357,8 @@ describe("CardsStore reducer — toSnapshot", () => {
       collapsedCardGroups: ["files"],
       collapsedSpaces: [],
       filterQuery: "",
+      view: "workspaces",
+      activityCollapsedGroups: [],
     };
     const snap = toSnapshot(s);
     expect(snap.cardsRowOrder.sessions).toEqual(["s1"]);

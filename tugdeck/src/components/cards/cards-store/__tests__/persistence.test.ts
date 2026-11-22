@@ -117,4 +117,31 @@ describe("CardsStore — persistence", () => {
     expect(puts.length).toBe(1);
     expect(puts[0].body).toEqual({ kind: "json", value: "T1" });
   });
+
+  it("setView PUTs the view as a json string, once per change", async () => {
+    cardsStore.setView("activity");
+    cardsStore.setView("activity");
+    await Promise.resolve();
+    const puts = captured.filter(
+      (c) =>
+        c.method === "PUT" && c.url.endsWith(`/${CARDS_KEYS.CARDS_VIEW}`),
+    );
+    expect(puts.length).toBe(1);
+    expect(puts[0].body).toEqual({ kind: "json", value: "activity" });
+  });
+
+  it("setActivityGroupCollapsed PUTs its own key, apart from the workspace folds", async () => {
+    cardsStore.setActivityGroupCollapsed("files", true);
+    await Promise.resolve();
+    const own = captured.filter(
+      (c) =>
+        c.method === "PUT" &&
+        c.url.endsWith(`/${CARDS_KEYS.CARDS_ACTIVITY_COLLAPSED_GROUPS}`),
+    );
+    expect(own.length).toBe(1);
+    expect(own[0].body).toEqual({ kind: "json", value: ["files"] });
+    expect(
+      captured.some((c) => c.url.endsWith(`/${CARDS_KEYS.CARDS_COLLAPSED_GROUPS}`)),
+    ).toBe(false);
+  });
 });

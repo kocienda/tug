@@ -26,6 +26,7 @@ import {
   CONTENT_WIDTH_SLIM_PX,
 } from "@/lib/layout-imposer";
 import { TextCardContent } from "./text-card";
+import { fileModifiedStore } from "@/lib/file-modified-store";
 
 /**
  * What a mounted Text card holds. The open registry is the live truth while
@@ -38,7 +39,14 @@ function liveTextIdentity(cardId: string): CardIdentityFacts | null {
   const path = entry.getPath();
   const name = path !== null ? basename(path) : entry.getDisplayName();
   if (name === null) return null;
-  return { title: name, path, unsaved: entry.hasUnsavedMark() };
+  return {
+    title: name,
+    path,
+    unsaved: entry.hasUnsavedMark(),
+    // A file's time on disk, as this page last saw it; a buffer with no file
+    // has only its in-app save time.
+    modifiedAt: path !== null ? fileModifiedStore.get(path) : entry.getLastSavedAt(),
+  };
 }
 
 /**

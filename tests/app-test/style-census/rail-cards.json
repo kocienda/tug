@@ -485,7 +485,7 @@
     "display": "flex",
     "flex-basis": "auto",
     "flex-direction": "row",
-    "flex-grow": "1",
+    "flex-grow": "0",
     "flex-shrink": "1",
     "font-family": "Tug Keys, IBM Plex Sans, IBM Plex Sans Arabic, IBM Plex Sans Hebrew, IBM Plex Sans Thai, IBM Plex Sans Devanagari, IBM Plex Sans JP, IBM Plex Sans KR, IBM Plex Sans SC, IBM Plex Sans TC, Segoe UI, system-ui, -apple-system, sans-serif",
     "font-size": "16px",
@@ -514,7 +514,7 @@
     "position": "relative",
     "row-gap": "normal",
     "text-transform": "none",
-    "width": "320px"
+    "width": "144.390625px"
   },
   "[data-testid=\"jots-toolbar\"]": {
     "align-items": "center",

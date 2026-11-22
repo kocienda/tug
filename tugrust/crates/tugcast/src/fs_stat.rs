@@ -76,6 +76,7 @@ fn stat_paths(paths: &[String], kind: StatKind) -> Value {
     let mut canonical = Map::new();
     let mut is_dir = Map::new();
     let mut identity = Map::new();
+    let mut mtime = Map::new();
     for raw in paths.iter().take(MAX_STAT_PATHS) {
         let reachable = match guard_absolute_path(raw) {
             Ok(resolved) => {
@@ -102,6 +103,10 @@ fn stat_paths(paths: &[String], kind: StatKind) -> Value {
                             if entry.as_object().is_some_and(|o| !o.is_empty()) {
                                 identity.insert(raw.clone(), entry);
                             }
+                            mtime.insert(
+                                raw.clone(),
+                                Value::from(crate::fs_read::mtime_ms(&md)),
+                            );
                         }
                         matched
                     })
@@ -118,11 +123,17 @@ fn stat_paths(paths: &[String], kind: StatKind) -> Value {
     // `identity` carries `(dev, ino)` for the reachable paths only — an
     // unreachable path has no file to identify. It is what lets a caller
     // recognize one of its own files under a new name.
+    //
+    // `mtimeMs` carries the modification time, in milliseconds since the Unix
+    // epoch, for the reachable paths only — the same reading `/api/fs/read`
+    // reports, so a caller ordering files by when they were last written gets
+    // one clock whether it read the file or only probed it.
     json!({
         "exists": exists,
         "canonical": canonical,
         "isDir": is_dir,
         "identity": identity,
+        "mtimeMs": mtime,
     })
 }
 
@@ -182,6 +193,13 @@ mod tests {
         );
         // Nothing to identify where there is no file.
         assert!(body["identity"].get(&missing_key).is_none());
+        // The modification time rides beside the identity, on the same clock
+        // `/api/fs/read` reports, and only where there is a file.
+        assert_eq!(
+            body["mtimeMs"][&present_key].as_u64().unwrap(),
+            crate::fs_read::mtime_ms(&metadata)
+        );
+        assert!(body["mtimeMs"].get(&missing_key).is_none());
     }
 
     #[test]
