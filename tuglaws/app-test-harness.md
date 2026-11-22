@@ -3,6 +3,7 @@
 *The integration-test harness that drives a real `Tug.app` subprocess via the DEBUG-only `TestHarness` Unix-socket bridge. Why it exists, what it can and cannot assert, the lifecycle model, the trusted-event surface, and how it relates to the macOS code-signing pipeline. Read this before changing the harness, before classifying a new test as smoke vs. scenario, or before claiming a behavior has been "covered" by app-test.*
 
 *Cross-references: `[D##]` → [design-decisions.md](design-decisions.md). `[L##]` → [tuglaws.md](tuglaws.md).*
+<!-- at0334 marker 5 -->
 
 ---
 
@@ -63,6 +64,7 @@ What the harness *can* assert is the union of:
 - **Subprocess-level guarantees.** Cold-boot persistence, app-reload state restoration, `quitGracefully` flush, cross-process tugbank reads.
 
 When a bug falls outside the envelope, mark the residual as "manual verification required" in the test comment. Do not paper over an out-of-envelope assertion with a weaker proxy — a passing weaker proxy is worse than an honest skip, because the skip surfaces in code review while the proxy hides indefinitely.
+<!-- at0334 marker 65 -->
 
 ---
 
@@ -123,6 +125,7 @@ The no-argument `just app-test` is a **curated core tier** of roughly twenty tes
 The runner used to forget everything the moment its shell exited. Every summary it printed — which files were green, against which commit, on which tree — was computed, rendered once, and thrown away. So the question a red file actually raises, *was this already broken before I touched it*, had no cheap answer, and the expensive one is bisection: the `at0417` incident cost roughly thirty-five minutes of reverse-patch probing at about six minutes a cycle to establish a fact that had been true and observable at the end of every prior run.
 
 So the runner remembers. Each run persists what it already computed into `apptest_results.db` — machine-global beside `changes.db`, keyed by the **resolved base checkout** so an arc worktree and the checkout it forked from share one history. That keying is not a detail: the incident lived precisely in that split, with the failing run on an arc and every exonerating run on `main`. History keyed by raw working directory would have answered "no history" at the one moment the answer mattered.
+<!-- at0334 marker 125 -->
 
 Three properties are doctrine, not implementation.
 
