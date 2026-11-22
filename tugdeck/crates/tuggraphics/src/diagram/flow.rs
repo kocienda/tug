@@ -8,8 +8,13 @@
 //! down or up between the two boxes. Only an edge that skips a column runs
 //! under the boxes, each in a lane of its own; it comes up into a box from
 //! below, or, when it ends at a row, in the gap beside that row's box and
-//! turns into the row. The gaps are sized last, from the lanes and labels
-//! that must fit in them, so every coordinate follows from the boxes' text.
+//! turns into the row. No edge runs through a box it does not join: an end
+//! on a box with another beneath it leaves or arrives by the box's side,
+//! in a lane outside the figure when its column is the first or the last
+//! and otherwise in the gap beside it, and an edge within a column that
+//! passes a box between its ends goes round by the column's right. The
+//! gaps are sized last, from the lanes and labels that must fit in them,
+//! so every coordinate follows from the boxes' text.
 //!
 //! Every edge starts with a dot where it leaves its box or row, and its
 //! label sits on it in a chip, drawn after all the edges. A lit row wears
@@ -137,7 +142,8 @@ enum Kind {
 }
 
 /// A lane in the gap right of column `gap`, counted from the column on its
-/// left or from the one on its right, or the gap's centre.
+/// left or from the one on its right, or the gap's centre; or a lane
+/// outside the figure, left of the first column or right of the last.
 #[derive(Clone, Copy)]
 struct Lane {
     gap: usize,
@@ -146,6 +152,29 @@ struct Lane {
     /// The lane down the gap's middle, which a labelled turn between
     /// neighbours takes so its chip can sit on the turn.
     centre: bool,
+    /// Outside the figure: left of the first column when `left`, and
+    /// otherwise right of the last.
+    outer: bool,
+}
+
+impl Lane {
+    /// Whether the lane lies to the right of column `col`.
+    fn right_of(self, col: usize) -> bool {
+        if self.outer {
+            !self.left
+        } else {
+            self.gap == col
+        }
+    }
+
+    /// The side of `rect`, in column `col`, that faces the lane.
+    fn side(self, rect: Rect, col: usize) -> f64 {
+        if self.right_of(col) {
+            rect.x + rect.w
+        } else {
+            rect.x
+        }
+    }
 }
 
 struct Routed<'s> {
@@ -157,10 +186,12 @@ struct Routed<'s> {
     y1: f64,
     y2: f64,
     label: Lines,
-    /// The lane a neighbour turns in, or the one a skipping edge leaves
-    /// its row by.
+    /// The lane a neighbour turns in, the one a skipping edge leaves its
+    /// row or its covered box by, or the one an edge within a column goes
+    /// round a box in.
     turn: Option<Lane>,
-    /// The lane a skipping edge comes up in to reach its row.
+    /// The lane a skipping edge comes up in to reach its row or its
+    /// covered box.
     rise: Option<Lane>,
     /// A skipping edge's lane under the boxes.
     under: usize,
@@ -180,6 +211,21 @@ fn take(lanes: &mut [[usize; 2]], gap: usize, left: bool) -> Lane {
         left,
         k,
         centre: false,
+        outer: false,
+    }
+}
+
+/// The next lane outside the figure on one side.
+fn take_outer(outer: &mut [usize; 2], left: bool) -> Lane {
+    let side = usize::from(!left);
+    let k = outer[side];
+    outer[side] += 1;
+    Lane {
+        gap: 0,
+        left,
+        k,
+        centre: false,
+        outer: true,
     }
 }
 
@@ -527,6 +573,11 @@ pub(crate) fn layout(flow: &Flow, title: Option<&str>, animate: bool, m: &dyn Me
     // turns takes the next lane past its source.
     let cols = flow.columns.len();
     let mut lanes: Vec<[usize; 2]> = vec![[0, 0]; cols];
+    let mut outer = [0usize; 2];
+    // An end on a box with another beneath it cannot use the box's bottom:
+    // the way down is through the box below.
+    let covered = |e: EndRef| e.row.is_none() && e.node + 1 < flow.columns[e.col].len();
+    let at_edge = |c: usize| c == 0 || c == cols - 1;
     let mut skips: Vec<usize> = (0..routed.len())
         .filter(|&i| routed[i].kind == Kind::Skip)
         .collect();
@@ -541,19 +592,59 @@ pub(crate) fn layout(flow: &Flow, title: Option<&str>, animate: bool, m: &dyn Me
         let r = &mut routed[i];
         let (from, to) = (r.edge.from, r.edge.to);
         let ahead = r.dir > 0.0;
-        if from.row.is_some() {
+        if from.row.is_some() || (covered(from) && !at_edge(from.col)) {
             r.turn = Some(if ahead {
                 take(&mut lanes, from.col, true)
             } else {
                 take(&mut lanes, from.col - 1, false)
             });
         }
-        if to.row.is_some() {
+        if to.row.is_some() || (covered(to) && !at_edge(to.col)) {
             r.rise = Some(if ahead {
                 take(&mut lanes, to.col - 1, false)
             } else {
                 take(&mut lanes, to.col, true)
             });
+        }
+    }
+    // A covered box in the first or the last column is left or reached
+    // round the outside of the figure, where nothing else runs. The
+    // shallowest lane under the boxes takes the nearest lane outside, so
+    // the deeper ones pass round it.
+    for &i in &skips {
+        let r = &mut routed[i];
+        let (from, to) = (r.edge.from, r.edge.to);
+        if covered(from) && at_edge(from.col) {
+            r.turn = Some(take_outer(&mut outer, from.col == 0));
+        }
+        if covered(to) && at_edge(to.col) {
+            r.rise = Some(take_outer(&mut outer, to.col == 0));
+        }
+    }
+    // An edge within a column that would pass through a box between its
+    // ends goes round by the column's right.
+    for r in routed.iter_mut().filter(|r| {
+        r.kind == Kind::Stack && r.edge.from.node.abs_diff(r.edge.to.node) > 1
+    }) {
+        let c = r.edge.from.col;
+        r.turn = Some(if c + 1 < cols {
+            take(&mut lanes, c, true)
+        } else {
+            take_outer(&mut outer, false)
+        });
+    }
+    // The ends these lanes put on a box's side are spread from the edges
+    // already there, as a neighbour's are.
+    for r in routed.iter_mut().filter(|r| r.kind != Kind::Near) {
+        let (from, to) = (r.edge.from, r.edge.to);
+        if let (Some(l), None) = (r.turn, from.row) {
+            let rect = end_rect(&placed, from);
+            r.y1 = settle(from, l.right_of(from.col), r.y1, false, rect);
+        }
+        let arrive = if r.kind == Kind::Stack { r.turn } else { r.rise };
+        if let (Some(l), None) = (arrive, to.row) {
+            let rect = end_rect(&placed, to);
+            r.y2 = settle(to, l.right_of(to.col), r.y2, false, rect);
         }
     }
     // A labelled turn takes the gap's centre, one to a gap, and its chip
@@ -572,6 +663,7 @@ pub(crate) fn layout(flow: &Flow, title: Option<&str>, animate: bool, m: &dyn Me
                 left: true,
                 k: 0,
                 centre: true,
+                outer: false,
             });
             continue;
         }
@@ -599,6 +691,14 @@ pub(crate) fn layout(flow: &Flow, title: Option<&str>, animate: bool, m: &dyn Me
             let between = if l > 0 && rr > 0 { LANE } else { 22.0 };
             let mut need = GAP_MIN.max(reach(l) + reach(rr) + between);
             for r in &routed {
+                // A chip on a turn round a box sits past the lane.
+                if let (Kind::Stack, Some(lane)) = (r.kind, r.turn) {
+                    if !lane.outer && lane.gap == g && r.label.count() > 0 {
+                        let chip = r.label.w + 2.0 * CHIP_PAD_X;
+                        need = need.max(LANE0 + LANE * lane.k as f64 + chip + 26.0);
+                    }
+                    continue;
+                }
                 if r.kind != Kind::Near
                     || r.edge.from.col.min(r.edge.to.col) != g
                     || r.label.count() == 0
@@ -620,12 +720,12 @@ pub(crate) fn layout(flow: &Flow, title: Option<&str>, animate: bool, m: &dyn Me
 
     // Now x.
     let mut col_x = Vec::with_capacity(cols);
-    let mut x = MARGIN;
+    let mut x = MARGIN + reach(outer[0]);
     for c in 0..cols {
         col_x.push(x);
         x += col_w[c] + gap_w[c];
     }
-    let right = x;
+    let right = x + reach(outer[1]);
     for col in placed.iter_mut() {
         for p in col.iter_mut() {
             p.rect.x = col_x[p.col];
@@ -759,7 +859,14 @@ pub(crate) fn layout(flow: &Flow, title: Option<&str>, animate: bool, m: &dyn Me
     // Edges, over the boxes.
     let bottom = top + content_h;
     let lane_x = |l: Lane| {
-        if l.centre {
+        if l.outer {
+            let out = LANE0 + LANE * l.k as f64;
+            if l.left {
+                col_x[0] - out
+            } else {
+                col_x[cols - 1] + col_w[cols - 1] + out
+            }
+        } else if l.centre {
             col_x[l.gap] + col_w[l.gap] + (gap_w[l.gap] / 2.0).round()
         } else if l.left {
             col_x[l.gap] + col_w[l.gap] + LANE0 + LANE * l.k as f64
@@ -846,8 +953,29 @@ pub(crate) fn layout(flow: &Flow, title: Option<&str>, animate: bool, m: &dyn Me
                 }
                 pts
             }
-            Kind::Stack => {
+            Kind::Stack => 'stack: {
                 let (a, b) = (from_node.rect, to_node.rect);
+                if let Some(l) = r.turn {
+                    // Round the box between: out the side, along the
+                    // lane, and back in.
+                    let lx = lane_x(l);
+                    let pts = vec![
+                        (l.side(fr, from.col), r.y1),
+                        (lx, r.y1),
+                        (lx, r.y2),
+                        (l.side(tr, to.col), r.y2),
+                    ];
+                    if r.label.count() > 0 {
+                        let (cw, _) =
+                            Pen::chip_size(r.label.count(), r.label.w, TypeRole::Value, &lh);
+                        let half = (cw / 2.0).ceil();
+                        // On the lane, and clear of the boxes it passes.
+                        let cx = lx.max(l.side(a, from.col) + 6.0 + half);
+                        chips.push((cx, ((r.y1 + r.y2) / 2.0).round(), i));
+                        label_right = label_right.max(cx + half + MARGIN);
+                    }
+                    break 'stack pts;
+                }
                 let cx = a.x + (a.w / 2.0).round();
                 let pts = if b.y > a.y {
                     vec![(cx, a.y + a.h), (cx, b.y)]
@@ -866,7 +994,7 @@ pub(crate) fn layout(flow: &Flow, title: Option<&str>, animate: bool, m: &dyn Me
                 let sx = match r.turn {
                     Some(l) => {
                         let lx = lane_x(l);
-                        pts.push((face(fr, true), r.y1));
+                        pts.push((l.side(fr, from.col), r.y1));
                         pts.push((lx, r.y1));
                         lx
                     }
@@ -882,7 +1010,7 @@ pub(crate) fn layout(flow: &Flow, title: Option<&str>, animate: bool, m: &dyn Me
                         let lx = lane_x(l);
                         pts.push((lx, lane_y));
                         pts.push((lx, r.y2));
-                        pts.push((face(tr, false), r.y2));
+                        pts.push((l.side(tr, to.col), r.y2));
                         lx
                     }
                     None => {

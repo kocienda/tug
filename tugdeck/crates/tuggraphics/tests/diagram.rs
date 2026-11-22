@@ -850,6 +850,53 @@ fn each_edge_that_skips_a_column_has_a_lane_of_its_own_and_one_to_a_row_comes_up
 }
 
 #[test]
+fn no_edge_runs_through_a_box_it_does_not_join() {
+    use tuggraphics::draw::{ColourRole, Item, PaintKind, Seg};
+    // A back edge from a box with another beneath it in the last column,
+    // a skipping edge out of a covered box in a middle column and into a
+    // covered box in the first, and an edge within a column past the box
+    // between its ends.
+    let source = flow(
+        r#"[[{"id": "a", "name": "A"}, {"id": "a2", "name": "A2"}], [{"id": "b", "name": "B"}, {"id": "b2", "name": "B2"}], [{"id": "c", "name": "C"}], [{"id": "d", "name": "D"}, {"id": "d2", "name": "D2"}, {"id": "d3", "name": "D3"}]]"#,
+        r#"[{"from": "d", "to": "a2", "tone": "good", "label": "back"}, {"from": "b", "to": "d3", "tone": "bad"}, {"from": "d2", "to": "a", "tone": "caution"}, {"from": "d", "to": "d3", "tone": "outside", "label": "past"}]"#,
+    );
+    let laid = laid_source(&source);
+    let boxes = flow_boxes(&laid);
+    assert_eq!(boxes.len(), 8);
+    let mut edges = 0;
+    for item in &laid.program.items {
+        let Item::Paint(p) = item else { continue };
+        if p.width != 2.0 || !matches!(p.kind, PaintKind::Stroke { cap: Some(_), .. }) {
+            continue;
+        }
+        edges += 1;
+        let pts: Vec<(f64, f64)> = p
+            .path
+            .iter()
+            .filter_map(|s| match s {
+                Seg::Move(x, y) | Seg::Line(x, y) | Seg::Arc { x, y, .. } => Some((*x, *y)),
+                Seg::Curve(c) => Some((c[4], c[5])),
+                Seg::Close => None,
+            })
+            .collect();
+        for w in pts.windows(2) {
+            let (x0, x1) = (w[0].0.min(w[1].0), w[0].0.max(w[1].0));
+            let (y0, y1) = (w[0].1.min(w[1].1), w[0].1.max(w[1].1));
+            for b in &boxes {
+                // Inside the outline by more than an end's touch.
+                let inside = x1 > b.0 + 2.0 && x0 < b.2 - 2.0 && y1 > b.1 + 2.0 && y0 < b.3 - 2.0;
+                assert!(!inside, "{:?} edge {w:?} runs through box {b:?}", p.role);
+            }
+        }
+    }
+    assert_eq!(edges, 4);
+    // The back edge leaves D by its outer side, round the figure's right.
+    let right = boxes.iter().map(|r| r.2).fold(0.0, f64::max);
+    let back = edge_paths(&laid, ColourRole::Good)[0];
+    assert!(back.2 > right, "{back:?} goes round {right}");
+}
+
+#[test]
 fn a_lit_row_wears_a_wash_an_outline_and_a_dot_in_its_tone() {
     use tuggraphics::draw::{ColourRole, Item, PaintKind, Seg};
     let laid = laid_source(&flow(
