@@ -246,6 +246,13 @@ export interface SessionStageSpec {
    * of a turn it did not open.
    */
   prompt?: string;
+  /**
+   * The opening prompt's submission id — the same id the `user_message` behind
+   * this command carries, and the one tugcast's turn latch names the turn by.
+   * Echoed on the rotation's `session_segment` so the deck opens its cycle
+   * under the latch's own id, and can place a later latch reading against it.
+   */
+  submission_id?: string;
 }
 
 /** Fork / continue / new the conversation ([D10]). */

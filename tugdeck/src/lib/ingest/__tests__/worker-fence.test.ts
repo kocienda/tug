@@ -53,6 +53,7 @@ const ALLOW: readonly string[] = [
   "@/lib/code-session-store/session-engine",
   "@/lib/code-session-store/stages",
   "@/lib/code-session-store/telemetry",
+  "@/lib/code-session-store/turn-reconcile",
   "@/lib/code-session-store/types",
   "@/lib/annotator/command-grammar",
   "@/lib/annotator/detect-commit-sha",

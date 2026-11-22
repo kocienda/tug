@@ -477,6 +477,12 @@ pub fn frames_for(request: &RotationRequest) -> (Vec<Frame>, Frame) {
     // on the rotation's `session_segment`, which is how the deck opens the turn
     // it is about to watch.
     stage["prompt"] = serde_json::Value::String(request.prompt.clone());
+    // The prompt's submission id rides the command too, for the same reason:
+    // tugcode echoes it on the `session_segment`, the deck opens its cycle
+    // under it, and the turn latch names the turn by it once the prompt
+    // reaches the dispatcher — so the card and the latch name one turn.
+    let submission_id = uuid::Uuid::new_v4().to_string();
+    stage["submission_id"] = serde_json::Value::String(submission_id.clone());
     frames.push(code_input_frame(&serde_json::json!({
         "type": "session_command",
         "tug_session_id": session,
@@ -492,7 +498,7 @@ pub fn frames_for(request: &RotationRequest) -> (Vec<Frame>, Frame) {
         "type": "user_message",
         "tug_session_id": session,
         "content": [{ "type": "text", "text": request.prompt }],
-        "submission_id": uuid::Uuid::new_v4().to_string(),
+        "submission_id": submission_id,
     }));
     (frames, prompt)
 }
@@ -734,6 +740,20 @@ mod tests {
         serde_json::from_slice(&frame.payload).unwrap()
     }
 
+    /// The stage object with its submission id taken out, after asserting the
+    /// id is there and is the prompt's own: one turn, named once.
+    fn stage_without_its_id(command: &Frame, prompt: &Frame) -> serde_json::Value {
+        let mut stage = body(command)["stage"].clone();
+        let id = stage
+            .as_object_mut()
+            .expect("a stage object")
+            .remove("submission_id")
+            .expect("the stage carries the prompt's submission id");
+        assert!(id.is_string());
+        assert_eq!(id, body(prompt)["submission_id"], "one id on both frames");
+        stage
+    }
+
     #[test]
     fn a_named_model_puts_a_model_change_first_and_an_unnamed_one_sends_none() {
         let (with, _) = frames_for(&request(Some("opus")));
@@ -755,7 +775,8 @@ mod tests {
     /// The `String` → `Option` change in `document` and `arc` is the one shape
     /// change the extraction forces. For an arc's rotation both are always
     /// present, so the emitted object must be byte-identical to what the arc
-    /// sent before — asserted rather than assumed.
+    /// sent before — asserted rather than assumed — beside the prompt's own
+    /// submission id, which every rotation now carries.
     #[test]
     fn a_scores_stage_object_is_what_the_arc_always_sent() {
         let request = RotationRequest::new(
@@ -767,10 +788,10 @@ mod tests {
         .plan(Some("arc/some.md".to_string()))
         .arc(Some("some-arc".to_string()))
         .steps(Some("4-9".to_string()));
-        let (frames, _) = frames_for(&request);
-        let stage = &body(&frames[0])["stage"];
+        let (frames, prompt) = frames_for(&request);
+        let stage = stage_without_its_id(&frames[0], &prompt);
         assert_eq!(
-            *stage,
+            stage,
             serde_json::json!({
                 "name": "implement",
                 "document": "arc/some-brief.md",
@@ -798,14 +819,15 @@ mod tests {
 
     /// The invariant floor cannot be widened without editing this test: a
     /// request built from the constructor's three arguments alone emits a
-    /// stage object carrying nothing but the label and the prompt.
+    /// stage object carrying nothing but the label, the prompt, and the
+    /// prompt's submission id.
     #[test]
     fn the_constructors_three_arguments_are_the_whole_of_a_bare_rotation() {
         let request = RotationRequest::new(TugSessionId::new("sess-1"), "hello", "review");
         let (frames, prompt) = frames_for(&request);
         assert_eq!(frame_types(&frames), vec!["session_command"]);
         assert_eq!(
-            body(&frames[0])["stage"],
+            stage_without_its_id(&frames[0], &prompt),
             serde_json::json!({ "name": "review", "prompt": "hello" })
         );
         assert_eq!(body(&prompt)["content"][0]["text"], "hello");

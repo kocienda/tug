@@ -197,7 +197,13 @@ pub trait SessionsRecorder: Send + Sync {
     /// latch's edges. The ledger recorder holds it beside the rows and pushes
     /// the row when it moves, so `session_updated` carries the turn as the
     /// supervisor sees it. The default holds nothing.
-    fn record_turn_latch(&self, _session_id: &str, _active: bool) {}
+    fn record_turn_latch(&self, _session_id: &str, _latch: crate::session_ledger::TurnLatch) {}
+
+    /// Close a segment's turn latch and keep the turn it names, for a site
+    /// with no supervisor entry to read an id from — the segment a rotation
+    /// released, the one `/clear` dropped. The ledger recorder pushes the row
+    /// when it moved. The default holds nothing.
+    fn record_turn_closed(&self, _session_id: &str) {}
 }
 
 /// Call the recorder on the blocking pool and await the answer — the one way
@@ -250,7 +256,8 @@ impl LedgerSessionsRecorder {
             keep_binding,
         );
         // A closed session has no turn open, whatever the latch last said.
-        self.ledger.set_turn_active(session_id, false);
+        // The turn it names is kept, so the row still says which turn ended.
+        self.ledger.close_turn_latch(session_id);
         // The fact rides the durable transition rather than any one of the
         // several `closed` publish sites, and only when a row really moved —
         // so a session that ended once has one ending in the fact base however
@@ -313,7 +320,7 @@ impl LedgerSessionsRecorder {
                     &row,
                     self.scan_metrics(session_id),
                     self.usage(session_id),
-                    self.ledger.turn_active(session_id),
+                    self.ledger.turn_latch(session_id),
                 ));
             }
             Ok(None) => {}
@@ -568,7 +575,7 @@ impl SessionsRecorder for LedgerSessionsRecorder {
             event = "ledger.mark_failed",
             session_id,
         );
-        self.ledger.set_turn_active(session_id, false);
+        self.ledger.close_turn_latch(session_id);
         if transitioned {
             self.record_lifecycle_fact(&crate::feeds::facts_library::session_end_fact(
                 crate::session_ledger::now_millis(),
@@ -682,8 +689,14 @@ impl SessionsRecorder for LedgerSessionsRecorder {
         }
     }
 
-    fn record_turn_latch(&self, session_id: &str, active: bool) {
-        if self.ledger.set_turn_active(session_id, active) {
+    fn record_turn_latch(&self, session_id: &str, latch: crate::session_ledger::TurnLatch) {
+        if self.ledger.set_turn_latch(session_id, latch) {
+            self.broadcast_row(session_id);
+        }
+    }
+
+    fn record_turn_closed(&self, session_id: &str) {
+        if self.ledger.close_turn_latch(session_id) {
             self.broadcast_row(session_id);
         }
     }
@@ -841,15 +854,15 @@ pub(super) fn relocation_edge(
 /// Kept pure — it takes the pair, not a ledger handle — so each caller does its
 /// own lookup beside the `ledger.get` it already performs.
 ///
-/// `turn_active` is the segment's turn latch as the ledger holds it
-/// ([`SessionLedger::turn_active`](crate::session_ledger::SessionLedger::turn_active)),
+/// `latch` is the segment's turn latch as the ledger holds it
+/// ([`SessionLedger::turn_latch`](crate::session_ledger::SessionLedger::turn_latch)),
 /// read by every caller for the same reason as `metrics`: a push that omitted
 /// it would end, on the deck, a turn that is still running.
 pub fn build_session_updated_frame(
     row: &crate::session_ledger::SessionRow,
     metrics: Option<crate::session_ledger::SessionScanMetrics>,
     usage: Option<crate::session_ledger::SessionUsage>,
-    turn_active: bool,
+    latch: crate::session_ledger::TurnLatch,
 ) -> Frame {
     let body = serde_json::json!({
         "action": "session_updated",
@@ -881,7 +894,11 @@ pub fn build_session_updated_frame(
             // Whether the segment's turn is open, from the supervisor's turn
             // latch — the one source of a card's phase while its body is not
             // listening. Not a column: see `SessionLedger::turn_active`.
-            "turn_active": turn_active,
+            "turn_active": latch.active,
+            // The id of the turn the latch last opened, kept after its close
+            // ([P01]): an idle reading names the turn that ended, which is
+            // how a card tells a turn it missed from one it already finished.
+            "turn_id": latch.turn_id,
             // The unread mark's two stamps. A resting state like privacy,
             // and the deck replaces its row wholesale, so a push that omitted
             // them would spend an unseen result nobody looked at.
@@ -992,11 +1009,13 @@ mod tests {
     }
 
     /// The turn latch rides the row: each edge the supervisor reports pushes
-    /// the row once with `turn_active` as it now stands, a report that moves
-    /// nothing pushes nothing, and a close ends the turn on the row whatever
-    /// the latch last said.
+    /// the row once with `turn_active` and `turn_id` as they now stand, a
+    /// report that moves nothing pushes nothing, and a close ends the turn on
+    /// the row whatever the latch last said — keeping the id of the turn that
+    /// ended, so an idle reading names it ([P01]).
     #[test]
     fn the_turn_latch_rides_the_session_row_push() {
+        use crate::session_ledger::TurnLatch;
         let ledger = Arc::new(SessionLedger::open_in_memory().expect("ledger open"));
         let (tx, mut rx) = broadcast::channel::<Frame>(16);
         let recorder = LedgerSessionsRecorder::with_broadcast(Arc::clone(&ledger), tx);
@@ -1009,18 +1028,29 @@ mod tests {
             line_id: None,
         });
         while rx.try_recv().is_ok() {}
-        let turn_active = |rx: &mut broadcast::Receiver<Frame>| {
+        let pushed = |rx: &mut broadcast::Receiver<Frame>| {
             let frame = rx.try_recv().expect("a row push");
             let body: serde_json::Value = serde_json::from_slice(&frame.payload).expect("json");
             assert_eq!(body["action"], "session_updated");
-            body["fields"]["turn_active"]
+            let active = body["fields"]["turn_active"]
                 .as_bool()
-                .expect("turn_active is a bool")
+                .expect("turn_active is a bool");
+            let turn_id = body["fields"]["turn_id"].as_str().map(str::to_owned);
+            (active, turn_id)
         };
+        let open = |id: &str| TurnLatch {
+            active: true,
+            turn_id: Some(id.to_owned()),
+        };
+        let closed = |id: &str| TurnLatch {
+            active: false,
+            turn_id: Some(id.to_owned()),
+        };
+        let named = |active: bool, id: &str| (active, Some(id.to_owned()));
 
-        recorder.record_turn_latch("claude-abc", true);
-        assert!(turn_active(&mut rx), "a turn opened");
-        recorder.record_turn_latch("claude-abc", true);
+        recorder.record_turn_latch("claude-abc", open("t1"));
+        assert_eq!(pushed(&mut rx), named(true, "t1"), "a turn opened");
+        recorder.record_turn_latch("claude-abc", open("t1"));
         assert!(
             rx.try_recv().is_err(),
             "an edge that moved nothing pushes nothing"
@@ -1029,18 +1059,75 @@ mod tests {
         // The bridge's turn-end stamp lands while the latch still reads open;
         // the supervisor's close is the push that ends it.
         recorder.record_turn("claude-abc", true);
-        assert!(
-            turn_active(&mut rx),
+        assert_eq!(
+            pushed(&mut rx),
+            named(true, "t1"),
             "the stamp alone does not end the turn"
         );
-        recorder.record_turn_latch("claude-abc", false);
-        assert!(!turn_active(&mut rx), "the latch's close ends it");
+        recorder.record_turn_latch("claude-abc", closed("t1"));
+        assert_eq!(
+            pushed(&mut rx),
+            named(false, "t1"),
+            "the latch's close ends it and still names it"
+        );
 
-        recorder.record_turn_latch("claude-abc", true);
-        assert!(turn_active(&mut rx));
+        recorder.record_turn_latch("claude-abc", open("t2"));
+        assert_eq!(pushed(&mut rx), named(true, "t2"));
         recorder.mark_closed("claude-abc");
-        assert!(!turn_active(&mut rx), "a closed session has no turn open");
-        assert!(!ledger.turn_active("claude-abc"));
+        assert_eq!(
+            pushed(&mut rx),
+            named(false, "t2"),
+            "a closed session has no turn open, and the row names the turn that ended"
+        );
+        assert_eq!(ledger.turn_latch("claude-abc"), closed("t2"));
+    }
+
+    /// The close for a site with no supervisor entry — the segment a rotation
+    /// released, the one `/clear` dropped — keeps the turn the latch names and
+    /// pushes the row once.
+    #[test]
+    fn a_turn_closed_without_an_entry_keeps_its_id_and_pushes_once() {
+        use crate::session_ledger::TurnLatch;
+        let ledger = Arc::new(SessionLedger::open_in_memory().expect("ledger open"));
+        let (tx, mut rx) = broadcast::channel::<Frame>(16);
+        let recorder = LedgerSessionsRecorder::with_broadcast(Arc::clone(&ledger), tx);
+        recorder.record(SessionRecord {
+            session_id: "claude-abc",
+            workspace_key: "ws-1",
+            project_dir: "/proj/x",
+            card_id: "card-1",
+            tag: None,
+            line_id: None,
+        });
+        recorder.record_turn_latch(
+            "claude-abc",
+            TurnLatch {
+                active: true,
+                turn_id: Some("t1".to_owned()),
+            },
+        );
+        while rx.try_recv().is_ok() {}
+
+        recorder.record_turn_closed("claude-abc");
+        let frame = rx.try_recv().expect("the close pushes the row");
+        let body: serde_json::Value = serde_json::from_slice(&frame.payload).expect("json");
+        assert_eq!(body["fields"]["turn_active"], false);
+        assert_eq!(body["fields"]["turn_id"], "t1");
+        assert_eq!(
+            ledger.turn_latch("claude-abc"),
+            TurnLatch {
+                active: false,
+                turn_id: Some("t1".to_owned()),
+            }
+        );
+
+        recorder.record_turn_closed("claude-abc");
+        assert!(rx.try_recv().is_err(), "a second close moves nothing");
+        recorder.record_turn_closed("claude-never");
+        assert!(
+            rx.try_recv().is_err(),
+            "a segment never latched has nothing to close"
+        );
     }
 
     #[test]

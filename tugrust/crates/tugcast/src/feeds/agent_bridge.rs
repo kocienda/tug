@@ -993,7 +993,7 @@ pub async fn run_session_bridge(
             // it standing, which is the whole of what tells a session that is
             // coming back from one that is not.
             entry.child_gone_at = Some(std::time::Instant::now());
-            entry.set_turn_active(false);
+            entry.close_turn();
             // No relay, no bracket. The in-band close above settles the
             // count for a merger still working through its queue; this
             // settles it for one that had already counted the open, and for
@@ -2388,7 +2388,7 @@ async fn relay_session_io_tracked(
                                 && previous != current
                             {
                                 offload_recorder(sessions_recorder, move |r| {
-                                    r.record_turn_latch(&previous, false)
+                                    r.record_turn_closed(&previous)
                                 })
                                 .await;
                             }
@@ -5029,7 +5029,13 @@ mod tests {
         sessions
             .record_spawn("root", "ws-test", "/proj", "card-1", 1, "line-1", None)
             .expect("seed the root");
-        sessions.set_turn_active("root", true);
+        sessions.set_turn_latch(
+            "root",
+            crate::session_ledger::TurnLatch {
+                active: true,
+                turn_id: Some("t-root".to_owned()),
+            },
+        );
 
         let stage = segment_line("rotation", "root", "stage-1", r#","stage":"implement""#);
         drive_segments_with(

@@ -147,6 +147,14 @@ export interface DeckCardFacts {
    * subprocess to answer a catch-up.
    */
   sessionState: SessionRow["state"] | "childless" | null;
+  /**
+   * tugcast's turn latch for the card's session, from the same row
+   * `sessionState` reads: whether a turn is running and which turn the latch
+   * last opened. Null when the card has no binding or no row, or when the row
+   * does not report the latch (an older tugcast) — absent means unknown,
+   * never idle. The body hands it to its store (`followServerTurn`).
+   */
+  turnLatch: { active: boolean; turnId: string | null } | null;
   /** A parked workspace card's title from its bindings ledger (`cardIdentity`'s `parked` source), else null. */
   parkedTitle: string | null;
   /** Whether the card waives its type's close confirm now (`card.holds` `waive`). */
@@ -172,6 +180,7 @@ export const deckCards = defineSharedStore<Record<string, DeckCardFacts>>({
       activity: nullable(str),
       binding: nullable(sessionBinding),
       sessionState: nullable(literal("live", "closed", "failed", "childless")),
+      turnLatch: nullable(obj({ active: bool, turnId: nullable(str) })),
       parkedTitle: nullable(str),
       waivesClose: bool,
     }),

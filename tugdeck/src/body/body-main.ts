@@ -67,6 +67,7 @@ import { sessionCitationStore } from "../lib/session-citation-store";
 import { cardSessionBindingStore, followShellArcBinding, seedBindingLines, shareCardBinding } from "../lib/card-session-binding-store";
 import { shareArcPresses } from "../lib/arc-press-store";
 import { cardServicesStore } from "../lib/card-services-store";
+import { followServerTurn } from "./body-turn-latch";
 import { attachSessionLedgerStore } from "../lib/session-ledger-store";
 import { attachSessionStateChangesStore } from "../lib/session-state-changes-store";
 import { attachDigestStore } from "../lib/digest-store";
@@ -947,6 +948,8 @@ async function bindBody(bind: BodyBind): Promise<void> {
   boundDeck = deck;
   followDeckCards(cardId);
   followOwnArcBinding(cardId);
+  // tugcast's turn latch for the card's session reaches its store from here.
+  followServerTurn(cardId);
   follow(cardContext, (context) => deck.applyContext(context));
   // A card that lists or moves the whole deck reads the shell's.
   const view =

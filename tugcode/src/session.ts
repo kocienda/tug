@@ -4815,6 +4815,11 @@ export class SessionManager {
             ...(this.currentArc !== null ? { arc: this.currentArc } : {}),
             ...(stage.steps !== undefined ? { steps: stage.steps } : {}),
             ...(stage.prompt !== undefined ? { prompt: stage.prompt } : {}),
+            // The prompt's submission id, so the deck opens its cycle under
+            // the id tugcast's turn latch names the turn by.
+            ...(stage.submission_id !== undefined
+              ? { submission_id: stage.submission_id }
+              : {}),
           }
         : {}),
       ipc_version: IPC_VERSION,

@@ -16,7 +16,7 @@ import { deckCards, type DeckCardFacts } from "../../bus/declarations/deck";
 import { _resetPageForTest, installPage } from "../../bus/page";
 import { createTestBus, type TestBus } from "../../bus/test-bus";
 import type { DeckState, TugPaneState } from "../../layout-tree";
-import { projectDeckCards, type ArrangementDeck, type DeckCardReaders } from "../body-arrangement";
+import { projectDeckCards, turnLatchOf, type ArrangementDeck, type DeckCardReaders } from "../body-arrangement";
 import { cardTitleStore } from "../card-title-store";
 import type { CardSessionBinding } from "../card-session-binding-store";
 import { deckCardIcon, deckCardTabTitle, movedFacets } from "../deck-cards";
@@ -89,6 +89,7 @@ const READERS: DeckCardReaders = {
   activity: (id) => (id === "a" ? "streaming" : null),
   binding: (id) => (id === "a" ? BINDING : null),
   sessionState: (id) => (id === "a" ? "closed" : null),
+  turnLatch: (id) => (id === "a" ? { active: false, turnId: "t-a" } : null),
   parkedTitle: (id) => (id === "c" ? "tug/odd-kiln" : null),
   waivesClose: (id) => id === "a",
 };
@@ -103,6 +104,7 @@ function entry(over: Partial<DeckCardFacts> = {}): DeckCardFacts {
     activity: null,
     binding: null,
     sessionState: null,
+    turnLatch: null,
     parkedTitle: null,
     waivesClose: false,
     ...over,
@@ -113,12 +115,36 @@ describe("projectDeckCards", () => {
   test("carries every card of every workspace, with its kind and what the shell knows of it", () => {
     const cards = projectDeckCards(DECK, READERS);
     expect(Object.keys(cards)).toEqual(["a", "b", "c"]);
-    expect(cards.a).toEqual(entry({ activity: "streaming", binding: BINDING, sessionState: "closed", waivesClose: true }));
+    expect(cards.a).toEqual(
+      entry({
+        activity: "streaming",
+        binding: BINDING,
+        sessionState: "closed",
+        turnLatch: { active: false, turnId: "t-a" },
+        waivesClose: true,
+      }),
+    );
     expect(cards.b).toEqual(
       entry({ componentId: "deck-cards-doc", title: "notes.md", identity: { title: "notes.md", path: "/p/notes.md" } }),
     );
     expect(cards.c).toEqual(entry({ parkedTitle: "tug/odd-kiln" }));
     expect(JSON.parse(JSON.stringify(cards))).toEqual(cards);
+  });
+});
+
+describe("turnLatchOf", () => {
+  test("reads nothing from no row, or from a row that does not report the latch", () => {
+    expect(turnLatchOf(null)).toBeNull();
+    // An older tugcast: no boolean `turn_active`, so absent means unknown.
+    expect(turnLatchOf({})).toBeNull();
+    expect(turnLatchOf({ turn_id: "t1" })).toBeNull();
+  });
+
+  test("carries the latch and the turn it names, with a missing id read as none", () => {
+    expect(turnLatchOf({ turn_active: true, turn_id: "t1" })).toEqual({ active: true, turnId: "t1" });
+    expect(turnLatchOf({ turn_active: false, turn_id: "t1" })).toEqual({ active: false, turnId: "t1" });
+    expect(turnLatchOf({ turn_active: false, turn_id: null })).toEqual({ active: false, turnId: null });
+    expect(turnLatchOf({ turn_active: false })).toEqual({ active: false, turnId: null });
   });
 });
 

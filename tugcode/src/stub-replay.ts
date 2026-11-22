@@ -44,6 +44,10 @@
 // arriving as one burst. Absent or zero, a turn's outputs are emitted in
 // one loop, as they always were.
 //
+// `answersCatchUp: false` leaves a catch-up unanswered: a `request_replay`
+// carrying `afterTurn` gets no bracket at all, as when the answer is lost
+// on its way to a dormant body. Absent or true, it is answered as below.
+//
 // Schema version mismatch produces a hard error at load time. The
 // `tugcodeVersion` field is informational at this Pass 7B scope —
 // runtime version-handshake / mismatch handling is deferred to a
@@ -164,6 +168,11 @@ export interface TugcodeTranscript {
    * or zero emits a turn's outputs at once.
    */
   paceMs?: number;
+  /**
+   * False leaves every `afterTurn` read unanswered — no bracket at all, as
+   * when a catch-up's answer is lost. Absent or true answers it.
+   */
+  answersCatchUp?: boolean;
   turns: TugcodeTurn[];
 }
 
@@ -274,10 +283,17 @@ export function loadTranscript(path: string): TugcodeTranscript {
       `stub-replay: transcript at ${path} has paceMs=${String(pace)} (must be a number >= 0)`,
     );
   }
+  const answers = obj.answersCatchUp;
+  if (answers !== undefined && typeof answers !== "boolean") {
+    throw new Error(
+      `stub-replay: transcript at ${path} has answersCatchUp=${String(answers)} (must be a boolean)`,
+    );
+  }
   return {
     schemaVersion: sv,
     tugcodeVersion: obj.tugcodeVersion,
     paceMs: pace,
+    ...(answers !== undefined ? { answersCatchUp: answers } : {}),
     turns,
   };
 }
@@ -528,9 +544,11 @@ export class StubReplayEngine {
    * the newest finished turn carrying a named msg-id, else one turn before
    * the count the card holds.
    *
-   * The bracket names the ask it answers, as production's does.
+   * The bracket names the ask it answers, as production's does. A
+   * transcript with `answersCatchUp: false` answers no `afterTurn` read.
    */
   answerReplay(window?: ReplayWindow, askId?: string): void {
+    if (this.transcript.answersCatchUp === false && window !== undefined && "afterTurn" in window) return;
     const named = askId === undefined ? {} : { ask_id: askId };
     this.emit({ type: "replay_started", ...named, ipc_version: IPC_VERSION } as OutboundMessage);
     if (window === undefined || "lastTurns" in window) {

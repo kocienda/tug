@@ -213,6 +213,15 @@ export interface SessionRow {
    */
   turn_active?: boolean;
   /**
+   * The turn tugcast's latch last opened: the submission id of a prompt, or
+   * the id the merger minted for a live wake. Kept after the turn ends, so an
+   * idle row says which turn ended; `null` before the session's first turn
+   * since tugcast started. Carried beside `turn_active` on the same rows, and
+   * absent only on a row from an older tugcast. Keep in lockstep with the
+   * Rust `TurnLatch.turn_id`.
+   */
+  turn_id?: string | null;
+  /**
    * When the last live turn that **completed** ended, in ms; `0` until one
    * has. A cancelled or errored end never writes it. One half of the unread
    * mark: see {@link sessionTurnEndUnseen}. Defaults to `0` for an older

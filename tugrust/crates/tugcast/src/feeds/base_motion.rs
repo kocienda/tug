@@ -342,13 +342,15 @@ pub fn compose_replay_notice(
 /// `InspectedPayload::from_slice` already read, so the dispatcher's existing
 /// `user_message` intercept journals it exactly as it journals a client's.
 /// It carries its own `submission_id`, as the deck's do, so the dispatcher
-/// forwards it unchanged.
-pub(crate) fn user_message_payload(session: &str, text: &str) -> Vec<u8> {
+/// forwards it unchanged. The caller mints that id and hands the same one to
+/// the [`notice_payload`] that opens the turn on the card, so the card's cycle
+/// and the turn latch name one turn.
+pub(crate) fn user_message_payload(session: &str, text: &str, submission_id: &str) -> Vec<u8> {
     serde_json::to_vec(&serde_json::json!({
         "tug_session_id": session,
         "type": "user_message",
         "content": [{ "type": "text", "text": text }],
-        "submission_id": uuid::Uuid::new_v4().to_string(),
+        "submission_id": submission_id,
     }))
     .expect("a json object of strings serializes")
 }
@@ -364,11 +366,16 @@ pub(crate) fn user_message_payload(session: &str, text: &str) -> Vec<u8> {
 /// `facts` are the outcome as data (Spec S06), for the deck to draw as a
 /// receipt; the text says the same thing in words, and is still what the
 /// agent reads and what a deck that knows no facts renders.
+///
+/// `submission_id` is the id of the `user_message` this notice opens, when it
+/// opens one: the turn latch names the turn by it, and the card takes it as
+/// its cycle's id, so a later latch reading can be placed against the turn.
 pub(crate) fn notice_payload(
     session: &str,
     origin: &str,
     text: &str,
     facts: Option<&NoticeFacts>,
+    submission_id: Option<&str>,
 ) -> Vec<u8> {
     let mut body = serde_json::json!({
         "tug_session_id": session,
@@ -378,6 +385,9 @@ pub(crate) fn notice_payload(
     });
     if let Some(facts) = facts {
         body["facts"] = serde_json::to_value(facts).expect("notice facts serialize");
+    }
+    if let Some(id) = submission_id {
+        body["submission_id"] = serde_json::Value::from(id);
     }
     serde_json::to_vec(&body).expect("a json object of strings serializes")
 }
@@ -2490,16 +2500,18 @@ impl InjectHandles {
         let Some(input_tx) = self.code_input_tx.as_ref() else {
             return false;
         };
+        // One id for the notice and the turn it opens.
+        let submission_id = uuid::Uuid::new_v4().to_string();
         if let Some(output) = self.code_output.as_ref() {
             output.publish_tagged(Frame::new(
                 FeedId::CODE_OUTPUT,
-                notice_payload(session, origin, text, facts),
+                notice_payload(session, origin, text, facts, Some(&submission_id)),
             ));
         }
         input_tx
             .send(Frame::new(
                 FeedId::CODE_INPUT,
-                user_message_payload(session, submission),
+                user_message_payload(session, submission, &submission_id),
             ))
             .await
             .is_ok()
@@ -3457,6 +3469,56 @@ mod tests {
         assert!(text.contains("no file changes"));
     }
 
+    /// An opener names the turn it opens when its caller has one to name, and
+    /// carries no id at all otherwise.
+    #[test]
+    fn a_notice_names_the_turn_it_opens_only_when_told() {
+        let named: serde_json::Value = serde_json::from_slice(&notice_payload(
+            "s1",
+            "base-motion",
+            "hello",
+            None,
+            Some("turn-1"),
+        ))
+        .unwrap();
+        assert_eq!(named["submission_id"], "turn-1");
+        let unnamed: serde_json::Value =
+            serde_json::from_slice(&notice_payload("s1", "base-motion", "hello", None, None))
+                .unwrap();
+        assert!(unnamed.get("submission_id").is_none());
+    }
+
+    /// An injection's notice and its `user_message` carry one submission id,
+    /// so the card's cycle and the turn latch name the same turn.
+    #[tokio::test]
+    async fn an_injection_names_its_turn_once_on_both_frames() {
+        let feed =
+            SessionScopedFeed::new(FeedId::CODE_OUTPUT, 16, tugcast_core::lag::LagPolicy::Warn);
+        let mut out_rx = feed.subscribe();
+        let (in_tx, mut in_rx) = mpsc::channel::<Frame>(8);
+        let inject = InjectHandles {
+            code_input_tx: Some(in_tx),
+            code_output: Some(feed),
+        };
+        assert!(
+            inject
+                .send_as("s1", NOTICE_ORIGIN, "hello", "hello", None)
+                .await
+        );
+        let notice: serde_json::Value =
+            serde_json::from_slice(&out_rx.try_recv().expect("a notice").payload).unwrap();
+        let prompt: serde_json::Value =
+            serde_json::from_slice(&in_rx.try_recv().expect("a prompt").payload).unwrap();
+        let id = notice["submission_id"]
+            .as_str()
+            .expect("the notice names it");
+        assert!(
+            uuid::Uuid::parse_str(id).is_ok(),
+            "a canonical id the dispatcher keeps"
+        );
+        assert_eq!(prompt["submission_id"], id);
+    }
+
     /// The one field that separates a bulletin from a turn's opener.
     ///
     /// A frame that lost it would open a turn nothing ever finishes, so the
@@ -3472,7 +3534,8 @@ mod tests {
         assert_eq!(bulletin["standalone"], true);
 
         let opener: serde_json::Value =
-            serde_json::from_slice(&notice_payload("s1", "base-motion", "hello", None)).unwrap();
+            serde_json::from_slice(&notice_payload("s1", "base-motion", "hello", None, None))
+                .unwrap();
         assert!(
             opener.get("standalone").is_none(),
             "an opener carries no flag at all — a turn is coming behind it: {opener}"

@@ -141,6 +141,13 @@ export interface SendActionEvent {
    */
   origin?: "user" | "wheel";
   /**
+   * The id tugcast's turn latch names this turn by, when it is not the
+   * `turnKey`: a wheel prompt or a rotation, which tugcast dispatched under
+   * its own submission id. Absent for a typed send, whose `turnKey` is the
+   * `submission_id` it goes out under.
+   */
+  turnId?: string;
+  /**
    * Synthesized substrate text — contains `U+FFFC` (object
    * replacement) at every position where the wire's content blocks
    * carry an image. File-path atoms have already been substituted
@@ -764,6 +771,11 @@ export type SessionStageEvent = Omit<Wire.ReplayStage, "type" | "ipc_version"> &
     type: "session_stage";
     /** The turn key the wrapper minted for `prompt`; present iff `prompt` is. */
     turnKey?: string;
+    /**
+     * The submission id tugcast dispatched the rotation's prompt under, which
+     * its turn latch names the turn by; echoed by tugcode on `session_segment`.
+     */
+    submissionId?: string;
   };
 
 /**
@@ -1194,7 +1206,14 @@ export interface SessionRewindActionEvent {
  * See `arc/tugplan-session-wake.md` [D01], [D02] for the
  * bracket pattern and detection rationale.
  */
-export type WakeStartedEvent = WireEvent<Wire.WakeStarted> & { turnKey: string };
+export type WakeStartedEvent = WireEvent<Wire.WakeStarted> & {
+  turnKey: string;
+  /**
+   * The id tugcast's turn latch opened this wake under. Stamped only on a
+   * live wake; a replayed one carries none.
+   */
+  turnId?: string;
+};
 
 /**
  * Neutral assistant-originated turn opener — the reducer event the store
@@ -1250,6 +1269,11 @@ export interface TugNoticeEvent {
   facts?: BaseMotionNoticeFacts;
   /** Same mint contract as {@link AssistantOpenerEvent.turnKey}. */
   turnKey: string;
+  /**
+   * The submission id of the turn this notice opens, which tugcast's turn
+   * latch names the turn by. Absent on a standalone notice.
+   */
+  submissionId?: string;
   [key: string]: unknown;
 }
 
@@ -1586,6 +1610,30 @@ export interface PopInteractiveActionEvent {
  */
 export type StopAllWorkDoneEvent = WireEvent<Wire.StopAllWorkDone>;
 
+/**
+ * tugcast's turn latch for this card's session, as the session row reports
+ * it: whether a turn is running, and which turn the latch last opened. The
+ * body reads it from `deck.cards` and hands it to the store. `null` is a
+ * reading nobody can give (no row, or a tugcast that does not report the
+ * latch), and decides nothing.
+ */
+export interface ServerTurnLatch {
+  active: boolean;
+  turnId: string | null;
+}
+
+/**
+ * `server_turn` — a new reading of tugcast's turn latch. The reducer keeps
+ * it as `serverTurn`; an idle card also records the turn it names as one it
+ * is past. `cardId` rides for the engine, which remembers it for the
+ * catch-up a correction asks.
+ */
+export interface ServerTurnEvent {
+  type: "server_turn";
+  latch: ServerTurnLatch | null;
+  cardId: string;
+}
+
 /** Discriminated union of events the reducer accepts. */
 export type CodeSessionEvent =
   | SendActionEvent
@@ -1680,4 +1728,5 @@ export type CodeSessionEvent =
   | ShellExchangeStartedActionEvent
   | ShellExchangeCompleteActionEvent
   | ArcNoteActionEvent
-  | RefsResultActionEvent;
+  | RefsResultActionEvent
+  | ServerTurnEvent;

@@ -1052,6 +1052,18 @@ enum ChangeRoute {
     Forward(Box<crate::changes_writer::ForwardTicket>),
 }
 
+/// Where one segment's turn latch stands, as the supervisor last recorded it:
+/// whether a turn is open, and the id of the turn the latch last opened —
+/// kept after the close, so an idle reading names the turn that ended. Both
+/// ride every `session_updated` row (`turn_active`, `turn_id`), which is how a
+/// card places a reading against the turns it has heard of. The default is a
+/// segment the latch never named: idle, no turn.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TurnLatch {
+    pub active: bool,
+    pub turn_id: Option<String>,
+}
+
 /// SQLite-backed per-session metadata store.
 pub struct SessionLedger {
     /// The connection, behind the worker gauge: in debug builds, locking it
@@ -1135,14 +1147,15 @@ pub struct SessionLedger {
     /// records sessions exactly as it always did and simply cannot be
     /// found from outside.
     session_index: Option<tugcore::session_index::SessionIndex>,
-    /// The segments whose turn is open, as the supervisor's per-session turn
-    /// latch last said. Process state, not a column: a turn does not outlive
-    /// the tugcast that ran it, so a restart answers every segment idle, which
-    /// is what it is. It rides every `session_updated` push as `turn_active`,
-    /// so the shell can read a card's phase for a body that is not listening
-    /// from the one place that knows it, rather than infer a turn's end from
-    /// stamps and samples.
-    turn_latches: Mutex<HashSet<String>>,
+    /// Each segment's turn latch, as the supervisor's per-session latch last
+    /// said ([`TurnLatch`]). Process state, not a column: a turn does not
+    /// outlive the tugcast that ran it, so a restart answers every segment
+    /// idle with no turn named, which is what it is. A closed latch keeps its
+    /// entry, so the row still names the turn that ended. It rides every
+    /// `session_updated` push as `turn_active` and `turn_id`, so the shell can
+    /// read a card's phase for a body that is not listening from the one place
+    /// that knows it, rather than infer a turn's end from stamps and samples.
+    turn_latches: Mutex<HashMap<String, TurnLatch>>,
 }
 
 impl SessionLedger {
@@ -1330,7 +1343,7 @@ impl SessionLedger {
             changes_db_path: changes_db.clone(),
             writer_identity,
             session_index: None,
-            turn_latches: Mutex::new(HashSet::new()),
+            turn_latches: Mutex::new(HashMap::new()),
         };
         // Journal replay completes a post-quarantine rebuild: salvage
         // recovered what was readable; the journal re-applies everything
@@ -1392,7 +1405,7 @@ impl SessionLedger {
             changes_db_path: None,
             writer_identity: crate::changes_writer::local_identity(0),
             session_index: None,
-            turn_latches: Mutex::new(HashSet::new()),
+            turn_latches: Mutex::new(HashMap::new()),
         })
     }
 
@@ -6551,20 +6564,49 @@ impl SessionLedger {
 
     /// Record where a segment's turn latch stands. True when it moved, which
     /// is when the row is worth pushing again.
-    pub fn set_turn_active(&self, session_id: &str, active: bool) -> bool {
+    pub fn set_turn_latch(&self, session_id: &str, latch: TurnLatch) -> bool {
         let mut latches = self.turn_latches.lock();
-        if active {
-            latches.insert(session_id.to_owned())
-        } else {
-            latches.remove(session_id)
+        let held = latches.entry(session_id.to_owned()).or_default();
+        if *held == latch {
+            return false;
+        }
+        *held = latch;
+        true
+    }
+
+    /// Close a segment's latch and keep the turn it names — the close for a
+    /// site that has no supervisor entry to read an id from (a segment marked
+    /// closed or failed, the segment a rotation released, the one `/clear`
+    /// dropped). True when it moved.
+    pub fn close_turn_latch(&self, session_id: &str) -> bool {
+        let mut latches = self.turn_latches.lock();
+        match latches.get_mut(session_id) {
+            Some(held) if held.active => {
+                held.active = false;
+                true
+            }
+            _ => false,
         }
     }
 
-    /// Whether a segment's turn is open, as the latch last said — what every
-    /// builder of a session-row frame reads beside the row, for the reason
-    /// [`usage_for`](Self::usage_for) gives.
+    /// Where a segment's turn latch stands, as the latch last said — what
+    /// every builder of a session-row frame reads beside the row, for the
+    /// reason [`usage_for`](Self::usage_for) gives. The default for a segment
+    /// the latch never named.
+    pub fn turn_latch(&self, session_id: &str) -> TurnLatch {
+        self.turn_latches
+            .lock()
+            .get(session_id)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Whether a segment's turn is open, as the latch last said.
     pub fn turn_active(&self, session_id: &str) -> bool {
-        self.turn_latches.lock().contains(session_id)
+        self.turn_latches
+            .lock()
+            .get(session_id)
+            .is_some_and(|l| l.active)
     }
 
     /// What this segment cost, summed over its committed turns ([`SessionUsage`]).
@@ -10224,6 +10266,41 @@ mod tests {
             crate::session_tag_lexicon::TAG_NOUNS.contains(&noun),
             "{noun} is not in the noun pool ({tag})"
         );
+    }
+    /// The latch map reports a move on any change to what it holds — an id
+    /// change with `active` unchanged included, since the row then names a
+    /// different turn — and answers the default for a segment it never held.
+    #[test]
+    fn the_turn_latch_reports_an_id_change_as_a_move() {
+        let ledger = SessionLedger::open_in_memory().expect("ledger");
+        assert_eq!(ledger.turn_latch("s"), TurnLatch::default());
+        assert!(!ledger.turn_active("s"));
+
+        let named = |active: bool, id: &str| TurnLatch {
+            active,
+            turn_id: Some(id.to_owned()),
+        };
+        assert!(ledger.set_turn_latch("s", named(false, "t1")));
+        assert!(!ledger.set_turn_latch("s", named(false, "t1")), "no move");
+        assert!(
+            ledger.set_turn_latch("s", named(false, "t2")),
+            "a new id with the same flag is a move"
+        );
+        assert!(ledger.set_turn_latch("s", named(true, "t2")));
+        assert!(ledger.turn_active("s"));
+
+        assert!(ledger.close_turn_latch("s"));
+        assert_eq!(
+            ledger.turn_latch("s"),
+            named(false, "t2"),
+            "the close keeps the id"
+        );
+        assert!(
+            !ledger.close_turn_latch("s"),
+            "a closed latch does not move"
+        );
+        assert!(!ledger.close_turn_latch("never"), "nor does one never held");
+        assert_eq!(ledger.turn_latch("never"), TurnLatch::default());
     }
 
     /// The projection computes `background` from `card_id`, and the three
@@ -16687,7 +16764,7 @@ mod tests {
             changes_db_path: None,
             writer_identity: crate::changes_writer::local_identity(0),
             session_index: None,
-            turn_latches: Mutex::new(HashSet::new()),
+            turn_latches: Mutex::new(HashMap::new()),
         }
     }
 

@@ -80,11 +80,13 @@ import {
   appendTurnInterleavingInk,
   absorbArcNotes,
   systemNoteKey,
+  mintAskId,
   type CodeSessionState,
 } from "./reducer";
 import { RELOCATION_BOUNDARY_EVENT } from "./stages";
 import type { CodeSessionEvent } from "./events";
-import type { Effect } from "./effects";
+import type { Effect, TurnReconciledEffect } from "./effects";
+import { TURN_RECONCILE_LOG_SOURCE } from "./turn-reconcile";
 import { isInkOrigin, type SystemNote, type TurnEntry } from "./types";
 import type { ReplayAfterTurn, ReplayWindow } from "@tugproto/inbound";
 
@@ -396,6 +398,19 @@ export class SessionEngine {
   /** Bytes the replay path's synthesizer writes, carried to the page and cleared. */
   private readonly _replayBytes: AtomBytesStore = createAtomBytesStore();
   private _closed = false;
+  /**
+   * The card the last `server_turn` reading was taken for: the card a
+   * correction's catch-up is asked on behalf of. Null until a reading
+   * arrives.
+   */
+  private _serverTurnCardId: string | null = null;
+  /**
+   * A `turn-reconciled` effect the current dispatch emitted, held until the
+   * dispatch has finished its own bookkeeping: the catch-up it asks is a
+   * dispatch of its own, and run inside this one it would have this one's
+   * after-effect reads see its state against this one's `prev`.
+   */
+  private _turnReconciled: TurnReconciledEffect | null = null;
 
   // Perf instrumentation — pure observability, no behavior.
   private _perfReplay: ReplayIngestPerf | null = null;
@@ -494,6 +509,9 @@ export class SessionEngine {
     if (event.type === "begin_catch_up") {
       this.catchUp(event);
       return;
+    }
+    if (event.type === "server_turn") {
+      this._serverTurnCardId = event.cardId;
     }
     this.dispatch(event);
   }
@@ -781,6 +799,11 @@ export class SessionEngine {
           ...(frame.prompt !== undefined && frame.prompt.length > 0
             ? { prompt: frame.prompt, turnKey: mintTurnKey() }
             : {}),
+          // The id tugcast dispatched the prompt under, which its turn latch
+          // names the turn by.
+          ...(typeof frame.submission_id === "string"
+            ? { submissionId: frame.submission_id }
+            : {}),
         };
       case "replay_stage":
         // The same boundary, replayed: tugcode emits this between the
@@ -852,6 +875,26 @@ export class SessionEngine {
         // arrives with no visible cause. The `turnKey` is a React-key seed
         // with no meaning on the wire, minted here so the reducer stays
         // pure.
+        //
+        // The id tugcast's turn latch names the turn by rides too: a live
+        // wake's `turn_id`, which the merger stamps, and an injected
+        // notice's `submission_id`.
+        if (frame.type === "wake_started") {
+          return {
+            ...frame,
+            turnKey: mintTurnKey(),
+            ...(typeof frame.turn_id === "string" ? { turnId: frame.turn_id } : {}),
+          };
+        }
+        if (frame.type === "tug_notice") {
+          return {
+            ...frame,
+            turnKey: mintTurnKey(),
+            ...(typeof frame.submission_id === "string"
+              ? { submissionId: frame.submission_id }
+              : {}),
+          };
+        }
         return { ...frame, turnKey: mintTurnKey() };
       case "task_started":
         // Background-job lifecycle frames (the JOBS cell's feed — unrelated
@@ -1186,6 +1229,40 @@ export class SessionEngine {
       ),
     );
     this.endDispatch();
+    const reconciled = this._turnReconciled;
+    if (reconciled !== null) {
+      this._turnReconciled = null;
+      this.performTurnReconciled(reconciled);
+    }
+  }
+
+  /**
+   * The card yielded to tugcast's latch: say so in one line, then ask the
+   * catch-up — the engine's own path, so what it asks for is the turns after
+   * the ones the card holds. The ask runs first so the line can say whether
+   * the reducer took it. A taken ask writes no line until its catch-up ends,
+   * so the log reads the reconcile before that ending; a refused one writes
+   * its refusal just ahead of it.
+   */
+  private performTurnReconciled(effect: TurnReconciledEffect): void {
+    const cardId = this._serverTurnCardId;
+    const ask = {
+      type: "begin_catch_up" as const,
+      askId: mintAskId(),
+      ...(cardId !== null ? { cardId } : {}),
+    };
+    this.catchUp(ask);
+    const catchUpAsked = this.state.catchUp.asks.some((a) => a.id === ask.askId);
+    devLog.warn(TURN_RECONCILE_LOG_SOURCE, "turn reconciled", {
+      cardId,
+      tugSessionId: this.tugSessionId,
+      edge: effect.edge,
+      rule: effect.rule,
+      action: effect.action,
+      before: effect.before,
+      latch: effect.latch,
+      catchUpAsked,
+    });
   }
 
   /** Say each catch-up line in `tugcast.log` (a `warn`, the level the host mirror carries). */
@@ -1613,6 +1690,10 @@ export class SessionEngine {
           this.host.send(frame.feedId, frame.payload);
           break;
         }
+        case "turn-reconciled":
+          // Performed after the dispatch ends ({@link performTurnReconciled}).
+          this._turnReconciled = effect;
+          break;
         case "confirm-written-paths":
           // The one write the deck watched happen. The resolver lives on the
           // page, so the paths go there; the reducer has already ruled out a

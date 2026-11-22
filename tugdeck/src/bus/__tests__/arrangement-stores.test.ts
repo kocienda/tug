@@ -55,6 +55,7 @@ describe("the arrangement stores", () => {
       activity: "streaming",
       binding: BINDING,
       sessionState: "live",
+      turnLatch: null,
       parkedTitle: null,
       waivesClose: false,
     };

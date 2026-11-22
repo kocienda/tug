@@ -1716,10 +1716,21 @@ fn submission_id_of(payload: &[u8]) -> Option<(String, bool)> {
 /// the payload is not a JSON object, in which case the caller forwards it
 /// untouched and the row's id rides nowhere else.
 fn with_submission_id(payload: &[u8], id: &str) -> Option<Vec<u8>> {
+    with_string_field(payload, "submission_id", id)
+}
+
+/// `payload` with its `turn_id` set to `id`, re-serialized — the latch's id a
+/// live `wake_started` carries to the card ([P02]); `None` when the payload is
+/// not a JSON object, in which case the frame is forwarded untouched.
+fn with_turn_id(payload: &[u8], id: &str) -> Option<Vec<u8>> {
+    with_string_field(payload, "turn_id", id)
+}
+
+fn with_string_field(payload: &[u8], key: &str, id: &str) -> Option<Vec<u8>> {
     let mut value: serde_json::Value = serde_json::from_slice(payload).ok()?;
     value
         .as_object_mut()?
-        .insert("submission_id".to_owned(), serde_json::Value::from(id));
+        .insert(key.to_owned(), serde_json::Value::from(id));
     serde_json::to_vec(&value).ok()
 }
 
@@ -3668,6 +3679,7 @@ impl AgentSupervisor {
                 frame = Frame::new(FeedId::CODE_INPUT, bytes);
             }
             let now = crate::session_ledger::now_millis();
+            let turn_id = journal_id.clone();
             let inserted = {
                 let session_id = tug_session_id.as_str().to_owned();
                 offload_recorder(&self.sessions_recorder, move |r| {
@@ -3690,7 +3702,10 @@ impl AgentSupervisor {
                     // And it is an *asked* turn ([P02]) — the one kind the arc
                     // runner's quiet-turn horizon may count against a stage.
                     write_turn_latch(&self.sessions_recorder, &entry_arc, |entry| {
-                        entry.set_turn_active(true);
+                        // Named by the submission id the journal row was
+                        // filed under ([P01]), so the row and the card's
+                        // cycle say the same turn.
+                        entry.open_turn(Some(turn_id));
                         entry.turn_opener = Some(TurnOpener::Prompt);
                         // The turn's liveness clock starts here ([B02]).
                         entry.touch_turn();
@@ -4394,7 +4409,7 @@ impl AgentSupervisor {
         write_turn_latch(&self.sessions_recorder, &entry_arc, |entry| {
             closed = entry.open_jobs.len();
             entry.open_jobs.clear();
-            entry.set_turn_active(false);
+            entry.close_turn();
             entry.quiesced.notify_waiters();
         })
         .await;
@@ -4540,7 +4555,7 @@ impl AgentSupervisor {
                     }
                 }
                 maybe_frame = streams.next(), if !streams.is_empty() => {
-                    let Some((id, frame)) = maybe_frame else { continue };
+                    let Some((id, mut frame)) = maybe_frame else { continue };
                     // Divert `activity_delta` frames off CODE_OUTPUT onto the
                     // ACTIVITY feed ([P13], [P15]). The payload already carries
                     // its `tug_session_id` (spliced in `relay_session_io`), so
@@ -4556,6 +4571,108 @@ impl AgentSupervisor {
                             .publish_tagged(Frame::new(FeedId::ACTIVITY, frame.payload));
                         continue;
                     }
+                    // The turn latch moves *before* the frame that moves it is
+                    // forwarded ([P03]). A card that hears `turn_complete` may
+                    // send a queued prompt at once; forwarded first, that
+                    // prompt could reach the dispatcher while the latch still
+                    // read the old turn, so the new turn was never latched and
+                    // this edge then closed the latch under it. The edit is an
+                    // in-memory lock, not a database write, so nothing the
+                    // user sees waits on it. The row push and the ticks stay
+                    // after the forward, below: a tick can make the arc runner
+                    // publish its next notice, which must not reach the card
+                    // before the `turn_complete` it follows.
+                    //
+                    // The closing `turn_complete` / `turn_cancelled` ends the
+                    // turn (and the activity sampler's OS-work attribution);
+                    // `wake_started` opens a wake turn, which has no inbound
+                    // `user_message` to open it. Both are gated on no replay
+                    // bracket being open — a `replay_batch`'s embedded
+                    // historical `turn_complete` text matches the needle but
+                    // must not end a live turn (`replay_started` has already
+                    // incremented the bracket counter by the time the batch
+                    // flows through here).
+                    let mut turn_ended = false;
+                    let mut latch_entry = None;
+                    if is_turn_end(&frame.payload) || is_wake_started(&frame.payload) {
+                        let entry_arc = {
+                            let ledger = self.ledger.lock().await;
+                            ledger.get(&id).cloned()
+                        };
+                        if let Some(entry_arc) = entry_arc {
+                            let wake = is_wake_started(&frame.payload);
+                            let mut wake_turn_id = None;
+                            edit_turn_latch(&entry_arc, |entry| {
+                                if wake {
+                                    // Symmetric with the turn-end branch below
+                                    // ([B01]). A replayed `wake_started`
+                                    // describes a turn that ended with the
+                                    // session that ran it, and its own replayed
+                                    // end is discarded by that branch's guard —
+                                    // so latching here would leave the entry
+                                    // busy with no turn left to end it, which
+                                    // is the wedge the incident saw.
+                                    if entry.replay_brackets_open == 0 {
+                                        // A wake has no submission to name it,
+                                        // so the latch's id is minted here
+                                        // ([P01]); a wake into an open latch
+                                        // keeps the turn it joined.
+                                        entry.open_turn(Some(uuid::Uuid::new_v4().to_string()));
+                                        wake_turn_id = entry.turn_id().map(str::to_owned);
+                                        // The harness opened this one, not the
+                                        // stage's asker ([P02]).
+                                        entry.turn_opener = Some(TurnOpener::Wake);
+                                        entry.touch_turn();
+                                    }
+                                } else if entry.replay_brackets_open == 0 {
+                                    entry.close_turn();
+                                    entry.turns_ended += 1;
+                                    // A foreground call cannot outlive its
+                                    // turn; only a background run's command
+                                    // can.
+                                    entry.open_runs.retain(|_, run| run.background);
+                                    // Split the count by what opened the turn.
+                                    // An unrecorded opener — a turn inherited
+                                    // across a restart — counts as a prompt,
+                                    // which is today's behaviour and the
+                                    // direction R05 accepts.
+                                    if entry.turn_opener == Some(TurnOpener::Wake) {
+                                        entry.wake_turns_ended += 1;
+                                    } else {
+                                        entry.prompt_turns_ended += 1;
+                                    }
+                                    entry.turn_opener = None;
+                                    entry.turn_api_error = turn_ended_in_api_error(&frame.payload);
+                                    entry.turn_cancelled =
+                                        turn_ended_in_user_cancel(&frame.payload);
+                                    // No turn, no clock ([B02]).
+                                    entry.turn_last_frame_at = None;
+                                    // The turn boundary the arc demands has
+                                    // been reached: whatever this turn closed
+                                    // is no longer *this* turn's business, and
+                                    // the gate opens again (W8).
+                                    entry.step_closed_this_turn = None;
+                                    // One of the two facts `is_quiet` reads has
+                                    // just moved, so a stop waiting on the
+                                    // quiet edge is woken from inside the same
+                                    // guard that moved it ([P05]). It
+                                    // re-checks the other fact for itself.
+                                    entry.quiesced.notify_waiters();
+                                    turn_ended = true;
+                                }
+                            })
+                            .await;
+                            // The card's cycle learns the latch's id from the
+                            // frame that opens it ([P02]). A payload that does
+                            // not parse is forwarded untouched.
+                            if let Some(turn_id) = wake_turn_id
+                                && let Some(bytes) = with_turn_id(&frame.payload, &turn_id)
+                            {
+                                frame.payload = bytes;
+                            }
+                            latch_entry = Some(entry_arc);
+                        }
+                    }
                     // Forward to shared CODE_OUTPUT broadcast (feeds the
                     // shared router-level replay ring per [D06], unchanged).
                     // The inbound frame is already tagged `CODE_OUTPUT` by
@@ -4567,15 +4684,6 @@ impl AgentSupervisor {
                     // sends on seeing the frame lands after it.
                     let seen_at = crate::session_ledger::now_millis();
                     self.code_output.publish_tagged(frame.clone());
-                    // Turn-boundary tracking for the activity sampler: the
-                    // closing `turn_complete` / `turn_cancelled` ends OS-work
-                    // attribution; `wake_started` opens a wake turn (which has
-                    // no inbound `user_message` to open it). Clearing is gated
-                    // on no replay bracket being open — a `replay_batch`'s
-                    // embedded historical `turn_complete` text matches the
-                    // needle but must not end a live turn (`replay_started`
-                    // has already incremented the bracket counter by the time
-                    // the batch flows through here).
                     // The session's resident context window, which the arc
                     // reads at a step boundary to decide a compaction or a
                     // rotation. Both frames that carry usage write it: a
@@ -4687,66 +4795,12 @@ impl AgentSupervisor {
                     if is_stop_all_work_done(&frame.payload) {
                         self.apply_stop_all_work_done(&id).await;
                     }
-                    if is_turn_end(&frame.payload) || is_wake_started(&frame.payload) {
-                        let entry_arc = {
-                            let ledger = self.ledger.lock().await;
-                            ledger.get(&id).cloned()
-                        };
-                        if let Some(entry_arc) = entry_arc {
-                            let mut ended = false;
-                            write_turn_latch(&self.sessions_recorder, &entry_arc, |entry| {
-                            if is_wake_started(&frame.payload) {
-                                // Symmetric with the turn-end branch below
-                                // ([B01]). A replayed `wake_started` describes
-                                // a turn that ended with the session that ran
-                                // it, and its own replayed end is discarded by
-                                // that branch's guard — so latching here would
-                                // leave the entry busy with no turn left to end
-                                // it, which is the wedge the incident saw.
-                                if entry.replay_brackets_open == 0 {
-                                    entry.set_turn_active(true);
-                                    // The harness opened this one, not the
-                                    // stage's asker ([P02]).
-                                    entry.turn_opener = Some(TurnOpener::Wake);
-                                    entry.touch_turn();
-                                }
-                            } else if entry.replay_brackets_open == 0 {
-                                entry.set_turn_active(false);
-                                entry.turns_ended += 1;
-                                // A foreground call cannot outlive its turn;
-                                // only a background run's command can.
-                                entry.open_runs.retain(|_, run| run.background);
-                                // Split the count by what opened the turn. An
-                                // unrecorded opener — a turn inherited across a
-                                // restart — counts as a prompt, which is
-                                // today's behaviour and the direction R05
-                                // accepts.
-                                if entry.turn_opener == Some(TurnOpener::Wake) {
-                                    entry.wake_turns_ended += 1;
-                                } else {
-                                    entry.prompt_turns_ended += 1;
-                                }
-                                entry.turn_opener = None;
-                                entry.turn_api_error = turn_ended_in_api_error(&frame.payload);
-                                entry.turn_cancelled = turn_ended_in_user_cancel(&frame.payload);
-                                // No turn, no clock ([B02]).
-                                entry.turn_last_frame_at = None;
-                                // The turn boundary the arc demands has
-                                // been reached: whatever this turn closed is
-                                // no longer *this* turn's business, and the
-                                // gate opens again (W8).
-                                entry.step_closed_this_turn = None;
-                                // One of the two facts `is_quiet` reads has
-                                // just moved, so a stop waiting on the quiet
-                                // edge is woken from inside the same guard
-                                // that moved it ([P05]). It re-checks the
-                                // other fact for itself.
-                                entry.quiesced.notify_waiters();
-                                ended = true;
-                            }
-                            })
-                            .await;
-                            if ended {
+                    if let Some(entry_arc) = latch_entry.as_ref() {
+                        // The row push for the edit made above, after the
+                        // forward ([P03]) and before the ticks, as it always
+                        // was.
+                        publish_turn_latch(&self.sessions_recorder, entry_arc).await;
+                        if turn_ended {
                                 // The session went idle: an arc parked behind it
                                 // because the gate refuses to move a branch
                                 // mid-turn can now be caught up.
@@ -4775,7 +4829,6 @@ impl AgentSupervisor {
                                 }
                             }
                         }
-                    }
                     // Per-session system_metadata capture + broadcast per
                     // [D14]. CRITICAL: rewrap as `FeedId::SESSION_SIDEBAND`
                     // before publishing / storing. `Frame::encode()`
@@ -5119,12 +5172,12 @@ impl AgentSupervisor {
                 return;
             };
             let usage = ledger.usage_for(&claude_session_id).unwrap_or(None);
-            let turn_active = ledger.turn_active(&claude_session_id);
+            let latch = ledger.turn_latch(&claude_session_id);
             let _ = control_tx.send(build_session_updated_frame(
                 &row,
                 Some(metrics),
                 usage,
-                turn_active,
+                latch,
             ));
         });
     }
@@ -5154,12 +5207,12 @@ impl AgentSupervisor {
                 return;
             };
             let usage = ledger.usage_for(&claude_session_id).unwrap_or(None);
-            let turn_active = ledger.turn_active(&claude_session_id);
+            let latch = ledger.turn_latch(&claude_session_id);
             let _ = control_tx.send(build_session_updated_frame(
                 &row,
                 Some(metrics),
                 usage,
-                turn_active,
+                latch,
             ));
         });
     }
@@ -5868,12 +5921,18 @@ pub(crate) async fn publish_turn_latch(
     sessions_recorder: &Arc<dyn SessionsRecorder>,
     ledger_entry: &Arc<Mutex<LedgerEntry>>,
 ) {
-    let (claude_id, active) = {
+    let (claude_id, latch) = {
         let entry = ledger_entry.lock().await;
-        (entry.claude_session_id.clone(), entry.turn_active())
+        (
+            entry.claude_session_id.clone(),
+            crate::session_ledger::TurnLatch {
+                active: entry.turn_active(),
+                turn_id: entry.turn_id().map(str::to_owned),
+            },
+        )
     };
     if let Some(id) = claude_id {
-        offload_recorder(sessions_recorder, move |r| r.record_turn_latch(&id, active)).await;
+        offload_recorder(sessions_recorder, move |r| r.record_turn_latch(&id, latch)).await;
     }
 }
 
@@ -5899,7 +5958,7 @@ pub(crate) async fn end_session_after_bridge_panic(
         entry.input_tx = None;
         entry.child_pid = None;
         entry.child_start_time = None;
-        entry.set_turn_active(false);
+        entry.close_turn();
         entry.open_jobs.clear();
         // The relay that would have closed an open bracket is gone with the
         // task, and nothing will respawn it.
@@ -6701,7 +6760,7 @@ mod tests {
             last_turn_end_at: 0,
             last_attended_at: 0,
         };
-        let frame = build_session_updated_frame(&row, None, None, false);
+        let frame = build_session_updated_frame(&row, None, None, Default::default());
         let body: serde_json::Value = serde_json::from_slice(&frame.payload).expect("json");
         assert_eq!(body["fields"]["tag"], "azure-heron");
         // The description rides the same push as the callsign, so a written
@@ -6740,9 +6799,10 @@ mod tests {
         };
 
         // No scan-cache row: a null size, and the ledger's own count stands.
-        let body: serde_json::Value =
-            serde_json::from_slice(&build_session_updated_frame(&row, None, None, false).payload)
-                .expect("json");
+        let body: serde_json::Value = serde_json::from_slice(
+            &build_session_updated_frame(&row, None, None, Default::default()).payload,
+        )
+        .expect("json");
         assert!(body["fields"]["file_size"].is_null());
         assert_eq!(body["fields"]["turn_count"], 0);
 
@@ -6753,7 +6813,7 @@ mod tests {
             turn_count: 7,
         };
         let body: serde_json::Value = serde_json::from_slice(
-            &build_session_updated_frame(&row, Some(metrics), None, false).payload,
+            &build_session_updated_frame(&row, Some(metrics), None, Default::default()).payload,
         )
         .expect("json");
         assert_eq!(body["fields"]["file_size"], 48_192);
@@ -6787,9 +6847,10 @@ mod tests {
 
         // A segment with no telemetry says nothing rather than zero — the
         // difference the receipt's empty right-hand state is read off.
-        let body: serde_json::Value =
-            serde_json::from_slice(&build_session_updated_frame(&row, None, None, false).payload)
-                .expect("json");
+        let body: serde_json::Value = serde_json::from_slice(
+            &build_session_updated_frame(&row, None, None, Default::default()).payload,
+        )
+        .expect("json");
         assert!(body["usage"].is_null());
 
         let usage = crate::session_ledger::SessionUsage {
@@ -6798,7 +6859,7 @@ mod tests {
             active_ms: 1_391_000,
         };
         let body: serde_json::Value = serde_json::from_slice(
-            &build_session_updated_frame(&row, None, Some(usage), false).payload,
+            &build_session_updated_frame(&row, None, Some(usage), Default::default()).payload,
         )
         .expect("json");
         assert_eq!(body["usage"]["turns"], 10);
@@ -8589,6 +8650,190 @@ mod tests {
         let _ = merger_handle.await;
     }
 
+    /// The latch moves before the frame that moves it is forwarded ([P03]),
+    /// so whoever acts on a forwarded frame finds the latch already moved: a
+    /// card that answers `turn_complete` with its queued prompt opens the next
+    /// turn under that prompt's own submission id, and nothing closes it
+    /// after. A live `wake_started` is forwarded carrying the id the latch
+    /// opened under, and the row names the same id; a replayed one carries
+    /// none and latches nothing.
+    #[tokio::test]
+    async fn the_merger_moves_the_latch_before_it_forwards_the_frame() {
+        let ledger = Arc::new(SessionLedger::open_in_memory().expect("ledger open"));
+        let (state_tx, _state_rx) = broadcast::channel(64);
+        let (meta_tx, _meta_rx) = broadcast::channel(8);
+        let (code_tx, _code_rx) = broadcast::channel(64);
+        let (control_tx, control_rx) = broadcast::channel(128);
+        let recorder: Arc<dyn SessionsRecorder> = Arc::new(LedgerSessionsRecorder::with_broadcast(
+            Arc::clone(&ledger),
+            control_tx.clone(),
+        ));
+        let cancel = CancellationToken::new();
+        let (sup, register_rx) = AgentSupervisor::new_with_ledger(
+            SessionScopedFeed::from_sender(FeedId::SESSION_STATE, state_tx, LagPolicy::Warn),
+            SessionScopedFeed::from_sender(FeedId::SESSION_SIDEBAND, meta_tx, LagPolicy::Warn),
+            SessionScopedFeed::from_sender(FeedId::CODE_OUTPUT, code_tx, LagPolicy::Warn),
+            SessionScopedFeed::new(FeedId::ACTIVITY, 64, LagPolicy::Warn),
+            control_tx,
+            Arc::clone(&recorder),
+            Some(Arc::clone(&ledger)),
+            stall_spawner_factory(),
+            AgentSupervisorConfig::default(),
+            Arc::new(WorkspaceRegistry::new_for_test()),
+            cancel.clone(),
+            SupervisorDeps::default(),
+        );
+        let sup = Arc::new(sup);
+        let merger_handle = tokio::spawn(Arc::clone(&sup).merger_task(register_rx, cancel.clone()));
+
+        let id = TugSessionId::new("sess-order");
+        let entry_arc = insert_ledger_entry(&sup, &id).await;
+        seed_session_for_journal_test(&ledger, "sess-order");
+        recorder.record(SessionRecord {
+            session_id: "claude-order",
+            workspace_key: "ws-1",
+            project_dir: "/proj/x",
+            card_id: "card-1",
+            tag: None,
+            line_id: None,
+        });
+        {
+            let mut entry = entry_arc.lock().await;
+            entry.claude_session_id = Some("claude-order".to_owned());
+            // A spawn already in flight: the dispatcher queues the prompt
+            // rather than spawning a bridge, whose stream would replace this
+            // test's in the merger.
+            entry.spawn_state = SpawnState::Spawning;
+        }
+        write_turn_latch(&recorder, &entry_arc, |entry| {
+            entry.open_turn(Some("turn-a".to_owned()))
+        })
+        .await;
+
+        let mut code_rx = sup.code_output.subscribe();
+        let (tx, rx) = mpsc::channel::<Frame>(8);
+        sup.merger_register_tx.send((id.clone(), rx)).await.unwrap();
+        // Send one frame and take it off the forward, as a card would.
+        let forward = |code_rx: &mut broadcast::Receiver<Frame>| {
+            let mut code_rx = code_rx.resubscribe();
+            let tx = tx.clone();
+            move |payload: &'static [u8]| async move {
+                tx.send(Frame::new(FeedId::CODE_OUTPUT, payload.to_vec()))
+                    .await
+                    .unwrap();
+                let frame = tokio::time::timeout(Duration::from_secs(5), code_rx.recv())
+                    .await
+                    .unwrap_or_else(|_| {
+                        panic!("not forwarded: {}", String::from_utf8_lossy(payload))
+                    })
+                    .expect("recv");
+                serde_json::from_slice::<serde_json::Value>(&frame.payload).expect("json")
+            }
+        };
+
+        // The card hears the turn end, and the latch has already closed.
+        forward(&mut code_rx)(
+            br#"{"tug_session_id":"sess-order","type":"turn_complete","msg_id":"m1","seq":1}"#,
+        )
+        .await;
+        {
+            let entry = entry_arc.lock().await;
+            assert!(
+                !entry.turn_active(),
+                "the latch closed before the frame was forwarded"
+            );
+            assert_eq!(entry.turn_id(), Some("turn-a"), "and still names the turn");
+        }
+
+        // It answers at once with its queued prompt.
+        let turn_b = "0f3c1e5a-1b2c-4d5e-8f90-0000000000b1";
+        let prompt = serde_json::json!({
+            "tug_session_id": "sess-order",
+            "type": "user_message",
+            "text": "next",
+            "attachments": [],
+            "submission_id": turn_b,
+        });
+        sup.dispatch_one(Frame::new(
+            FeedId::CODE_INPUT,
+            serde_json::to_vec(&prompt).unwrap(),
+        ))
+        .await;
+        // A later frame through the merger proves it finished with the turn
+        // end; the new turn is still latched, under its own id.
+        forward(&mut code_rx)(
+            br#"{"tug_session_id":"sess-order","type":"assistant_text","msg_id":"m2","seq":2}"#,
+        )
+        .await;
+        {
+            let entry = entry_arc.lock().await;
+            assert!(entry.turn_active(), "the prompt's turn is latched");
+            assert_eq!(entry.turn_id(), Some(turn_b));
+        }
+
+        // A live wake is forwarded carrying the id the latch opened under.
+        forward(&mut code_rx)(
+            br#"{"tug_session_id":"sess-order","type":"turn_complete","msg_id":"m3","seq":3}"#,
+        )
+        .await;
+        let mut row_rx = control_rx.resubscribe();
+        let wake = forward(&mut code_rx)(
+            br#"{"tug_session_id":"sess-order","type":"wake_started","session_id":"x"}"#,
+        )
+        .await;
+        let wake_id = wake["turn_id"]
+            .as_str()
+            .expect("a live wake carries its turn id")
+            .to_owned();
+        assert_ne!(wake_id, turn_b, "a wake is a turn of its own");
+        assert_eq!(
+            wake["tug_session_id"], "sess-order",
+            "the rest of the frame stands"
+        );
+        {
+            let entry = entry_arc.lock().await;
+            assert!(entry.turn_active(), "the latch opened before the forward");
+            assert_eq!(entry.turn_id(), Some(wake_id.as_str()));
+        }
+        // And the row names the same turn.
+        loop {
+            let frame = tokio::time::timeout(Duration::from_secs(5), row_rx.recv())
+                .await
+                .expect("a row push naming the wake")
+                .expect("recv");
+            let body: serde_json::Value = serde_json::from_slice(&frame.payload).expect("json");
+            if body["action"] == "session_updated"
+                && body["fields"]["turn_active"] == true
+                && body["fields"]["turn_id"] == wake_id.as_str()
+            {
+                break;
+            }
+        }
+
+        // A replayed wake inside a bracket carries no id and latches nothing.
+        forward(&mut code_rx)(
+            br#"{"tug_session_id":"sess-order","type":"turn_complete","msg_id":"m4","seq":4}"#,
+        )
+        .await;
+        entry_arc.lock().await.replay_brackets_open = 1;
+        let replayed = forward(&mut code_rx)(
+            br#"{"tug_session_id":"sess-order","type":"wake_started","session_id":"x"}"#,
+        )
+        .await;
+        assert!(
+            replayed.get("turn_id").is_none(),
+            "a replayed wake is not stamped"
+        );
+        {
+            let entry = entry_arc.lock().await;
+            assert!(!entry.turn_active());
+            assert_eq!(entry.turn_id(), Some(wake_id.as_str()));
+        }
+
+        cancel.cancel();
+        let _ = merger_handle.await;
+    }
+
     /// A supervisor over an in-memory ledger whose recorder is the real one,
     /// with one entry seated on `claude_id` and its row recorded, mid-turn on
     /// both copies of the latch.
@@ -8630,7 +8875,10 @@ mod tests {
             line_id: None,
         });
         entry_arc.lock().await.claude_session_id = Some(claude_id.to_owned());
-        write_turn_latch(&recorder, &entry_arc, |entry| entry.set_turn_active(true)).await;
+        write_turn_latch(&recorder, &entry_arc, |entry| {
+            entry.open_turn(Some("t1".to_owned()))
+        })
+        .await;
         assert!(
             ledger.turn_active(claude_id),
             "the row carries the open turn"
@@ -12589,6 +12837,7 @@ mod tests {
         let payload = crate::feeds::base_motion::user_message_payload(
             session_id_str,
             "[base-motion replay] the base moved",
+            "0f3c1e5a-1b2c-4d5e-8f90-00000000ba5e",
         );
         sup.dispatch_one(Frame::new(FeedId::CODE_INPUT, payload.clone()))
             .await;

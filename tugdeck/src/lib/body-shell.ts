@@ -268,6 +268,7 @@ import {
   projectArrangementSpaces,
   projectDeckCards,
   sessionStateOf,
+  turnLatchOf,
 } from "./body-arrangement";
 import {
   appInfo,
@@ -1094,6 +1095,11 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
           if (address === undefined) return null;
           const row = getSessionLedgerStore()?.findRow(ledgerSegmentForCard(id, address))?.state ?? null;
           return sessionStateOf(row, childStates.get(address) ?? null);
+        },
+        turnLatch: (id) => {
+          const address = cardSessionBindingStore.getBinding(id)?.tugSessionId;
+          if (address === undefined) return null;
+          return turnLatchOf(getSessionLedgerStore()?.findRow(ledgerSegmentForCard(id, address)) ?? null);
         },
         parkedTitle: (id) => {
           const identity = cardIdentity(id);

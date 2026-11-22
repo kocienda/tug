@@ -85,6 +85,7 @@ import type {
   CodeSessionEvent,
   RefsResultActionEvent,
   SendCondition,
+  ServerTurnLatch,
 } from "./code-session-store/events";
 import {
   publishLocalSessionStateChange,
@@ -1316,6 +1317,18 @@ export class CodeSessionStore extends Subscribable {
   noteReplayAsked(window: ReplayWindow): void {
     if (this._disposed) return;
     this.dispatch({ type: "replay_asked", window });
+  }
+
+  /**
+   * A reading of tugcast's turn latch for this session, from the card's
+   * `deck.cards` row (`followServerTurn` in the body). The reducer keeps the
+   * newest reading; `cardId` is the card the reading was taken for, which
+   * the engine remembers for the catch-up a correction asks. `null` is a
+   * reading nobody can give, and decides nothing.
+   */
+  noteServerTurn(latch: ServerTurnLatch | null, cardId: string): void {
+    if (this._disposed) return;
+    this.dispatch({ type: "server_turn", latch, cardId });
   }
 
   /** One of the store's own writes; an `offWire` session's input is kept off the wire. */

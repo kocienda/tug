@@ -13,7 +13,7 @@
 import type { InboundMessage } from "@/protocol";
 import type { ReplayWindow } from "@tugproto/inbound";
 import type { CodeSessionEvent } from "./events";
-import type { LiveMessageUsage, TurnEntry } from "./types";
+import type { CodeSessionPhase, LiveMessageUsage, TurnEntry, TurnOrigin } from "./types";
 import type { StageBoundaryFacts } from "./stages";
 
 /** Logical channel a streaming write targets ([D07]). Combined with
@@ -358,6 +358,38 @@ export interface ConfirmWrittenPathsEffect {
   paths: string[];
 }
 
+/**
+ * The card's busy state yielded to tugcast's turn latch: a turn the card
+ * believes is running is one tugcast says has ended. The reducer decides it
+ * and the engine performs it, after the dispatch that emitted it: one
+ * `turn reconciled` line in the log, then a catch-up for the turns after the
+ * ones the card holds.
+ *
+ * `action` says what the reducer did. `asked` keeps the cycle, at an edge
+ * outside a catch-up (a new latch reading, or the wire coming back): the
+ * catch-up is a fence on the card's own feed, and a `turn_complete` already
+ * on its way is held behind it. `ended` dropped the cycle, at the close of a
+ * catch-up that left it standing, since only then is the turn one the card
+ * truly lost.
+ */
+export interface TurnReconciledEffect {
+  kind: "turn-reconciled";
+  /** Which move fired the rule. */
+  edge: "latch" | "catch-up" | "transport";
+  /** The reading names the cycle's own turn, or a turn the card never heard of. */
+  rule: "same-turn" | "later-turn";
+  action: "asked" | "ended";
+  /** The card as it stood when the rule fired. */
+  before: {
+    phase: CodeSessionPhase;
+    canInterrupt: boolean;
+    turnId: string | null;
+    origin: TurnOrigin;
+  };
+  /** The reading the rule ruled on. */
+  latch: { active: boolean; turnId: string | null };
+}
+
 export type Effect =
   | WriteLiveUsageEffect
   | WriteInflightEffect
@@ -376,7 +408,8 @@ export type Effect =
   | AppendCompactNoteEffect
   | AppendStageNoteEffect
   | AppendRelocationNoteEffect
-  | ConfirmWrittenPathsEffect;
+  | ConfirmWrittenPathsEffect
+  | TurnReconciledEffect;
 
 export function isWriteInflight(e: Effect): e is WriteInflightEffect {
   return e.kind === "write-inflight";

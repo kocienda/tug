@@ -1066,7 +1066,7 @@ fn write_synopsis(config: &ObserverBridgeConfig, session_id: &str, raw: Option<&
                     &row,
                     metrics,
                     usage,
-                    ledger.turn_active(&row_id),
+                    ledger.turn_latch(&row_id),
                 ));
             }
         }

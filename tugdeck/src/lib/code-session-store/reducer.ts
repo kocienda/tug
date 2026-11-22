@@ -32,7 +32,7 @@
 import type { AtomSegment } from "../tug-atom-img";
 import type { ContentBlock } from "../../protocol";
 import type { Effect } from "./effects";
-import { isNetworkStalled } from "./lifecycle-state";
+import { isNetworkStalled, phaseCanInterrupt } from "./lifecycle-state";
 import type { ReplayWindow } from "@tugproto/inbound";
 import type {
   AddUserMessageEvent,
@@ -65,6 +65,8 @@ import type {
   RespondApprovalActionEvent,
   RespondQuestionActionEvent,
   SendActionEvent,
+  ServerTurnEvent,
+  ServerTurnLatch,
   SendCondition,
   SessionInitEvent,
   SetPermissionModeActionEvent,
@@ -182,6 +184,7 @@ import { mintLeadingCommandAtom } from "../command-atom";
 import { writtenPaths } from "../annotator/written-paths";
 import { decodePermissionDenials, mergeDenials } from "./denials";
 import { devLog } from "../dev-log-port";
+import { cycleTurnIds, reconcileTurn, rememberTurnIds, type ReconcileEdge } from "./turn-reconcile";
 import {
   deriveTurnTelemetry,
   mergeTurnTelemetry,
@@ -269,6 +272,21 @@ export interface PendingTurn {
    * until the anchor arrives.
    */
   promptUuid?: string;
+  /**
+   * The id tugcast's turn latch names this turn by: a typed send's
+   * `turnKey`, which is the `submission_id` it goes out under; a wheel
+   * prompt's, a rotation's or an injected notice's `submissionId`; a live
+   * wake's `turnId`; a replayed prompt's `submissionId`. Absent when the
+   * opener carried none (a replayed wake, an orphan assistant turn, an
+   * older tugcast).
+   */
+  turnId?: string;
+  /**
+   * Every other server turn id this cycle absorbed while open: a live wake
+   * whose `turn_id` arrived while the cycle was already running. A reading
+   * naming one of these is a turn the card heard, not one it missed.
+   */
+  heardTurnIds?: string[];
 }
 
 /** Derive a Message's `messageKey` from the wire coordinate it owns. */
@@ -777,6 +795,26 @@ export interface CodeSessionState {
    * retired [D06] empty-text sentinel.
    */
   pendingTurn: PendingTurn | null;
+  /**
+   * The newest reading of tugcast's turn latch for this card's session, as
+   * the body last handed it over (`server_turn`). `null` until a reading
+   * arrives, and whenever no reading can be given (no row, an older
+   * tugcast); null decides nothing.
+   */
+  serverTurn: ServerTurnLatch | null;
+  /**
+   * The turn ids this card can place, oldest first, at most
+   * `KNOWN_TURN_IDS_CAP`: every cycle it closed (with the ids it heard),
+   * every replayed turn it committed, and each idle reading taken while
+   * idle. A latch reading naming one of these is a turn the card is past.
+   */
+  knownTurnIds: readonly string[];
+  /**
+   * The turn a reconcile last ended a cycle for, or null. The rule refuses a
+   * reading naming it, so a latch that stays idle while a catch-up keeps
+   * rebuilding the same turn in flight ends that turn once, not in a loop.
+   */
+  lastReconciledTurnId: string | null;
   /**
    * One-shot draft restore for CASE A interrupt — `interrupt()` fired
    * while `phase === "submitting"`, before claude produced any content
@@ -2086,6 +2124,9 @@ export function createInitialState(
     pendingQuestion: null,
     prevPhase: null,
     pendingTurn: null,
+    serverTurn: null,
+    knownTurnIds: [],
+    lastReconciledTurnId: null,
     pendingDraftRestore: null,
     pendingCommandInsert: null,
     pendingJotInsert: null,
@@ -2274,6 +2315,10 @@ function handleSend(
         submitAt,
         origin: event.origin ?? "user",
         suppressed: event.suppress === true,
+        // A typed send goes out under its `turnKey` as `submission_id`, which
+        // tugcast's latch names the turn by; a wheel prompt or a rotation was
+        // dispatched by tugcast under an id of its own.
+        turnId: event.turnId ?? event.turnKey,
       },
       // Seed the scratch with the opening user_message so the
       // substrate carries the user submission as its first Message
@@ -4349,6 +4394,8 @@ function flushQueuedHeadResult(
         turnKey: next.turnKey,
         submitAt: flushedSubmitAt,
         origin: "user",
+        // The flush sends it under its `turnKey` (below).
+        turnId: next.turnKey,
       },
       queuedSends: rest,
       lastError: null,
@@ -6018,6 +6065,7 @@ function handleSessionStage(
       atoms: minted?.atoms ?? [],
       content: [{ type: "text", text: event.prompt }],
       turnKey: event.turnKey,
+      ...(event.submissionId !== undefined ? { turnId: event.submissionId } : {}),
     } as SendActionEvent);
     return {
       state: opened.state,
@@ -6589,6 +6637,44 @@ function handleTransportClose(
   return {
     state: { ...state, ...offline },
     effects: [...cancelPreflightEffect, ...cancelShadowEffect],
+  };
+}
+
+/**
+ * Drop the cycle a reconcile ended: tugcast says the turn has ended, a
+ * catch-up has closed with the cycle still standing, and the card does not
+ * know what the turn did. So nothing is committed — a partial turn would hold
+ * the turn's msg ids and the next catch-up's dedupe would then refuse the
+ * whole turn when it comes back — and the card goes to `idle`, as a catch-up
+ * answer that supersedes a cycle leaves it. The queue is kept: those are
+ * messages the user asked to deliver, and the catch-up the reconcile asks
+ * flushes its head when it ends.
+ */
+export function endTurnAsReconciled(
+  state: CodeSessionState,
+): { state: CodeSessionState; effects: Effect[] } {
+  const endedAt = Date.now();
+  return {
+    state: {
+      ...state,
+      phase: "idle",
+      activeMsgId: null,
+      scratch: withoutPendingTurnScratch(state),
+      toolUseStartedAt: new Map(),
+      pendingApproval: null,
+      pendingQuestion: null,
+      prevPhase: null,
+      pendingTurn: null,
+      wakeTrigger: null,
+      // The per-interrupt flags and both stall flags ride the reset.
+      ...resetPerTurnTelemetry(),
+      ...closeTurnPauseSegments(state, endedAt),
+    },
+    effects: [
+      { kind: "clear-inflight" },
+      { kind: "cancel_timer", name: "interrupt_silence" },
+      { kind: "cancel_timer", name: "stream_stall" },
+    ],
   };
 }
 
@@ -7491,6 +7577,8 @@ function handleAddUserMessage(
         ...(typeof event.promptUuid === "string" && event.promptUuid.length > 0
           ? { promptUuid: event.promptUuid }
           : {}),
+        // The submission is the id tugcast's latch named the turn by.
+        ...(event.submissionId !== undefined ? { turnId: event.submissionId } : {}),
       },
       scratch: withScratchEntry(
         state.scratch,
@@ -7672,6 +7760,7 @@ function handleTurnOpeningNotice(
       atoms: minted?.atoms ?? [],
       content: [{ type: "text", text }],
       turnKey: event.turnKey,
+      ...(event.submissionId !== undefined ? { turnId: event.submissionId } : {}),
     } as SendActionEvent);
     return {
       state: opened.state,
@@ -7713,6 +7802,7 @@ function handleTurnOpeningNotice(
         turnKey: event.turnKey,
         submitAt,
         origin: "assistant",
+        ...(event.submissionId !== undefined ? { turnId: event.submissionId } : {}),
       },
       ...resetPerTurnTelemetry(),
       awaitingApprovalIntervals: [],
@@ -7751,6 +7841,57 @@ function handleAssistantOpener(
     },
     effects: [],
   };
+}
+
+/**
+ * `state` with `turnId` added to the open cycle's `heardTurnIds`, or
+ * `state` itself when there is no id, no open cycle, or the cycle already
+ * holds it.
+ */
+function withHeardTurnId(
+  state: CodeSessionState,
+  turnId: string | undefined,
+): CodeSessionState {
+  const turn = state.pendingTurn;
+  if (turnId === undefined || turn === null) return state;
+  if (turn.turnId === turnId || (turn.heardTurnIds ?? []).includes(turnId)) return state;
+  return {
+    ...state,
+    pendingTurn: { ...turn, heardTurnIds: [...(turn.heardTurnIds ?? []), turnId] },
+  };
+}
+
+/**
+ * `server_turn` — a new reading of tugcast's turn latch. It is kept as
+ * `serverTurn` whatever the card is doing, so an edge that fires later reads
+ * the newest reading; the same reading again returns the same state. An
+ * idle card that reads `{ active: false, turnId: X }` is past X, whatever X
+ * was, and records it: that is how a card rebuilt from a replay, which holds
+ * no id for a wake turn, learns the turn the row names.
+ */
+function handleServerTurn(
+  state: CodeSessionState,
+  event: ServerTurnEvent,
+): { state: CodeSessionState; effects: Effect[] } {
+  const latch = event.latch;
+  const held = state.serverTurn;
+  const same =
+    latch === null
+      ? held === null
+      : held !== null && held.active === latch.active && held.turnId === latch.turnId;
+  const serverTurn = same
+    ? held
+    : latch === null
+      ? null
+      : { active: latch.active, turnId: latch.turnId };
+  const knownTurnIds =
+    latch !== null && !latch.active && latch.turnId !== null && !phaseCanInterrupt(state.phase)
+      ? rememberTurnIds(state.knownTurnIds, [latch.turnId])
+      : state.knownTurnIds;
+  if (serverTurn === held && knownTurnIds === state.knownTurnIds) {
+    return { state, effects: [] };
+  }
+  return { state: { ...state, serverTurn, knownTurnIds }, effects: [] };
 }
 
 /**
@@ -7834,18 +7975,24 @@ function handleWakeStarted(
     trigger.taskId === ""
       ? flipEarliestElapsedScheduled(flipped, wakeNow, wakeNow)
       : flipped;
-  if (state.phase === "waking") {
+  // A live wake's `turn_id` that reaches an open cycle is a turn the cycle
+  // absorbed, so it is heard rather than missed.
+  const heard =
+    state.phase === "idle" || state.phase === "replaying"
+      ? state
+      : withHeardTurnId(state, event.turnId);
+  if (heard.phase === "waking") {
     // Nested wake — idempotent refresh of trigger metadata only.
-    if (state.wakeTrigger === null) {
+    if (heard.wakeTrigger === null) {
       return {
-        state: { ...state, wakeTrigger: trigger, jobs },
+        state: { ...heard, wakeTrigger: trigger, jobs },
         effects: [],
       };
     }
-    if (jobs !== state.jobs) {
-      return { state: { ...state, jobs }, effects: [] };
+    if (jobs !== heard.jobs) {
+      return { state: { ...heard, jobs }, effects: [] };
     }
-    return { state, effects: [] };
+    return { state: heard, effects: [] };
   }
   // Accept wake_started from `replaying` too — the cold-boot replay
   // path emits a synthesized `wake_started` when it recognizes the
@@ -7860,10 +8007,10 @@ function handleWakeStarted(
   if (state.phase !== "idle" && state.phase !== "replaying") {
     // The wake bracket is refused mid-turn, but the trigger's job flip
     // still folds — the terminal status is real regardless of phase.
-    if (jobs !== state.jobs) {
-      return { state: { ...state, jobs }, effects: [] };
+    if (jobs !== heard.jobs) {
+      return { state: { ...heard, jobs }, effects: [] };
     }
-    return { state, effects: [] };
+    return { state: heard, effects: [] };
   }
   const submitAt = Date.now();
   const nextPhase: CodeSessionPhase = state.phase === "replaying" ? "replaying" : "waking";
@@ -7908,6 +8055,8 @@ function handleWakeStarted(
         // A wake is an assistant-originated turn (S01); its wake-ness rides
         // `wakeTrigger` + the `waking` phase, not the attribution.
         origin: "assistant",
+        // A live wake's latch id; a replayed wake carries none.
+        ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
       },
       // Per-turn telemetry reset — same single-source-of-truth helper
       // `handleSend` uses on the queue-flush path. Future fields added
@@ -9325,7 +9474,62 @@ export function reduce(
   state: CodeSessionState,
   event: CodeSessionEvent,
 ): { state: CodeSessionState; effects: Effect[] } {
-  return forgetBehindWithItsShadow(endCatchUpWithItsBracket(reduceEvent(state, event)));
+  return rememberClosedCycle(
+    state,
+    reconcileTurnAtEdges(
+      state,
+      forgetBehindWithItsShadow(endCatchUpWithItsBracket(reduceEvent(state, event))),
+      event,
+    ),
+  );
+}
+
+/**
+ * Run the reconcile rule at the edge this event made, if it made one: a new
+ * latch reading (`server_turn`), a catch-up that ended however it ended
+ * (answered, lapsed, let go, or with the wire), or the wire back `online`.
+ * Read as transitions here, after any bracket's own close, so every ending
+ * of a catch-up — a future one included — is an edge without each handler
+ * having to say so. None is a timer.
+ */
+function reconcileTurnAtEdges(
+  prev: CodeSessionState,
+  result: { state: CodeSessionState; effects: Effect[] },
+  event: CodeSessionEvent,
+): { state: CodeSessionState; effects: Effect[] } {
+  const next = result.state;
+  const edge: ReconcileEdge | null =
+    prev.catchUp.stage !== "none" && next.catchUp.stage === "none"
+      ? "catch-up"
+      : event.type === "server_turn"
+        ? "latch"
+        : prev.transportState !== "online" && next.transportState === "online"
+          ? "transport"
+          : null;
+  if (edge === null) return result;
+  const fired = reconcileTurn(next, edge, endTurnAsReconciled);
+  if (fired === null) return result;
+  return { state: fired.state, effects: [...result.effects, ...fired.effects] };
+}
+
+/**
+ * The ids of a cycle that closed in this event, remembered as turns the card
+ * is past. A cycle closes wherever its `pendingTurn` leaves — a commit, an
+ * interrupt, a lost transport, a replayed turn's commit, a catch-up's answer
+ * superseding it — so the move is read here, once, rather than at each of
+ * those handlers.
+ */
+function rememberClosedCycle(
+  prev: CodeSessionState,
+  result: { state: CodeSessionState; effects: Effect[] },
+): { state: CodeSessionState; effects: Effect[] } {
+  const closing = prev.pendingTurn;
+  if (closing === null) return result;
+  const open = result.state.pendingTurn;
+  if (open !== null && open.turnKey === closing.turnKey) return result;
+  const knownTurnIds = rememberTurnIds(result.state.knownTurnIds, cycleTurnIds(closing));
+  if (knownTurnIds === result.state.knownTurnIds) return result;
+  return { ...result, state: { ...result.state, knownTurnIds } };
 }
 
 function reduceEvent(
@@ -9596,6 +9800,8 @@ function reduceEvent(
       return handleRequestRewindPreview(state, event);
     case "session_rewind_request":
       return handleSessionRewindRequest(state, event);
+    case "server_turn":
+      return handleServerTurn(state, event);
     default:
       return { state, effects: [] };
   }

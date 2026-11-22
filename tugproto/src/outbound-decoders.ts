@@ -248,6 +248,7 @@ const wakeStarted = obj({
     summary: str,
     output_file: str,
   }),
+  turn_id: opt(str),
 });
 
 const assistantOpener = obj({
@@ -279,6 +280,12 @@ export interface TugNotice {
    * other notice.
    */
   facts?: BaseMotionNoticeFacts;
+  /**
+   * The submission id of the `user_message` this notice opens — the id
+   * tugcast's turn latch names the turn by. Absent on a bulletin, which opens
+   * no turn, and from an older tugcast.
+   */
+  submission_id?: string;
 }
 
 /** A clean replay of an arc onto its moved base. */
@@ -340,6 +347,7 @@ const tugNotice = obj({
   standalone: opt(bool),
   timestamp: opt(num),
   facts: opt(baseMotionNoticeFacts),
+  submission_id: opt(str),
 });
 
 // ---------------------------------------------------------------------------
@@ -528,6 +536,7 @@ const sessionSegment = obj({
   arc: opt(str),
   prompt: opt(str),
   steps: opt(str),
+  submission_id: opt(str),
 });
 
 const replayStage = obj({

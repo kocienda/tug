@@ -701,8 +701,14 @@ import {
  * figure's Copy and Share buttons send — answering the host's outcome, so a
  * test reads the artifact the buttons make without a sheet in the way.
  * Additive; major stays `2`.
+ *
+ * `2.71.0`: adds {@link TugTestSurface.turnFacts}, on a body's surface: the
+ * card's belief about its turn as its session store holds it — the phase,
+ * `canInterrupt` (what the join offer's `turn-in-flight` hold reads), whether
+ * a catch-up stands, and the open turn's key — so a test can say a card
+ * yielded to tugcast's turn latch. Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.70.0" as const;
+export const SURFACE_VERSION = "2.71.0" as const;
 
 /** What {@link TugTestSurface.readClipboardFacts} reports of the pasteboard. */
 export interface ClipboardFacts {
@@ -2089,6 +2095,18 @@ export interface TugTestSurface {
   // ---- Dev lifecycle-matrix driving (SURFACE_VERSION 1.6.0) ----
 
   /**
+   * The card's belief about its turn, read from its session store: the phase,
+   * whether it would offer Stop (`canInterrupt`, which the join offer's
+   * `turn-in-flight` hold reads), whether a catch-up stands, and the open
+   * turn's key (SURFACE_VERSION 2.71.0).
+   */
+  turnFacts(cardId: string): {
+    phase: string;
+    canInterrupt: boolean;
+    catchingUp: boolean;
+    activeTurnKey: string | null;
+  };
+  /**
    * A `/compact` run's truth for one card, read from the stores: the run (its
    * turn, its outcome), the session's catch-up and phase, the open turn's
    * opener, and each committed turn's opener and compaction mark — what a
@@ -3313,6 +3331,20 @@ function createViewSurfaceMethods(deck: ViewSurfaceStore) {
         if (turnKey !== undefined) liveTurnKeys.push(turnKey);
       });
       return { byIdentity: snapshotParsesByIdentity(), liveTurnKeys };
+    },
+
+    turnFacts(cardId: string) {
+      const services = cardServicesStore.getServices(cardId);
+      if (services === null) {
+        throw new Error(`turnFacts: card "${cardId}" has no bound session`);
+      }
+      const snap = services.codeSessionStore.getSnapshot();
+      return {
+        phase: snap.phase,
+        canInterrupt: snap.canInterrupt === true,
+        catchingUp: snap.catchingUp,
+        activeTurnKey: snap.activeTurn?.turnKey ?? null,
+      };
     },
 
     compactionRunFacts(cardId: string) {

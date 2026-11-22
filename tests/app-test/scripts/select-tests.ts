@@ -583,7 +583,14 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     // machine split out of `session-engine.ts` so it has unit tests of its
     // own: the engine calls it on every dispatch, so it is the same reach.
     // Raised in place, on the same terms.
-    "tugdeck/src/lib/code-session-store/": 33,
+    //
+    // Raised from 33 for `catch-up-log.ts` and `turn-reconcile.ts`, which are
+    // the same reach again: the first is the one log line every catch-up
+    // writes when it ends, the second the rule the reducer runs at every
+    // catch-up's close, latch reading and reconnect. Both run on frames a test
+    // declaring this subtree already drives. Deleted and re-added across two
+    // commits, as the ratchet asks.
+    "tugdeck/src/lib/code-session-store/": 35,
 
     // Raised from 19 for `streaming-flush.ts`, which is not new reach: it is
     // the streaming block's frame coalescer, lifted out of

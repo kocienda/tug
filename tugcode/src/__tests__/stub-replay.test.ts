@@ -118,6 +118,13 @@ describe("loadTranscript", () => {
     const path = writeTranscriptFile(obj);
     expect(() => loadTranscript(path)).toThrow(/missing turns/);
   });
+
+  test("reads answersCatchUp, and refuses one that is not a boolean", () => {
+    expect(loadTranscript(writeTranscriptFile(makeMinimalTranscript())).answersCatchUp).toBeUndefined();
+    expect(loadTranscript(writeTranscriptFile({ ...makeMinimalTranscript(), answersCatchUp: false })).answersCatchUp).toBe(false);
+    const path = writeTranscriptFile({ ...makeMinimalTranscript(), answersCatchUp: "no" });
+    expect(() => loadTranscript(path)).toThrow(/answersCatchUp=no/);
+  });
 });
 
 describe("StubReplayEngine", () => {
@@ -518,6 +525,29 @@ describe("request_replay", () => {
     engine.answerReplay({ afterTurn: { msgIds: [], heldTurns: 40 } });
     expect(textsOf()).toEqual([]);
     expect(captured.at(-1)).toMatchObject({ count: 0, firstLoadedTurnIndex: 3, totalTurns: 3 });
+  });
+
+  test("answersCatchUp false leaves an afterTurn read unanswered, and answers every other read", () => {
+    const captured: OutboundMessage[] = [];
+    const engine = new StubReplayEngine({
+      transcript: {
+        schemaVersion: TRANSCRIPT_SCHEMA_VERSION,
+        tugcodeVersion: "stub",
+        answersCatchUp: false,
+        turns: [{ index: 0, outputs: turn("a") }],
+      },
+      sessionId: "sess-1",
+      emit: (m) => captured.push(m),
+    });
+    engine.dispatchTurn();
+    captured.length = 0;
+    engine.answerReplay({ afterTurn: { msgIds: [], heldTurns: 0 } }, "ask-1");
+    expect(captured).toEqual([]);
+    engine.answerReplay({ turnRange: [0, 1] });
+    expect(captured.at(-1)).toMatchObject({ type: "replay_complete", count: 1 });
+    captured.length = 0;
+    engine.answerReplay();
+    expect(captured.map((m) => m.type)).toEqual(["replay_started", "replay_complete"]);
   });
 
   test("a turn still streaming rides the bracket as its snapshot, after the finished turns", () => {

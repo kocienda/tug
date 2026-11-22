@@ -201,6 +201,25 @@ describe("a stage rotation announces lineage", () => {
     );
   });
 
+  test("the stage line echoes the prompt's submission id the command carried", async () => {
+    const m = manager();
+    await rotate(m, "new", {
+      ...STAGE,
+      prompt: "go",
+      submission_id: "0f3c1e5a-1b2c-4d5e-8f90-000000000001",
+    });
+    expect(emitted.find((e) => e?.type === "session_segment").submission_id).toBe(
+      "0f3c1e5a-1b2c-4d5e-8f90-000000000001",
+    );
+
+    emitted = [];
+    const bare = manager();
+    await rotate(bare, "new", STAGE);
+    expect(emitted.find((e) => e?.type === "session_segment")).not.toHaveProperty(
+      "submission_id",
+    );
+  });
+
   test("the stage's spawn carries the arc name", async () => {
     const m = manager();
     await rotate(m, "new", STAGE);

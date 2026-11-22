@@ -2747,14 +2747,23 @@ async fn deliver_prompt(
     };
 
     let session = arc.session.as_str().to_string();
+    // One id for the notice and the prompt it opens, so the card's cycle and
+    // the turn latch name the same turn.
+    let submission_id = uuid::Uuid::new_v4().to_string();
     ctx.supervisor.code_output.publish_tagged(Frame::new(
         FeedId::CODE_OUTPUT,
-        super::base_motion::notice_payload(&session, WHEEL_NOTICE_ORIGIN, &text, None),
+        super::base_motion::notice_payload(
+            &session,
+            WHEEL_NOTICE_ORIGIN,
+            &text,
+            None,
+            Some(&submission_id),
+        ),
     ));
     ctx.supervisor
         .dispatch_one(Frame::new(
             FeedId::CODE_INPUT,
-            super::base_motion::user_message_payload(&session, &text),
+            super::base_motion::user_message_payload(&session, &text, &submission_id),
         ))
         .await;
     // Tug's own record of what the wheel said, so a reload attributes this
@@ -3570,14 +3579,21 @@ async fn continue_stage(
         stage = stage.as_str(),
         road = "continue",
     );
+    let submission_id = uuid::Uuid::new_v4().to_string();
     ctx.supervisor.code_output.publish_tagged(Frame::new(
         FeedId::CODE_OUTPUT,
-        super::base_motion::notice_payload(&session, WHEEL_NOTICE_ORIGIN, &text, None),
+        super::base_motion::notice_payload(
+            &session,
+            WHEEL_NOTICE_ORIGIN,
+            &text,
+            None,
+            Some(&submission_id),
+        ),
     ));
     ctx.supervisor
         .dispatch_one(Frame::new(
             FeedId::CODE_INPUT,
-            super::base_motion::user_message_payload(&session, &text),
+            super::base_motion::user_message_payload(&session, &text, &submission_id),
         ))
         .await;
     ctx.supervisor
@@ -10100,6 +10116,27 @@ Some context.
         assert_eq!(notice["origin"], "wheel");
         assert_eq!(notice["text"], "/compact");
         assert_eq!(submitted(&entry).await, vec!["/compact".to_string()]);
+        // The notice and the prompt name one turn: the card opens its cycle
+        // under the notice's id, and the latch under the prompt's.
+        let id = notice["submission_id"]
+            .as_str()
+            .expect("the opener names the turn it opens")
+            .to_owned();
+        let guard = entry.lock().await;
+        let prompt: serde_json::Value = guard
+            .queue
+            .iter()
+            .find_map(|frame| {
+                let value: serde_json::Value = serde_json::from_slice(&frame.payload).ok()?;
+                (value["type"] == "user_message").then_some(value)
+            })
+            .expect("the prompt is queued");
+        assert_eq!(
+            prompt["submission_id"],
+            id.as_str(),
+            "one id on both frames"
+        );
+        assert_eq!(guard.turn_id(), Some(id.as_str()), "and the latch names it");
     }
 
     #[tokio::test]

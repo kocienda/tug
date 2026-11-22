@@ -453,7 +453,7 @@ impl AgentSupervisor {
                 &session_row,
                 metrics,
                 usage,
-                ledger.turn_active(&row.session_id),
+                ledger.turn_latch(&row.session_id),
             ));
         }
     }

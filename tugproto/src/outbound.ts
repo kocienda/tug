@@ -536,6 +536,13 @@ export interface SessionSegment {
    */
   prompt?: string;
   /**
+   * The opening prompt's submission id, echoed from the command — the id
+   * tugcast's turn latch names the turn by, so the cycle the deck opens here
+   * and the latch reading on the session row name one turn. Absent on a stage
+   * the runner sent no prompt for, and from an older tugcast.
+   */
+  submission_id?: string;
+  /**
    * The inclusive step range a *continued* implement stage walks, `N-M`.
    * Absent on every other stage, which is what tells the transcript's divider
    * a continued stage from a first one ([P07], [B13]).
@@ -1445,6 +1452,13 @@ export interface WakeStarted {
     summary: string;
     output_file: string;
   };
+  /**
+   * The id tugcast's turn latch opened this wake's turn under, stamped by
+   * tugcast's merger on a live wake only — a replayed one carries none. The
+   * deck takes it as the cycle's id, so a later latch reading on the session
+   * row can be placed against the turn.
+   */
+  turn_id?: string;
   ipc_version: number;
 }
 

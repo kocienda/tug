@@ -307,7 +307,7 @@ impl AgentSupervisor {
                             &row,
                             metrics,
                             usage,
-                            ledger.turn_active(&segment.session_id),
+                            ledger.turn_latch(&segment.session_id),
                         ));
                     }
                 }
@@ -345,7 +345,7 @@ impl AgentSupervisor {
                             &row,
                             metrics,
                             usage,
-                            ledger.turn_active(&segment.session_id),
+                            ledger.turn_latch(&segment.session_id),
                         ));
                     }
                 }
@@ -414,7 +414,7 @@ impl AgentSupervisor {
                         &row,
                         metrics,
                         usage,
-                        ledger.turn_active(session_id),
+                        ledger.turn_latch(session_id),
                     ));
                 }
                 let body = serde_json::json!({
@@ -475,7 +475,7 @@ impl AgentSupervisor {
                 &row,
                 metrics,
                 usage,
-                ledger.turn_active(session_id),
+                ledger.turn_latch(session_id),
             ));
         }
     }

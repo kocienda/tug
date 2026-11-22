@@ -2266,6 +2266,11 @@ export interface TugcodeTranscript {
    * emits a turn's outputs at once.
    */
   paceMs?: number;
+  /**
+   * False leaves every catch-up (`afterTurn` read) unanswered, as when its
+   * answer is lost. Absent or true answers it.
+   */
+  answersCatchUp?: boolean;
   turns: TugcodeTranscriptTurn[];
 }
 

@@ -32,6 +32,7 @@ import { FIXTURE_IDS } from "@/lib/code-session-store/testing/golden-catalog";
 import { FeedId } from "@/protocol";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import { CATCH_UP_LOG_SOURCE } from "@/lib/code-session-store/catch-up-log";
+import { TURN_RECONCILE_LOG_SOURCE } from "@/lib/code-session-store/turn-reconcile";
 
 const TUG = FIXTURE_IDS.TUG_SESSION_ID;
 
@@ -1684,5 +1685,189 @@ describe("catchUp — its one line in the log", () => {
 
     expect(lines).toHaveLength(1);
     expect(lines[0].data).toMatchObject({ cardId: CARD, askId: lastAsk(conn), ending: "closed" });
+  });
+});
+
+describe("catchUp — the card yields to tugcast's latch", () => {
+  let lines: Array<Record<string, unknown>>;
+  const originalWarn = tugDevLogStore.warn;
+  beforeEach(() => {
+    lines = [];
+    tugDevLogStore.warn = (source, message, data) => {
+      if (source === TURN_RECONCILE_LOG_SOURCE && message === "turn reconciled") {
+        lines.push(data as Record<string, unknown>);
+      }
+    };
+  });
+  afterEach(() => {
+    tugDevLogStore.warn = originalWarn;
+  });
+
+  const CARD = "card-0869";
+  const internal = (store: CodeSessionStore) => store._getInternalStateForDevPanel();
+  const cycleId = (store: CodeSessionStore): string => internal(store).pendingTurn!.turnId!;
+  const idle = (turnId: string | null) => ({ active: false, turnId });
+
+  /** A settled card of two turns, then a typed turn past its submit, its first text heard under msg id 2. */
+  function streaming(): ReturnType<typeof makeTimedStore> & { a: string } {
+    const made = makeTimedStore();
+    replayRange(made.conn, 0, 1, { firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false });
+    made.store.send("hi", []);
+    emit(made.conn, {
+      type: "assistant_text",
+      status: "partial",
+      msg_id: FIXTURE_IDS.MSG_ID_N(2),
+      text: "working",
+      is_partial: true,
+      rev: 0,
+      seq: 0,
+    });
+    return { ...made, a: cycleId(made.store) };
+  }
+
+  const complete = (conn: TestFrameChannel, n: number) =>
+    emit(conn, { type: "turn_complete", seq: 1, msg_id: FIXTURE_IDS.MSG_ID_N(n), result: "success" });
+
+  it("a catch-up that never answers yields to an idle latch", () => {
+    const { store, conn, timers, a } = streaming();
+    store.catchUp(CARD);
+    // Read while the catch-up stands, the reading is only kept.
+    store.noteServerTurn(idle(a), CARD);
+    expect(lines).toEqual([]);
+    const transcript = store.getSnapshot().transcript;
+    timers.advance(CATCH_UP_DEADLINE_MS);
+
+    const state = internal(store);
+    expect(state.phase).toBe("idle");
+    expect(state.pendingTurn).toBeNull();
+    expect(store.getSnapshot().canInterrupt).toBe(false);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({
+      cardId: CARD,
+      tugSessionId: TUG,
+      edge: "catch-up",
+      rule: "same-turn",
+      action: "ended",
+      before: { phase: "awaiting_first_token", canInterrupt: true, turnId: a, origin: "user" },
+      latch: { active: false, turnId: a },
+      catchUpAsked: true,
+    });
+    const asks = catchUpAsks(conn);
+    expect(asks).toHaveLength(2);
+    expect(asks[1].window).toEqual({ afterTurn: heldTurnsOf(transcript, 0) });
+    expect(store.getSnapshot().transcript).toHaveLength(2);
+  });
+
+  it("an idle reading of a turn it never heard of asks first, and ends only when the fence closes", () => {
+    const { store, conn, timers } = streaming();
+    store.noteServerTurn(idle("elsewhere"), CARD);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ edge: "latch", rule: "later-turn", action: "asked", catchUpAsked: true });
+    expect(catchUpAsks(conn)).toHaveLength(1);
+    expect(internal(store).phase).toBe("awaiting_first_token");
+
+    timers.advance(CATCH_UP_DEADLINE_MS);
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toMatchObject({ edge: "catch-up", rule: "later-turn", action: "ended" });
+    expect(internal(store).phase).toBe("idle");
+  });
+
+  it("the row before the frame: a lapse lets the held turn_complete commit the turn whole", () => {
+    const { store, conn, timers, a } = streaming();
+    store.noteServerTurn(idle(a), CARD);
+    expect(lines.map((l) => l.action)).toEqual(["asked"]);
+    complete(conn, 2);
+    // Held behind the ask.
+    expect(internal(store).pendingTurn).not.toBeNull();
+    timers.advance(CATCH_UP_DEADLINE_MS);
+
+    expect(internal(store).phase).toBe("idle");
+    expect(store.getSnapshot().transcript.map((t) => t.msgId)).toEqual([0, 1, 2].map((n) => FIXTURE_IDS.MSG_ID_N(n)));
+    expect(lines.map((l) => l.action)).toEqual(["asked"]);
+  });
+
+  it("the row before the frame: an answer carrying the turn commits it once", () => {
+    const { store, conn, a } = streaming();
+    store.noteServerTurn(idle(a), CARD);
+    complete(conn, 2);
+    replayRange(conn, 1, 2, { firstLoadedTurnIndex: 1, totalTurns: 3, hasOlder: true }, lastAsk(conn));
+
+    expect(internal(store).phase).toBe("idle");
+    expect(store.getSnapshot().transcript.map((t) => t.msgId)).toEqual([0, 1, 2].map((n) => FIXTURE_IDS.MSG_ID_N(n)));
+    expect(lines.map((l) => l.action)).toEqual(["asked"]);
+  });
+
+  it("a race placed: a reading of the turn just finished does not touch the queued send it flushed", () => {
+    const { store, conn, a } = streaming();
+    store.send("next", []);
+    complete(conn, 2);
+    const b = cycleId(store);
+    expect(b).not.toBe(a);
+    store.noteServerTurn(idle(a), CARD);
+
+    expect(internal(store).phase).not.toBe("idle");
+    expect(internal(store).pendingTurn?.turnId).toBe(b);
+    expect(lines).toEqual([]);
+  });
+
+  it("the queued send survives the drop, and the follow-up catch-up's close sends it", () => {
+    const { store, conn, timers, a } = streaming();
+    store.send("next", []);
+    store.catchUp(CARD);
+    store.noteServerTurn(idle(a), CARD);
+    timers.advance(CATCH_UP_DEADLINE_MS);
+    expect(lines.map((l) => l.action)).toEqual(["ended"]);
+    expect(internal(store).queuedSends).toHaveLength(1);
+    const sentBefore = userMessagesOf(conn).length;
+
+    timers.advance(CATCH_UP_DEADLINE_MS);
+    expect(internal(store).queuedSends).toHaveLength(0);
+    expect(userMessagesOf(conn)).toHaveLength(sentBefore + 1);
+    const sent = userMessagesOf(conn);
+    expect(sent[sent.length - 1].content).toEqual([{ type: "text", text: "next" }]);
+    // The reading names a turn the card has ended: the new turn is left alone.
+    expect(lines).toHaveLength(1);
+  });
+
+  it("the wire back online asks, and the cycle stands until that catch-up closes", () => {
+    const conn = new TestFrameChannel();
+    const timers = new FakeTimers();
+    const lifecycle = new ConnectionLifecycle();
+    lifecycle.notifyConnectionDidOpen();
+    const store = new CodeSessionStore({
+      conn: conn as unknown as TugConnection,
+      lifecycle,
+      tugSessionId: TUG,
+      sessionMode: "resume",
+      timerSource: timers.source,
+    });
+    replayRange(conn, 0, 1, { firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false });
+    store.send("hi", []);
+    emit(conn, { type: "assistant_text", status: "partial", msg_id: FIXTURE_IDS.MSG_ID_N(2), text: "w", is_partial: true, rev: 0, seq: 0 });
+    const a = cycleId(store);
+    lifecycle.notifyConnectionDidClose();
+    store.noteServerTurn(idle(a), CARD);
+    expect(lines).toEqual([]);
+    lifecycle.notifyConnectionDidOpen();
+    store.notifyTransportSettled();
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ edge: "transport", action: "asked" });
+    expect(internal(store).pendingTurn?.turnId).toBe(a);
+    expect(catchUpAsks(conn)).toHaveLength(1);
+    timers.advance(CATCH_UP_DEADLINE_MS);
+    expect(lines.map((l) => l.action)).toEqual(["asked", "ended"]);
+  });
+
+  it("one line per fire: the same reading again, or a settle, says nothing more", () => {
+    const { store, timers, a } = streaming();
+    store.catchUp(CARD);
+    store.noteServerTurn(idle(a), CARD);
+    timers.advance(CATCH_UP_DEADLINE_MS);
+    expect(lines).toHaveLength(1);
+    store.noteServerTurn(idle(a), CARD);
+    store.notifyTransportSettled();
+    timers.advance(CATCH_UP_DEADLINE_MS);
+    expect(lines).toHaveLength(1);
   });
 });

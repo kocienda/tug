@@ -74,6 +74,18 @@ export function sessionStateOf(row: SessionRowState | null, child: string | null
   return row;
 }
 
+/**
+ * A card's `turnLatch` from its ledger row, or null when the shell holds no
+ * row or the row does not report the latch (an older tugcast sends no
+ * boolean `turn_active`; absent means unknown, never idle).
+ */
+export function turnLatchOf(
+  row: Pick<SessionRow, "turn_active" | "turn_id"> | null,
+): DeckCardFacts["turnLatch"] {
+  if (row === null || typeof row.turn_active !== "boolean") return null;
+  return { active: row.turn_active, turnId: typeof row.turn_id === "string" ? row.turn_id : null };
+}
+
 /** What {@link projectDeckCards} reads of each card beyond the deck. */
 export type DeckCardReaders = { [K in Exclude<keyof DeckCardFacts, "componentId">]: (cardId: string) => DeckCardFacts[K] };
 
@@ -89,6 +101,7 @@ export function projectDeckCards(deck: ArrangementDeck, readers: DeckCardReaders
       activity: readers.activity(id),
       binding: readers.binding(id),
       sessionState: readers.sessionState(id),
+      turnLatch: readers.turnLatch(id),
       parkedTitle: readers.parkedTitle(id),
       waivesClose: readers.waivesClose(id),
     };

@@ -1326,7 +1326,7 @@ impl AgentSupervisor {
         // block above set aside.
         if let Some(cleared) = cleared_claude_id.clone() {
             offload_recorder(&self.sessions_recorder, move |r| {
-                r.record_turn_latch(&cleared, false)
+                r.record_turn_closed(&cleared)
             })
             .await;
         }

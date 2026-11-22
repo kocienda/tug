@@ -49,12 +49,14 @@ pub enum TurnOpener {
 }
 
 /// The busy latch as the outermost replay bracket found it: the turn flag, its
-/// opener, and the keys of the jobs then open. Whatever replay moves inside the
-/// bracket is put back to this at its close ([`LedgerEntry::restore_replay_latch`]).
+/// opener, the id of the turn it names, and the keys of the jobs then open.
+/// Whatever replay moves inside the bracket is put back to this at its close
+/// ([`LedgerEntry::restore_replay_latch`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReplayLatch {
     pub turn_active: bool,
     pub turn_opener: Option<TurnOpener>,
+    pub turn_id: Option<String>,
     pub jobs: std::collections::BTreeSet<String>,
 }
 
@@ -238,6 +240,15 @@ pub struct LedgerEntry {
     /// [`Self::restore_replay_latch`]) answers whether the latch moved, and
     /// its caller publishes. Read it with [`Self::turn_active`].
     turn_active: bool,
+    /// The id of the turn the latch last opened: the `submission_id` the
+    /// dispatcher journaled for a prompt, or the id the merger minted for a
+    /// live wake. Written only on the latch's closed → open edge, so a
+    /// steering message mid-turn does not rename the turn, and kept after the
+    /// close, so an idle reading says which turn ended — the mark a card
+    /// places a latch reading by. Same write discipline as `turn_active`:
+    /// moved only through [`TurnLatchEdit`] or by this module's own restores.
+    /// Read it with [`Self::turn_id`].
+    turn_id: Option<String>,
     /// When the turn now in flight last showed it was alive — stamped at the
     /// open, and again at every edge the merger already holds this entry for
     /// (a turn end, a job opening or closing, a `task_progress` heartbeat).
@@ -525,6 +536,7 @@ impl LedgerEntry {
             child_gone_at: None,
             child_start_time: None,
             turn_active: false,
+            turn_id: None,
             turn_last_frame_at: None,
             turns_ended: 0,
             turn_opener: None,
@@ -549,6 +561,12 @@ impl LedgerEntry {
     /// Whether a turn is in flight. See the field for who may write it.
     pub fn turn_active(&self) -> bool {
         self.turn_active
+    }
+
+    /// The id of the turn the latch last opened, kept after its close. See
+    /// the field.
+    pub fn turn_id(&self) -> Option<&str> {
+        self.turn_id.as_deref()
     }
 
     /// Set the latch with nothing recorded, for a test that stages an entry's
@@ -772,6 +790,7 @@ impl LedgerEntry {
         self.replay_latch_found = Some(ReplayLatch {
             turn_active: self.turn_active,
             turn_opener: self.turn_opener,
+            turn_id: self.turn_id.clone(),
             jobs: self.open_jobs.keys().cloned().collect(),
         });
     }
@@ -801,7 +820,10 @@ impl LedgerEntry {
             return false;
         };
         let mut moved = false;
-        if self.turn_active != found.turn_active || self.turn_opener != found.turn_opener {
+        if self.turn_active != found.turn_active
+            || self.turn_opener != found.turn_opener
+            || self.turn_id != found.turn_id
+        {
             warn!(
                 target: "dev::ledger",
                 event = "replay_residue_cleared",
@@ -818,6 +840,7 @@ impl LedgerEntry {
             );
             self.turn_active = found.turn_active;
             self.turn_opener = found.turn_opener;
+            self.turn_id = found.turn_id;
             moved = true;
         }
         let added: Vec<String> = self
@@ -890,11 +913,26 @@ pub(crate) async fn write_turn_latch(
     ledger_entry: &Arc<Mutex<LedgerEntry>>,
     edit: impl FnOnce(&mut TurnLatchEdit<'_>),
 ) {
-    {
-        let mut entry = ledger_entry.lock().await;
-        edit(&mut TurnLatchEdit { entry: &mut entry });
-    }
+    edit_turn_latch(ledger_entry, edit).await;
     publish_turn_latch(sessions_recorder, ledger_entry).await;
+}
+
+/// The guard half of [`write_turn_latch`]: `edit` runs under the entry's lock
+/// with a [`TurnLatchEdit`], and nothing is recorded. **The caller owes
+/// [`publish_turn_latch`]** once it has done whatever has to happen between
+/// the edit and the record.
+///
+/// It exists for the merger alone, which moves the latch *before* it forwards
+/// the frame that moved it — so a card that hears `turn_complete` and sends a
+/// queued prompt at once finds the latch already closed when that prompt
+/// reaches the dispatcher — and pushes the row *after* the forward. Every
+/// other writer goes through [`write_turn_latch`].
+pub(super) async fn edit_turn_latch(
+    ledger_entry: &Arc<Mutex<LedgerEntry>>,
+    edit: impl FnOnce(&mut TurnLatchEdit<'_>),
+) {
+    let mut entry = ledger_entry.lock().await;
+    edit(&mut TurnLatchEdit { entry: &mut entry });
 }
 
 /// A ledger entry held by [`write_turn_latch`]: the entry itself, through
@@ -905,8 +943,20 @@ pub(crate) struct TurnLatchEdit<'a> {
 }
 
 impl TurnLatchEdit<'_> {
-    pub(crate) fn set_turn_active(&mut self, active: bool) {
-        self.entry.turn_active = active;
+    /// Open the latch, naming the turn on its closed → open edge only: a
+    /// prompt that reaches an open latch (a steering message) keeps the id of
+    /// the turn it joined.
+    pub(crate) fn open_turn(&mut self, id: Option<String>) {
+        if !self.entry.turn_active {
+            self.entry.turn_id = id;
+        }
+        self.entry.turn_active = true;
+    }
+
+    /// Close the latch. The turn's id is kept, so the row still names the
+    /// turn that ended.
+    pub(crate) fn close_turn(&mut self) {
+        self.entry.turn_active = false;
     }
 }
 
@@ -993,6 +1043,80 @@ mod tests {
         assert!(entry.restore_replay_latch(), "residue is reported cleared");
         assert!(entry.is_quiet(), "the bracket closes on a quiet entry");
         assert_eq!(entry.turn_opener, None, "the opener goes with the turn");
+    }
+
+    /// The latch names its turn on the open edge and nowhere else ([P01]): a
+    /// steering message into an open turn keeps the first id, a close keeps
+    /// it so an idle reading says which turn ended, and the next open names
+    /// the next turn.
+    #[test]
+    fn the_latch_names_its_turn_on_the_open_edge_and_keeps_it_closed() {
+        let mut entry = LedgerEntry::new(
+            TugSessionId::new("s1".to_owned()),
+            WorkspaceKey::from_test_str("/proj"),
+            std::path::PathBuf::from("/proj"),
+            SessionMode::New,
+            CrashBudget::new(3, Duration::from_secs(60)),
+        );
+        assert_eq!(entry.turn_id(), None, "a fresh entry names no turn");
+
+        TurnLatchEdit { entry: &mut entry }.open_turn(Some("t1".to_owned()));
+        assert!(entry.turn_active());
+        assert_eq!(entry.turn_id(), Some("t1"));
+
+        TurnLatchEdit { entry: &mut entry }.open_turn(Some("steer".to_owned()));
+        assert_eq!(
+            entry.turn_id(),
+            Some("t1"),
+            "steering does not rename the turn"
+        );
+
+        TurnLatchEdit { entry: &mut entry }.close_turn();
+        assert!(!entry.turn_active());
+        assert_eq!(
+            entry.turn_id(),
+            Some("t1"),
+            "the close keeps the turn it ended"
+        );
+
+        TurnLatchEdit { entry: &mut entry }.open_turn(Some("t2".to_owned()));
+        assert_eq!(
+            entry.turn_id(),
+            Some("t2"),
+            "the next open names the next turn"
+        );
+    }
+
+    /// A replayed frame that renamed the latch's turn is put back at the
+    /// bracket's close, with the flag and the opener.
+    #[test]
+    fn a_bracket_close_restores_the_turn_id_it_found() {
+        let mut entry = LedgerEntry::new(
+            TugSessionId::new("s1".to_owned()),
+            WorkspaceKey::from_test_str("/proj"),
+            std::path::PathBuf::from("/proj"),
+            SessionMode::Resume,
+            CrashBudget::new(3, Duration::from_secs(60)),
+        );
+        TurnLatchEdit { entry: &mut entry }.open_turn(Some("live".to_owned()));
+        TurnLatchEdit { entry: &mut entry }.close_turn();
+
+        entry.note_replay_latch();
+        // An unguarded fold inside the bracket opened and named a turn.
+        entry.turn_active = true;
+        entry.turn_id = Some("replayed".to_owned());
+        assert!(
+            entry.restore_replay_latch(),
+            "what replay moved is reported"
+        );
+        assert!(!entry.turn_active());
+        assert_eq!(entry.turn_id(), Some("live"), "the id the bracket found");
+
+        // A bracket that only renamed the turn is residue too.
+        entry.note_replay_latch();
+        entry.turn_id = Some("replayed".to_owned());
+        assert!(entry.restore_replay_latch());
+        assert_eq!(entry.turn_id(), Some("live"));
     }
 
     /// A catch-up asked for mid-turn opens its bracket over the live turn's
