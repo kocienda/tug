@@ -396,12 +396,17 @@
   --tugx-z2-strip-padding: var(--tug-space-md);
   --tugx-z2-control-gap: var(--tug-space-xs);
   --tugx-z2-row-inset: var(--tug-space-xs);
-  --tugx-z2-cell-gap: 27px;
+  --tugx-z2-cell-gap: 26px;
   --tugx-z2-cell-state: 18ch;
   --tugx-z2-cell-time: 15ch;
   --tugx-z2-cell-context: 14ch;
   --tugx-z2-cell-arc: 17ch;
-  --tugx-z2-cell-jobs: 9ch;
+  /* JOBS stands on its own content, `None` between two dots, which is 75px:
+     a budget under that (it was 9ch, 54px) is no budget at all. So it is in
+     px, 4px over its content: the 4px the four gaps gave back when they went
+     from 27px to 26px, so JOBS is a little wider at all times and the row's
+     total is unchanged. */
+  --tugx-z2-cell-jobs: 79px;
   /* Measured: the resting cells' own row is 35.8px (an 11px legend apparatus,
      its 5px tick excursion, the 2px stack gap, the 18px value row, and the
      fraction the cell stack's own boxes carry), which builds the 53.8px strip

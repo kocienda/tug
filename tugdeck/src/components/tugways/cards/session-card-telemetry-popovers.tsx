@@ -1,6 +1,6 @@
 /**
  * session-card-telemetry-popovers.tsx — popup content for the five Z2
- * status-row anchors (STATE, TIME, CONTEXT, JOBS, ARC).
+ * status-row anchors (STATE, TIME, CONTEXT, ARC, JOBS).
  *
  * Every popup composes the shared `TugPopupList` vocabulary — frame,
  * log grid, item rows, footer — so the five surfaces read with one

@@ -331,6 +331,15 @@ body {
   overflow: hidden;
 }
 
+/* A full panel is not capped by lines: a cap of body text means nothing to
+   a surface of rows, and the Arc panel's plan would scroll at four steps. It
+   is as tall as its reading, expanded or not, and gives way only when the
+   shade's own cap binds and the rows share what it leaves. Written with the
+   grid's class so it outranks the expanded panel's cap. */
+.session-arc-panels .session-arc-panel[data-full="true"] > .session-arc-panel-body {
+  max-height: none;
+}
+
 .session-arc-panel[data-full="true"] .tug-popup-list {
   flex: 0 1 auto;
   min-width: 0;

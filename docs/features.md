@@ -110,7 +110,7 @@ Before anything is made, secrets such as tokens and keys are removed and your ho
 
 ### The status row
 
-Under the transcript, the status row reads out five things, and each opens a panel of detail when pressed: the session's **state**, its elapsed **time**, its **context** window usage, its background **jobs** as they appear, run and finish, and the **arc** it is driving, or `None`. The arc reading is the exception among the five: pressing it raises the arc shade instead of a panel. `/context` and `/bashes` open the context and jobs panels from the composer. A `/btw` side question's answers open from under this row too.
+Under the transcript, the status row reads out five things, and each opens a panel of detail when pressed: the session's **state**, its elapsed **time**, its **context** window usage, the **arc** it is driving, or `None`, and its background **jobs** as they appear, run and finish. The arc reading is the exception among the five: pressing it raises the arc shade instead of a panel. `/context` and `/bashes` open the context and jobs panels from the composer. A `/btw` side question's answers open from under this row too.
 
 The state reads one of: **Idle** or **Ready**, with no turn in flight; **Sending** and **Waiting**, on the way to the model; **Streaming** while it writes; **Working** while it runs tools; **Running** when a turn has ended and background work carries on; **Awaiting** when it needs your answer; **Interrupting** while a stop is on its way, and **Unanswered** if it goes unheeded; **Restoring** while an earlier session is read back; **Reconnecting** and **Disconnected** for the link to the session; and **Error**.
 

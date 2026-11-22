@@ -610,10 +610,10 @@
    declares `container-type: inline-size` + `container-name: session-status`
    so these `@container` rules can target it. As the host narrows, whole
    cells (label apparatus + value together) hide in priority order — TIME
-   first, then JOBS, with ARC the last collapsible: ARC is the row's last
-   cell and the one that toggles the card's largest surface, so it is the
-   last to go, and a running job is still said by STATE once its own cell
-   has. STATE / CONTEXT stay as the most-persistent set.
+   first, then JOBS, with ARC the last collapsible: ARC toggles the card's
+   largest surface, so it is the last to go, and a running job is still said
+   by STATE once its own cell has. JOBS is the row's last cell and goes
+   before ARC all the same. STATE / CONTEXT stay as the most-persistent set.
 
    Five cells at the budgets above measure 614px including the 24px gaps, and
    the row's own 4px-a-side inset puts the set's need at 622px. The fold
@@ -644,7 +644,13 @@
    margins cancel), two 27px gaps, the row's 8px of inset and the control's
    32px seat, which is 417px. The rung it replaced hid ARC second and left
    JOBS, a 75px cell, so it stood at 411px; kept there, the wider set would
-   overflow in the band between. */
+   overflow in the band between.
+
+   The gaps went from 27px to 26px and JOBS took the 4px they gave back, so
+   the full set is the width it was and the first rung stands. With TIME gone
+   the set is three gaps and JOBS, 1px wider, so the second rung moved from
+   527px to 528px; with JOBS gone too it is two gaps narrower, so the third
+   moved from 416px to 414px. */
 
 @container session-status (max-width: 653px) {
   .session-telemetry-status-cell[data-priority="time"] {
@@ -652,13 +658,13 @@
   }
 }
 
-@container session-status (max-width: 527px) {
+@container session-status (max-width: 528px) {
   .session-telemetry-status-cell[data-priority="jobs"] {
     display: none;
   }
 }
 
-@container session-status (max-width: 416px) {
+@container session-status (max-width: 414px) {
   .session-telemetry-status-cell[data-priority="arc"] {
     display: none;
   }

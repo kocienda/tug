@@ -1816,40 +1816,13 @@ export const SessionTelemetryStatusRow = React.forwardRef<
         </span>
       </SessionTelemetryCell>
       <SessionTelemetryCell
-        priority="jobs"
-        label="JOBS"
-        onActivate={() => togglePlacard("jobs")}
-        valueEmpty={jobsDisplayCount === 0}
-        focusGroup={focusGroup}
-        focusOrder={cellOrder(3)}
-        focusPolicy={focusPolicy}
-      >
-        {replayInert ? (
-          <span className="session-telemetry-status-value">—</span>
-        ) : (
-          <TugProgressIndicator
-            variant="pulsing-dot"
-            glyphPosition="both"
-            size={12}
-            state={jobsIndicatorState}
-            label={jobsLabelText}
-            labelAlign="center"
-            phaseLabels={{
-              none: WORK_CELL_WIDEST_WORD,
-              max: "00",
-            }}
-            aria-label={jobsSummary}
-          />
-        )}
-      </SessionTelemetryCell>
-      <SessionTelemetryCell
         priority="arc"
         label="ARC"
         onActivate={toggleArcShade}
         pressed={arcShadeRaised}
         valueEmpty={arcFact === null}
         focusGroup={focusGroup}
-        focusOrder={cellOrder(4)}
+        focusOrder={cellOrder(3)}
         focusPolicy={focusPolicy}
       >
         {replayInert ? (
@@ -1928,6 +1901,33 @@ export const SessionTelemetryStatusRow = React.forwardRef<
               aria-hidden
             />
           </>
+        )}
+      </SessionTelemetryCell>
+      <SessionTelemetryCell
+        priority="jobs"
+        label="JOBS"
+        onActivate={() => togglePlacard("jobs")}
+        valueEmpty={jobsDisplayCount === 0}
+        focusGroup={focusGroup}
+        focusOrder={cellOrder(4)}
+        focusPolicy={focusPolicy}
+      >
+        {replayInert ? (
+          <span className="session-telemetry-status-value">—</span>
+        ) : (
+          <TugProgressIndicator
+            variant="pulsing-dot"
+            glyphPosition="both"
+            size={12}
+            state={jobsIndicatorState}
+            label={jobsLabelText}
+            labelAlign="center"
+            phaseLabels={{
+              none: WORK_CELL_WIDEST_WORD,
+              max: "00",
+            }}
+            aria-label={jobsSummary}
+          />
         )}
       </SessionTelemetryCell>
     </div>

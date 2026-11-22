@@ -260,7 +260,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // The shipped lineup: five cells, left to right, all laid out.
           // The retired TOKENS cell and the merged WORK cell are gone;
-          // JOBS and ARC stand in their place, ARC last.
+          // ARC and JOBS stand in their place, JOBS last.
           const lineup = await app.body("A").evalJS<
             Array<{ priority: string; shown: boolean }>
           >(LINEUP_JS);
@@ -268,12 +268,12 @@ describe.skipIf(!SHOULD_RUN)(
             "state",
             "time",
             "context",
-            "jobs",
             "arc",
+            "jobs",
           ]);
           expect(lineup.every((c) => c.shown)).toBe(true);
 
-          // The last cell reads ARC whether or not an arc is bound. This
+          // The ARC cell reads ARC whether or not an arc is bound. This
           // session drives none, so the value is the one dimmed word, in a
           // span that is not the arc's value slot, and the arc shade the cell
           // raises says the same word; a second press lowers it.
