@@ -15,9 +15,9 @@
  *
  * Every DOM fact about the vanished tape is correct: the container is
  * mounted, sized, and not hidden; the tape's own state says it painted. Only
- * the raster is wrong — and the raster is made in a render worker, off the
- * main thread, on a canvas whose control has been transferred away, so
- * `getImageData` cannot be reached from the page at all. The window as
+ * the raster is wrong — and the raster may be made in a render worker, off
+ * the main thread, on a canvas whose control has been transferred away, so
+ * `getImageData` cannot be relied on from the page at all. The window as
  * composited is the only reading that sees what the user sees — and the
  * composite, not one page's snapshot, since the Session card draws its
  * masthead in its own page.

@@ -140,6 +140,8 @@ describe("no hand-made host channel", () => {
       "HostRunLoopWatch.swift",
       // The bundle's own `Info.plist` (`UTImportedTypeDeclarations`), read for its declared text extensions.
       "OpenableFiles.swift",
+      // A page-load stall reading's `trigger.json` and `stall.json`, written to disk for a person and the app-test runner to read.
+      "PageLoadStallReading.swift",
     ].map((name) => `tugapp/Sources/${name}`);
     expect(NOT_HOST_MESSAGES.every((rel) => HOST.some(({ path }) => relative(CHECKOUT, path) === rel))).toBe(true);
     expect(hits(HOST, /\[String:\s*Any\]/, NOT_HOST_MESSAGES)).toEqual([]);

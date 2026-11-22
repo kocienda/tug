@@ -247,6 +247,7 @@ fn seed_apptest_run(db: &Path, root: &Path, at: i64, file: &str, status: &str) {
         selection: "explicit".to_string(),
         wall_secs: 30,
         verdict: if status == "PASS" { "PASS" } else { "FAIL" }.to_string(),
+        stopped_reason: None,
         files: vec![FileResult {
             file: file.to_string(),
             status: status.to_string(),

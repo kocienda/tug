@@ -622,6 +622,20 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// forever.
     private var lastWebContentTerminationAt: Date?
 
+    /// Decides when a shell navigation has stalled badly enough to read
+    /// the machine — the trigger for a GPU-wedge reading in `stalls/`.
+    private var pageLoadStallWatch = PageLoadStallWatch()
+
+    /// The budget timer for the shell navigation in flight.
+    private var pageLoadBudgetTimer: DispatchWorkItem?
+
+    /// Whether the wedge notice is up, in the splash or over the deck.
+    private var wedgeNoticeMounted = false
+
+    /// The cover the wedge notice stands on once the interface is up and
+    /// there is no splash to put it in.
+    private var wedgeCover: NSView?
+
     /// Harness pid mode (`TUGAPP_NATIVE_EVENT_MODE=pid`) drives the app without
     /// ever activating it. See {@link order(_:relativeTo:)}.
     private let harnessPidMode =
@@ -1131,6 +1145,112 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// launch lap, and the `launch stalled` line above, was written to.
     @objc private func showLaunchLog() {
         NSWorkspace.shared.activateFileViewerSelecting([TugLog.currentFileURL])
+    }
+
+    // MARK: - The GPU-wedge notice
+
+    /// Say that the Mac's graphics service is stuck, and stop loading into
+    /// it. Tug cannot clear the state — only a restart of the Mac does — so
+    /// the notice names the remedy rather than leaving a frozen splash or a
+    /// blank window for the user to puzzle over. In the splash while the
+    /// launch is still waiting; over the deck once the interface is up.
+    private func mountWedgeNotice() {
+        guard !wedgeNoticeMounted else { return }
+        wedgeNoticeMounted = true
+        webView.stopLoading()
+        TugLog.error("stall", "graphics service wedged — not reloading; notice shown", [
+            TugLog.field("during", spinnerView != nil ? "launch" : "session"),
+        ])
+
+        let title = NSTextField(labelWithString: "The Mac's graphics service is stuck.")
+        title.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
+        title.alignment = .center
+
+        let detail = NSTextField(wrappingLabelWithString:
+            "The macOS service that draws web content has stopped responding. "
+            + "It is not only Tug: Safari and other apps may not draw pages either. "
+            + "Tug cannot clear this, and restarting the Mac does. "
+            + "A reading of what the machine was doing has been saved."
+        )
+        detail.font = NSFont.systemFont(ofSize: 12)
+        detail.alignment = .center
+        detail.textColor = .secondaryLabelColor
+        detail.preferredMaxLayoutWidth = 380
+
+        let retry = NSButton(title: "Try Again", target: self, action: #selector(retryAfterWedge))
+        retry.bezelStyle = .rounded
+        let showReading = NSButton(title: "Show Reading", target: self, action: #selector(showStallReadings))
+        showReading.bezelStyle = .rounded
+        let showLog = NSButton(title: "Show Log", target: self, action: #selector(showLaunchLog))
+        showLog.bezelStyle = .rounded
+
+        let buttons = NSStackView(views: [retry, showReading, showLog])
+        buttons.orientation = .horizontal
+        buttons.spacing = 12
+
+        let stack = NSStackView(views: [title, detail, buttons])
+        stack.orientation = .vertical
+        stack.alignment = .centerX
+        stack.spacing = 14
+        NSLayoutConstraint.activate([
+            detail.widthAnchor.constraint(lessThanOrEqualToConstant: 380),
+        ])
+
+        if spinnerView != nil {
+            // The launch's own failure screen must not replace this one, and
+            // its deadline has nothing left to say.
+            launchFailureMounted = true
+            splashDeadline?.cancel()
+            splashDeadline = nil
+            splashWave?.stopAnimating()
+            setSplashContent(stack)
+            return
+        }
+        guard let container = contentView else { return }
+        let cover = NSView(frame: container.bounds)
+        cover.autoresizingMask = [.width, .height]
+        cover.wantsLayer = true
+        let ground = NSColor(hexString: MainWindow.resolveStartupBackgroundHex()) ?? NSColor.windowBackgroundColor
+        cover.layer?.backgroundColor = ground.cgColor
+        var brightness: CGFloat = 0
+        ground.usingColorSpace(.sRGB)?.getHue(nil, saturation: nil, brightness: &brightness, alpha: nil)
+        cover.appearance = NSAppearance(named: brightness < 0.5 ? .darkAqua : .aqua)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        cover.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: cover.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: cover.centerYAnchor),
+        ])
+        container.addSubview(cover, positioned: .above, relativeTo: nil)
+        wedgeCover = cover
+    }
+
+    /// Take the notice down, forget the evidence, and load the interface
+    /// again. A service that is still stuck says so again after two more
+    /// hangs; one that recovered loads.
+    @objc private func retryAfterWedge() {
+        wedgeNoticeMounted = false
+        pageLoadStallWatch.clearWedge()
+        lastWebContentTerminationAt = nil
+        wedgeCover?.removeFromSuperview()
+        wedgeCover = nil
+        if spinnerView != nil {
+            launchFailureMounted = false
+            if let spinner = splashSpinnerStack {
+                setSplashContent(spinner)
+            }
+            splashWave?.startAnimating()
+            armSplashDeadline()
+        }
+        TugLog.info("stall", "trying again after a graphics-service wedge")
+        if let url = interfaceRetryURL() {
+            loadURL(url)
+        }
+    }
+
+    @objc private func showStallReadings() {
+        let stalls = InstanceConfig.dataDir.appendingPathComponent("stalls", isDirectory: true)
+        NSWorkspace.shared.activateFileViewerSelecting([stalls])
     }
 
     // MARK: - Click-through activation
@@ -2213,6 +2333,66 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
 
     // MARK: - WKNavigationDelegate
 
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        guard webView === self.webView else { return }
+        // Every shell navigation — the launch's load, a recovery reload,
+        // the user's ⌘R — runs under the stall budget.
+        let started = CFAbsoluteTimeGetCurrent()
+        pageLoadStallWatch.navigationStarted(at: started)
+        pageLoadBudgetTimer?.cancel()
+        let timer = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.handleStallEvent(
+                self.pageLoadStallWatch.budgetElapsed(
+                    forNavigationStartedAt: started,
+                    at: CFAbsoluteTimeGetCurrent()
+                )
+            )
+        }
+        pageLoadBudgetTimer = timer
+        DispatchQueue.main.asyncAfter(deadline: .now() + pageLoadStallWatch.budget, execute: timer)
+    }
+
+    /// Act on what the stall watch made of a navigation event: take the
+    /// reading it asked for, and on a wedge stop loading and say so.
+    private func handleStallEvent(_ event: PageLoadStallEvent) {
+        if let trigger = event.reading {
+            takeStallReading(trigger)
+        }
+        if event.verdict == .wedged {
+            mountWedgeNotice()
+        }
+    }
+
+    /// Take a reading of the machine. The reading runs in the background;
+    /// the window only learns where it was written.
+    private func takeStallReading(_ trigger: PageLoadStallTrigger) {
+        TugLog.warn("stall", "page load stalled — taking a reading", [
+            TugLog.field("trigger", trigger.name),
+            TugLog.field("elapsed_ms", Int(trigger.elapsed * 1000)),
+        ])
+        let context = PageLoadStallContext(
+            trigger: trigger,
+            url: webView.url?.absoluteString ?? lastLoadedURLString,
+            hostPid: ProcessInfo.processInfo.processIdentifier,
+            contentPid: webKitProcessIdentifier("_webProcessIdentifier"),
+            gpuPid: webKitProcessIdentifier("_gpuProcessIdentifier")
+        )
+        PageLoadStallReading.capture(context) { dir in
+            guard let dir else { return }
+            TugLog.warn("stall", "stall reading written", [TugLog.field("dir", dir.path)])
+        }
+    }
+
+    /// A process id the shell's web view reports through WebKit SPI, or
+    /// `nil` when this WebKit does not answer it or has no such process.
+    private func webKitProcessIdentifier(_ key: String) -> pid_t? {
+        guard webView.responds(to: NSSelectorFromString(key)),
+              let pid = (webView.value(forKey: key) as? NSNumber)?.int32Value,
+              pid > 0 else { return nil }
+        return pid
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         // A body's load is the body's business; the launch's lap and the
         // page-loaded callback are the shell's alone.
@@ -2224,6 +2404,9 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
             return
         }
         NSLog("MainWindow: didFinish navigation at %@", Date() as CVarArg)
+        pageLoadBudgetTimer?.cancel()
+        pageLoadBudgetTimer = nil
+        handleStallEvent(pageLoadStallWatch.navigationFinished(at: CFAbsoluteTimeGetCurrent()))
         if let path = webView.url?.path, !path.isEmpty, path != "/auth" {
             interfaceAuthenticated = true
         }
@@ -2350,6 +2533,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
             return
         }
         NSLog("Navigation failed: %@", error.localizedDescription)
+        pageLoadStallWatch.navigationFailed()
         TugLog.error("webview", "navigation failed", [
             TugLog.field("error", error.localizedDescription),
         ])
@@ -2368,6 +2552,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
             return
         }
         NSLog("Navigation failed (provisional): %@", error.localizedDescription)
+        pageLoadStallWatch.navigationFailed()
         // The provisional failure is the launch-relevant one: it means the
         // page never began loading, so a splash that is still up has this
         // line behind it and nothing else.
@@ -2396,6 +2581,16 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         // A body recovers itself; the window's own reload is the shell's.
         if bodies?.webContentProcessDidTerminate(webView) == true { return }
+        // A content process dying under a navigation is the other face of a
+        // wedged GPU service; read the machine before the reload adds to it.
+        // A second hang inside the window is the wedge itself, and a reload
+        // into a stuck graphics service only adds to its load.
+        handleStallEvent(pageLoadStallWatch.contentProcessTerminated(at: CFAbsoluteTimeGetCurrent()))
+        if pageLoadStallWatch.isWedged {
+            NSLog("MainWindow: WebContent process terminated with the graphics service wedged — not reloading")
+            TugLog.error("webview", "WebContent process terminated with the graphics service wedged — not reloading")
+            return
+        }
         let now = Date()
         let previous = lastWebContentTerminationAt
         lastWebContentTerminationAt = now

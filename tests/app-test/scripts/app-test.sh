@@ -944,8 +944,64 @@ if [ "${#FILES[@]}" -gt 0 ]; then
         --medians "${UNIT_MEDIANS[@]}" --of "${UNIT_NAMES[@]}"
 fi
 
+# The machine's GPU service, asked about before anything launches and again
+# as files finish (`scripts/gpu-health.ts`). When macOS's shared WebKit GPU
+# service wedges it stays wedged until a reboot, every app that shows web
+# content stalls with it, and a runner that keeps launching instances onto it
+# makes it worse and records a batch of reds that say nothing about the code.
+# So at the first wedge the run launches nothing more, lets the files already
+# running finish, and is recorded STOPPED with the reason; its files that did
+# not pass are recorded STALLED, a machine state and not a red.
+#
+# The evidence is an instance's own page-load stall reading, which an
+# app-test instance writes into TUG_APPTEST_STALL_DIR (forwarded to it like
+# every TUG* variable), or the unified log's GPU-hang signature. The
+# directory outlives the run and the reboot the wedge needs, so a stopped
+# run's readings are still there to read; an empty one is removed at the end.
+# TUG_APPTEST_GPU_CHECK=0 turns the check off.
+GPU_CHECK="${TUG_APPTEST_GPU_CHECK:-1}"
+if [ -z "${TUG_APPTEST_STALL_DIR:-}" ]; then
+    TUG_APPTEST_STALL_DIR="$HOME/Library/Application Support/Tug/apptest-stalls/$(date -u +%Y-%m-%dT%H-%M-%SZ)-${WTSLUG}"
+fi
+export TUG_APPTEST_STALL_DIR
+HALT_REASON=""
+gpu_health() {
+    bun scripts/gpu-health.ts "$@" 2>/dev/null || echo ok
+}
+# Halt at the first wedge. `$1` is the position of the file that just
+# retired: the instances' readings are read every time, and the log only
+# after a file that did not pass, which is how a wedge first shows.
+check_halt() {
+    [ -n "$HALT_REASON" ] && return 0
+    [ "$GPU_CHECK" = 0 ] && return 1
+    local row status line
+    row="$(cat "$RUNDIR/f$1.row" 2>/dev/null)"
+    status="${row%%:*}"
+    case "$status" in
+        PASS|SKIP) line="$(gpu_health --no-log --stall-dir "$TUG_APPTEST_STALL_DIR")" ;;
+        *) line="$(gpu_health --since "$START_EPOCH" --stall-dir "$TUG_APPTEST_STALL_DIR")" ;;
+    esac
+    case "$line" in
+        wedged*)
+            HALT_REASON="${line#*$'\t'}"
+            echo "==> STOPPING: the GPU service is wedged — ${HALT_REASON}. Launching nothing more; the files already running finish."
+            return 0 ;;
+    esac
+    return 1
+}
+if [ "$GPU_CHECK" != 0 ] && [ "${#FILES[@]}" -gt 0 ]; then
+    gpu_line="$(gpu_health --last 10m --stall-dir "$TUG_APPTEST_STALL_DIR")"
+    case "$gpu_line" in
+        wedged*)
+            HALT_REASON="before the batch: ${gpu_line#*$'\t'}"
+            echo "==> NOT STARTING: the GPU service is wedged — ${gpu_line#*$'\t'}." ;;
+        suspect*)
+            echo "==> GPU health: ${gpu_line#*$'\t'} in the last 10 minutes; starting, and stopping at a second." ;;
+    esac
+fi
+
 START_EPOCH="$(date +%s)"
-[ -n "$PROGRESS" ] && echo "==> running ${#FILES[@]} file(s), $JOBS at a time; each reports as it finishes."
+[ -n "$PROGRESS" ] && [ -z "$HALT_REASON" ] && echo "==> running ${#FILES[@]} file(s), $JOBS at a time; each reports as it finishes."
 
 # The background tier, a rolling pool of JOBS: the moment a file finishes,
 # the next starts in its slot, so a slow file holds only its own. macOS ships
@@ -969,7 +1025,9 @@ if [ "${#BG_QUEUE[@]}" -gt 0 ]; then
             read -r done_pos <&3
             collect_file "$done_pos"
             pool_running=$((pool_running - 1))
+            check_halt "$done_pos"
         fi
+        [ -n "$HALT_REASON" ] && break
         pool_seq=$((pool_seq + 1))
         (
             export TUG_APPTEST_ID_PREFIX="${TUG_APPTEST_ID_PREFIX}-f${pool_seq}"
@@ -984,24 +1042,32 @@ if [ "${#BG_QUEUE[@]}" -gt 0 ]; then
         read -r done_pos <&3
         collect_file "$done_pos"
         pool_running=$((pool_running - 1))
+        check_halt "$done_pos"
     done
     wait
     exec 3<&-
     reap_stragglers
 fi
+# Every queue starts at its own span of FILES, so a halted queue leaves its
+# unlaunched copies' positions to them.
+pos=${#BG_QUEUE[@]}
 
 # The motion tail, strictly one at a time and at an unscaled budget: alone,
 # a motion file has the machine its frame bars were sized for.
 for f in ${MOTION_QUEUE[@]+"${MOTION_QUEUE[@]}"}; do
+    [ -n "$HALT_REASON" ] && break
     TUG_APPTEST_TIMEOUT_SCALE=1 run_one_file "$f" "$pos"
     reap_stragglers
     collect_file "$pos"
+    check_halt "$pos"
     pos=$((pos + 1))
 done
+pos=$(( ${#BG_QUEUE[@]} + ${#MOTION_QUEUE[@]} ))
 
 # The screen-takers, strictly one at a time. The decision resolves here,
 # after every background file has already run.
 for f in ${FG_QUEUE[@]+"${FG_QUEUE[@]}"}; do
+    [ -n "$HALT_REASON" ] && break
     resolve_foreground_decision
     if [ "$FG_DECISION" = "skip" ]; then
         [ -n "$STREAM" ] && echo "---- $f (skipped — takes the screen) ----"
@@ -1016,12 +1082,27 @@ for f in ${FG_QUEUE[@]+"${FG_QUEUE[@]}"}; do
     TUG_APPTEST_TIMEOUT_SCALE=1 run_one_file "$f" "$pos"
     reap_stragglers
     collect_file "$pos"
+    check_halt "$pos"
     pos=$((pos + 1))
     sleep 0.3
 done
 
 END_EPOCH="$(date +%s)"
 ELAPSED=$((END_EPOCH - START_EPOCH))
+
+# A stopped run's unlaunched copies: never run, so no row and no record, and
+# drawn skipped on the block so the panel does not hold them pending.
+declare -a NOT_LAUNCHED=()
+if [ -n "$HALT_REASON" ]; then
+    for ((p = 0; p < ${#FILES[@]}; p++)); do
+        [ -f "$RUNDIR/f$p.row" ] && continue
+        NOT_LAUNCHED+=("$p")
+        unit_report "done" app-test "${FILES[$p]%.test.ts}" skipped --slot "$p"
+    done
+fi
+# The stall directory outlives the run only when it holds a reading.
+rmdir "$TUG_APPTEST_STALL_DIR" 2>/dev/null || true
+[ -d "$TUG_APPTEST_STALL_DIR" ] && echo "==> stall readings from this run: $TUG_APPTEST_STALL_DIR"
 
 files_run=${#RESULT_ROWS[@]}
 files_passed=0
@@ -1032,7 +1113,7 @@ files_stalled=0
 files_overtime=0
 tests_passed_total=0
 tests_total=0
-for row in "${RESULT_ROWS[@]}"; do
+for row in ${RESULT_ROWS[@]+"${RESULT_ROWS[@]}"}; do
     IFS=':' read -r status _file rpassed rtotal _rsecs _rpos _rord <<< "$row"
     case "$status" in
         PASS) files_passed=$((files_passed + 1)) ;;
@@ -1064,10 +1145,14 @@ if [ "$ELAPSED" -lt 60 ]; then
 else
     printf '%-14s  %dm %ds\n' 'Wall time:' $((ELAPSED / 60)) $((ELAPSED % 60))
 fi
+if [ -n "$HALT_REASON" ]; then
+    printf '%-14s  %s\n' 'Stopped:' "$HALT_REASON"
+    printf '%-14s  %d\n' 'Not launched:' "${#NOT_LAUNCHED[@]}"
+fi
 
 echo
 echo "Per-file results:"
-for row in "${RESULT_ROWS[@]}"; do
+for row in ${RESULT_ROWS[@]+"${RESULT_ROWS[@]}"}; do
     IFS=':' read -r status _file rpassed rtotal rsecs rpos _rord <<< "$row"
     reason=""
     [ "$status" = OVERTIME ] && reason="  $(overtime_reason "$rpos")"
@@ -1105,7 +1190,7 @@ HISTORY_JSON=""
 HISTORY_ERR=""
 declare -a RED_FILES=()
 declare -a RED_POS=()
-for row in "${RESULT_ROWS[@]}"; do
+for row in ${RESULT_ROWS[@]+"${RESULT_ROWS[@]}"}; do
     IFS=':' read -r status file _p _t _s rpos _o <<< "$row"
     case "$status" in FAIL|ERR|OVERTIME) RED_FILES+=("$file"); RED_POS+=("$rpos") ;; esac
 done
@@ -1200,7 +1285,7 @@ fi
 # what the panel reads as "recovered".
 declare -a GREEN_FILES=()
 declare -a GREEN_POS=()
-for row in "${RESULT_ROWS[@]}"; do
+for row in ${RESULT_ROWS[@]+"${RESULT_ROWS[@]}"}; do
     IFS=':' read -r status file _p _t _s rpos _o <<< "$row"
     [ "$status" = PASS ] && GREEN_FILES+=("$file") && GREEN_POS+=("$rpos")
 done
@@ -1231,7 +1316,7 @@ for p in ${RED_POS[@]+"${RED_POS[@]}"}; do
     red_history="$(history_line "$f" | sed 's/^ *history: //')"
     [ -n "$red_history" ] && unit_report amend app-test "${f%.test.ts}" --slot "$p" --history "$red_history"
 done
-unit_report finish app-test "$files_passed passed, $((files_failed + files_errored + files_overtime)) failed, $files_stalled stalled"
+unit_report finish app-test "${HALT_REASON:+stopped on a wedged GPU service; }$files_passed passed, $((files_failed + files_errored + files_overtime)) failed, $files_stalled stalled"
 
 # The JSON document, when asked for. It is serialized from the SAME arrays
 # the summary above renders — never by re-parsing the printed text — so the
@@ -1246,8 +1331,9 @@ if [ -n "${TUG_APPTEST_JSON:-}" ]; then
         else
             json_verdict=FAIL
         fi
+        [ -n "$HALT_REASON" ] && json_verdict=STOPPED
         {
-            for row in "${RESULT_ROWS[@]}"; do
+            for row in ${RESULT_ROWS[@]+"${RESULT_ROWS[@]}"}; do
                 IFS=':' read -r status file rpassed rtotal rsecs rpos rord <<< "$row"
                 fails="$(
                     for d in ${FAIL_DETAILS[@]+"${FAIL_DETAILS[@]}"}; do
@@ -1308,7 +1394,11 @@ if [ -n "${TUG_APPTEST_JSON:-}" ]; then
             --argjson filesStalled "$files_stalled" \
             --argjson testsPassed "$tests_passed_total" \
             --argjson testsTotal "$tests_total" \
-            '{sweep:$sweep, wallSeconds:$wall, verdict:$verdict,
+            --arg stoppedReason "$HALT_REASON" \
+            --argjson notLaunched "${#NOT_LAUNCHED[@]}" \
+            '{sweep:$sweep, wallSeconds:$wall, verdict:$verdict}
+             + (if $stoppedReason == "" then {} else {stoppedReason:$stoppedReason, notLaunched:$notLaunched} end)
+             + {
               totals:{filesRun:$filesRun, filesPassed:$filesPassed,
                       filesFailed:$filesFailed, filesErrored:$filesErrored,
                       filesSkipped:$filesSkipped, filesStalled:$filesStalled,
@@ -1333,6 +1423,7 @@ elif ! command -v jq >/dev/null 2>&1; then
 else
     record_verdict=PASS
     { [ "$files_failed" -eq 0 ] && [ "$files_errored" -eq 0 ] && [ "$files_stalled" -eq 0 ] && [ "$files_overtime" -eq 0 ]; } || record_verdict=FAIL
+    [ -n "$HALT_REASON" ] && record_verdict=STOPPED
     record_head="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
     record_branch="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
     record_dirty=false
@@ -1343,10 +1434,15 @@ else
             # to one file's history. A copy is a screen-taker when its
             # position falls in FG_QUEUE's span of FILES.
             fg_from=$(( ${#BG_QUEUE[@]} + ${#MOTION_QUEUE[@]} ))
-            for row in "${RESULT_ROWS[@]}"; do
+            for row in ${RESULT_ROWS[@]+"${RESULT_ROWS[@]}"}; do
                 IFS=':' read -r status file rpassed rtotal rsecs rpos _rord <<< "$row"
                 # The ledger knows no OVERTIME: it is a red with its real time.
                 [ "$status" = OVERTIME ] && status=FAIL
+                # A stopped run's reds were run on a wedged GPU service, which
+                # says nothing about the file: a machine state, not a red.
+                if [ -n "$HALT_REASON" ]; then
+                    case "$status" in PASS|SKIP) ;; *) status=STALLED ;; esac
+                fi
                 fg=false
                 [ "$rpos" -ge "$fg_from" ] && fg=true
                 jq -n --arg file "$file" --arg status "$status" \
@@ -1361,10 +1457,11 @@ else
             --argjson dirty "$record_dirty" \
             --arg sweep "$SWEEP_LABEL" --arg selection "$SELECTION_LABEL" \
             --argjson wallSecs "$ELAPSED" --arg verdict "$record_verdict" \
+            --arg stoppedReason "$HALT_REASON" \
             '{startedAt:$startedAt, endedAt:$endedAt, runRoot:$runRoot,
               branch:$branch, headSha:$headSha, dirty:$dirty, sweep:$sweep,
               selection:$selection, wallSecs:$wallSecs, verdict:$verdict,
-              files: .}'
+              files: .} + (if $stoppedReason == "" then {} else {stoppedReason:$stoppedReason} end)'
     )"
     if [ -z "$record_payload" ]; then
         echo "[app-test] results not recorded: could not assemble the run payload" >&2
@@ -1380,7 +1477,7 @@ else
         reach_payload="$(
             {
                 reach_seen=" "
-                for row in "${RESULT_ROWS[@]}"; do
+                for row in ${RESULT_ROWS[@]+"${RESULT_ROWS[@]}"}; do
                     IFS=':' read -r status file _p _t _s rpos _o <<< "$row"
                     [ "$status" = PASS ] || continue
                     case "$reach_seen" in *" $file "*) continue ;; esac
@@ -1414,7 +1511,11 @@ skip_clause=""
 stall_clause=""
 [ "$files_stalled" -gt 0 ] && stall_clause="; $files_stalled stalled"
 [ "$files_overtime" -gt 0 ] && stall_clause="$stall_clause; $files_overtime over the ${BUDGET_SECS}s budget"
-if [ "$files_failed" -eq 0 ] && [ "$files_errored" -eq 0 ] && [ -z "$stall_clause" ]; then
+if [ -n "$HALT_REASON" ]; then
+    printf 'VERDICT: STOPPED  (the GPU service is wedged; %d/%d files green, %d not launched; restart the Mac and run again)\n' \
+        "$files_passed" "$files_ran" "${#NOT_LAUNCHED[@]}"
+    exit 1
+elif [ "$files_failed" -eq 0 ] && [ "$files_errored" -eq 0 ] && [ -z "$stall_clause" ]; then
     printf 'VERDICT: PASS  (%d/%d files green%s; %d/%d tests passed)\n' \
         "$files_passed" "$files_ran" "$skip_clause" "$tests_passed_total" "$tests_total"
     exit 0

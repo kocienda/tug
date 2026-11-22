@@ -424,6 +424,7 @@ mod unit {
             selection: "explicit".into(),
             wall_secs: 60,
             verdict: "PASS".into(),
+            stopped_reason: None,
             files: files
                 .iter()
                 .map(|(file, status, secs)| FileResult {

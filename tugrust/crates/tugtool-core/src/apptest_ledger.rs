@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 
 /// Current on-disk schema version, stamped into `PRAGMA user_version`.
-pub const APPTEST_RESULTS_SCHEMA_VERSION: i64 = 2;
+pub const APPTEST_RESULTS_SCHEMA_VERSION: i64 = 3;
 
 /// Registered migrations, each keyed by the on-disk version it upgrades
 /// *from*. Every migration whose `from` is at or above the version found on
@@ -34,7 +34,14 @@ pub const APPTEST_RESULTS_SCHEMA_VERSION: i64 = 2;
 /// [`APPTEST_RESULTS_SCHEMA_VERSION`] — never edits the DDL alone.
 ///
 /// - v1 → v2: the `reach` table, one executed-function map per test file.
-const APPTEST_RESULTS_MIGRATIONS: &[(i64, &str)] = &[(1, CREATE_REACH_SQL)];
+/// - v2 → v3: `runs.stopped_reason`, why a run was stopped before it ran
+///   every file it was asked to.
+const APPTEST_RESULTS_MIGRATIONS: &[(i64, &str)] =
+    &[(1, CREATE_REACH_SQL), (2, ADD_STOPPED_REASON_SQL)];
+
+/// The column a stopped run's reason lives in. Null on every run that was
+/// not stopped, which is all of them before v3.
+const ADD_STOPPED_REASON_SQL: &str = "ALTER TABLE runs ADD COLUMN stopped_reason TEXT;";
 
 /// Which functions each test file executed, as the instrumented deck recorded
 /// them. One row per `(base_root, file)`, replaced by whichever run last
@@ -71,7 +78,8 @@ const CREATE_APPTEST_RESULTS_SQL: &str = "
         sweep       TEXT    NOT NULL,
         selection   TEXT    NOT NULL,
         wall_secs   INTEGER NOT NULL,
-        verdict     TEXT    NOT NULL
+        verdict     TEXT    NOT NULL,
+        stopped_reason TEXT
     );
     CREATE TABLE IF NOT EXISTS results (
         run_id      INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
@@ -128,8 +136,15 @@ pub struct RunRecord {
     #[serde(default = "default_selection")]
     pub selection: String,
     pub wall_secs: i64,
-    /// `PASS` | `FAIL`.
+    /// `PASS` | `FAIL` | `STOPPED`. A run is `STOPPED` when the runner
+    /// halted it before every file ran because the machine could not run
+    /// them — today only a wedged GPU service — and `stopped_reason` says
+    /// why. Its files that did not pass are recorded `STALLED`, a machine
+    /// state rather than a test result, and the files it never launched are
+    /// not recorded at all.
     pub verdict: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stopped_reason: Option<String>,
     pub files: Vec<FileResult>,
 }
 
@@ -292,8 +307,8 @@ pub fn record_run(
     tx.execute(
         "INSERT INTO runs
             (started_at, ended_at, base_root, run_root, branch, head_sha,
-             dirty, sweep, selection, wall_secs, verdict)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+             dirty, sweep, selection, wall_secs, verdict, stopped_reason)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
         params![
             run.started_at,
             run.ended_at,
@@ -306,6 +321,7 @@ pub fn record_run(
             run.selection,
             run.wall_secs,
             run.verdict,
+            run.stopped_reason,
         ],
     )?;
     let run_id = tx.last_insert_rowid();
@@ -693,6 +709,7 @@ mod tests {
             selection: "explicit".into(),
             wall_secs: 60,
             verdict: verdict.into(),
+            stopped_reason: None,
             files,
         }
     }
@@ -1510,6 +1527,8 @@ mod tests {
     fn a_v1_ledger_migrates_to_v2_with_the_reach_table() {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(CREATE_APPTEST_RESULTS_SQL).unwrap();
+        conn.execute_batch("ALTER TABLE runs DROP COLUMN stopped_reason")
+            .unwrap();
         conn.pragma_update(None, "user_version", 1).unwrap();
         conn.execute(
             "INSERT INTO runs (started_at, ended_at, base_root, run_root, branch, head_sha,
@@ -1522,7 +1541,7 @@ mod tests {
         let version: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, APPTEST_RESULTS_SCHEMA_VERSION);
         let reach: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'reach'",
@@ -1535,6 +1554,62 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM runs", [], |r| r.get(0))
             .unwrap();
         assert_eq!(runs, 1, "the migration keeps what v1 recorded");
+    }
+
+    /// A v2 ledger gains the stopped-reason column and keeps its runs, which
+    /// read back with no reason.
+    #[test]
+    fn a_v2_ledger_migrates_to_v3_with_a_stopped_reason() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(CREATE_APPTEST_RESULTS_SQL).unwrap();
+        conn.execute_batch("ALTER TABLE runs DROP COLUMN stopped_reason")
+            .unwrap();
+        conn.execute_batch(CREATE_REACH_SQL).unwrap();
+        conn.pragma_update(None, "user_version", 2).unwrap();
+        conn.execute(
+            "INSERT INTO runs (started_at, ended_at, base_root, run_root, branch, head_sha,
+                               dirty, sweep, selection, wall_secs, verdict)
+             VALUES (1, 2, '/r', '/r', 'main', 'abc', 0, 'core', 'core', 1, 'PASS')",
+            [],
+        )
+        .unwrap();
+        prepare(&conn).unwrap();
+        let reason: Option<String> = conn
+            .query_row("SELECT stopped_reason FROM runs", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(reason, None, "a run from before v3 was never stopped");
+    }
+
+    /// A stopped run keeps its reason, and the files it caught in the wedge
+    /// are `STALLED`: no red in anybody's history, and no duration either.
+    #[test]
+    fn a_stopped_run_records_its_reason_and_no_red() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_string_lossy().into_owned();
+        let mut conn = ledger(dir.path());
+        let mut stopped = run(
+            &root,
+            "abc",
+            1_700_000_000,
+            vec![file("ok.test.ts", "PASS"), file("caught.test.ts", "STALLED")],
+        );
+        stopped.verdict = "STOPPED".into();
+        stopped.stopped_reason = Some("the GPU service is wedged".into());
+        let payload = serde_json::to_string(&stopped).unwrap();
+        let parsed: RunRecord = serde_json::from_str(&payload).unwrap();
+        assert_eq!(parsed, stopped, "the reason survives the runner's JSON");
+        record_run(&mut conn, &parsed).unwrap();
+
+        let (verdict, reason): (String, Option<String>) = conn
+            .query_row("SELECT verdict, stopped_reason FROM runs", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(verdict, "STOPPED");
+        assert_eq!(reason.as_deref(), Some("the GPU service is wedged"));
+        assert_eq!(history_of(&conn, &root, "caught.test.ts"), History::NoHistory);
+        let base = resolve_base_root(Path::new(&root));
+        assert!(recent_red_files(&conn, &base, 5).unwrap().is_empty());
     }
 
     #[test]

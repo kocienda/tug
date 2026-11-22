@@ -25,6 +25,10 @@ final class TestHarnessBridge {
     private weak var pendingWebView: WKWebView?
     private var activeConnection: TestHarnessConnection?
 
+    /// Called on the main queue when the runner driving this instance is
+    /// gone. See `TestHarnessConnection.onRunnerGone`.
+    var onRunnerGone: ((String) -> Void)?
+
     init(socketPath: String) {
         self.socketPath = socketPath
     }
@@ -44,6 +48,9 @@ final class TestHarnessBridge {
                     self.activeConnection = nil
                 }
                 connection.close()
+            }
+            connection.onRunnerGone = { [weak self] reason in
+                self?.onRunnerGone?(reason)
             }
             if let webView = self.pendingWebView {
                 connection.attach(webView: webView)
@@ -76,6 +83,57 @@ final class TestHarnessBridge {
     }
 
     // MARK: - Environment probe
+
+    /// Remove what an app-test instance leaves behind when no runner is
+    /// left to remove it: the per-instance sockets in `$TMPDIR` and the
+    /// instance's data directory. The runner's own teardown does this when
+    /// it ends a test; an instance whose runner died does it for itself as
+    /// it exits, after tugcast has stopped (its graceful shutdown already
+    /// tears down the instance's tmux server).
+    ///
+    /// Only ever an `apptest-*` instance: a dev or release instance's data
+    /// directory is user state that nothing deletes.
+    static func reclaimOwnAppTestInstance() {
+        guard InstanceConfig.isAppTest else { return }
+        let manager = FileManager.default
+        var sockets = [
+            InstanceConfig.notifySocketPath.path,
+            NSTemporaryDirectory() + "tugcast-ctl-\(InstanceConfig.shortToken).sock",
+        ]
+        if let harness = envSocketPath() { sockets.append(harness) }
+        for path in sockets {
+            unlink(path)
+        }
+        // tugcast's shutdown kills the instance's private tmux server, which
+        // leaves its socket file behind. Unlinked only when no server answers
+        // on it, so a server that outlived the kill keeps its socket.
+        let tmuxRoot = ProcessInfo.processInfo.environment["TMUX_TMPDIR"] ?? "/private/tmp"
+        let tmuxSocket = "\(tmuxRoot)/tmux-\(getuid())/tug-\(InstanceConfig.shortToken)"
+        if !unixSocketAnswers(tmuxSocket) {
+            unlink(tmuxSocket)
+        }
+        let dataDir = InstanceConfig.dataDir
+        guard dataDir.lastPathComponent.hasPrefix(InstanceConfig.apptestIDPrefix) else { return }
+        try? manager.removeItem(at: dataDir)
+    }
+
+    /// Whether a listener accepts a connection on the Unix socket at `path`.
+    private static func unixSocketAnswers(_ path: String) -> Bool {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { Darwin.close(fd) }
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let bytes = Array(path.utf8)
+        guard bytes.count < MemoryLayout.size(ofValue: address.sun_path) else { return false }
+        withUnsafeMutableBytes(of: &address.sun_path) { buffer in
+            buffer.copyBytes(from: bytes)
+        }
+        let length = socklen_t(MemoryLayout<sockaddr_un>.size)
+        return withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, length) == 0 }
+        }
+    }
 
     /// Returns the socket path from `TUGAPP_TEST_SOCKET` if set and
     /// non-empty; nil otherwise. Used by `main.swift` / `AppDelegate`

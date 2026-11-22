@@ -245,8 +245,33 @@ final class TestHarnessConnection {
 
     var onDisconnect: (() -> Void)?
 
+    /// Called once, on the main queue, when the runner on the far end of
+    /// the socket is gone: a response could not be written, or the socket
+    /// reached EOF. The listener accepts one client and stops listening, so
+    /// an instance whose runner is gone can never be driven again; the
+    /// bridge ends it through the ordinary quit rather than leaving it to
+    /// die on a raised exception or idle until somebody sweeps it.
+    var onRunnerGone: ((String) -> Void)?
+    private var runnerGoneReported = false
+    private let runnerGoneLock = NSLock()
+
     init(fd: Int32) {
+        // A write to a socket whose peer has gone answers EPIPE rather than
+        // raising SIGPIPE, so the writer below sees the error and can act on it.
+        var on: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
         self.fileHandle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+    }
+
+    /// Report the runner gone, once.
+    private func reportRunnerGone(_ reason: String) {
+        runnerGoneLock.lock()
+        let first = !runnerGoneReported
+        runnerGoneReported = true
+        runnerGoneLock.unlock()
+        guard first else { return }
+        NSLog("tughost.test-harness.runner-gone: %@", reason)
+        DispatchQueue.main.async { [weak self] in self?.onRunnerGone?(reason) }
     }
 
     /// Attach a WKWebView for `evalJS` / `waitForCondition` dispatch.
@@ -263,7 +288,8 @@ final class TestHarnessConnection {
         fileHandle.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             if data.isEmpty {
-                // EOF
+                // EOF: the runner closed the socket or died.
+                self?.reportRunnerGone("the harness socket reached EOF")
                 DispatchQueue.main.async { self?.onDisconnect?() }
                 handle.readabilityHandler = nil
                 return
@@ -1944,8 +1970,14 @@ final class TestHarnessConnection {
             return
         }
         payloadStr.append("\n")
-        if let data = payloadStr.data(using: .utf8) {
-            fileHandle.write(data)
+        guard let data = payloadStr.data(using: .utf8) else { return }
+        // `write(contentsOf:)` throws where `write(_:)` raises an Objective-C
+        // exception: a write to a closed pipe is the runner having gone away,
+        // which ends the instance in order instead of aborting it.
+        do {
+            try fileHandle.write(contentsOf: data)
+        } catch {
+            reportRunnerGone("a response could not be written: \(error.localizedDescription)")
         }
     }
 

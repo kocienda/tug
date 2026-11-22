@@ -142,6 +142,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// permissive default and the gate would never take effect.
     var frontendReady = false
 
+    /// Whether `applicationShouldTerminate` has run: the quit is under way.
+    private var terminationStarted = false
+
     /// The bounded ask of the shell, for the Quit item and ⌘Q in a body or the
     /// overlay. Every other quit reaches `applicationShouldTerminate` directly.
     lazy var quitGate = QuitGate(
@@ -180,6 +183,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// In-app test harness bridge, active only when
     /// `TUGAPP_TEST_SOCKET` env var is set. DEBUG-only.
     private var testHarnessBridge: TestHarnessBridge?
+    /// Whether the harness runner went away, so the exit reclaims what the
+    /// runner's teardown would have.
+    private var harnessRunnerGone = false
     #endif
 
     /// The menu bar, built on first touch — `installMenuBar` at launch — and
@@ -461,6 +467,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // swallows the no-responder beep instead of letting it play.
             BeepTripwire.shared.arm()
             let bridge = TestHarnessBridge(socketPath: socketPath)
+            bridge.onRunnerGone = { [weak self] reason in
+                guard let self else { return }
+                TugLog.warn("test-harness", "runner gone — quitting", [TugLog.field("reason", reason)])
+                // A quit already under way (`quitGracefully`, then the runner
+                // closing its end) needs no second one, and its runner is
+                // alive to do its own teardown — a continuity test relaunches
+                // on the same data directory.
+                guard !self.terminationStarted else { return }
+                self.harnessRunnerGone = true
+                NSApp.terminate(nil)
+            }
             bridge.start()
             bridge.attach(webView: window.testHarnessWebView())
             self.testHarnessBridge = bridge
@@ -714,6 +731,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         TugLog.info("quit", "applicationShouldTerminate — freezing the window")
+        terminationStarted = true
         quitGate.terminationBegan()
         // Freeze the WebView with a snapshot overlay so the user never sees
         // teardown artifacts (disconnect banners, theme flashes, blank screens).
@@ -838,6 +856,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // The process exits when this returns; the quit's lines are written
         // asynchronously and would otherwise be lost with it.
         TugLog.flush()
+        #if DEBUG
+        if harnessRunnerGone {
+            TestHarnessBridge.reclaimOwnAppTestInstance()
+        }
+        #endif
     }
 
     // MARK: - App lifecycle (NSApplicationDelegate)

@@ -137,7 +137,23 @@ was when it stopped; one that finished green but late is OVERTIME too.
 Either way it is a red: it prints as `fail`, and its line gives the reason
 (`stopped at 20s`, `over the 20s budget`). The results ledger also reads a `[STALLED]` row —
 the old `[WEDGED]` — as a machine state, neither a red nor a duration,
-though the recipe writes none today.
+and the recipe writes one for each file that did not pass in a run it
+stopped on a wedged GPU service.
+
+### A wedged GPU service stops the run
+
+When macOS's shared WebKit GPU service wedges, every app that shows web
+content stalls with it until the Mac restarts. The recipe asks
+`scripts/gpu-health.ts` before the batch and after each file: an
+instance's page-load stall reading (an app-test instance writes it into
+`TUG_APPTEST_STALL_DIR`, a directory under
+`~/Library/Application Support/Tug/apptest-stalls/` that outlives the run
+and is removed when empty), or two WebKit GPU processes declared
+unresponsive in the unified log, is a wedge. The run then launches nothing
+more, lets the files already running finish, prints `VERDICT: STOPPED`
+with the reason, and records the run `STOPPED` with that reason; its
+files that did not pass are recorded `[STALLED]`, and the ones never
+launched are not recorded. `TUG_APPTEST_GPU_CHECK=0` turns the check off.
 
 ### Concurrency: one invocation at a time
 

@@ -15,7 +15,8 @@
  * attributes. It holds no picture, no origin and no timer. The picture is a
  * pure function of the store's bins and the clock, computed inside
  * `lib/sparkline-instrument.ts` on whichever thread owns the canvas —
- * normally the render worker, so the page is never woken by a tape.
+ * the page's own today, because WebKit's worker canvas spins its GPU
+ * process on a dead port (see {@link SPARKLINE_WORKER_ALLOWED}).
  *
  * THE DATA EVENT IS THE ONLY THING THIS THREAD LISTENS TO. The caller's
  * `subscribeActivity` channel fires synchronously when data records; this
@@ -108,14 +109,31 @@ export { sparklineCurves };
 /**
  * The shared render worker, built on first use and kept for the page's life —
  * one thread for every instrument, not one per instrument. Null when the
- * platform cannot transfer a canvas, which routes every instance to the
- * on-main host.
+ * platform cannot transfer a canvas, or when the worker is not allowed, which
+ * routes every instance to the on-main host.
  */
 let renderWorker: Worker | null | undefined;
+
+/**
+ * Whether instruments may draw from the render worker. Off, because of a
+ * WebKit defect: every frame a worker commits to a transferred
+ * `OffscreenCanvas` makes the app's GPU process signal a port whose receiver
+ * is gone (`IPC::Signal::signal Could not send mach message, error 10000003`
+ * in the unified log), ten to twenty-five times a second for as long as any
+ * tape ticks, for the whole session. A tape at rest signals nothing, and the
+ * same instrument on the main thread draws through the page's own rendering
+ * backend, which signals nothing dead. What the main thread pays is the
+ * instrument's 66 ms redraw while a tape ticks; an idle tape still costs
+ * nothing, since the instrument stops its own tick at rest on either thread.
+ * Allow it again only once a WebKit release draws a ticking worker tape with
+ * no such line from the GPU process.
+ */
+export const SPARKLINE_WORKER_ALLOWED = false;
 
 function sparklineWorker(): Worker | null {
   if (renderWorker !== undefined) return renderWorker;
   renderWorker =
+    SPARKLINE_WORKER_ALLOWED &&
     typeof Worker !== "undefined" &&
     typeof HTMLCanvasElement !== "undefined" &&
     typeof HTMLCanvasElement.prototype.transferControlToOffscreen === "function"

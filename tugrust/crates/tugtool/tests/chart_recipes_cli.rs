@@ -260,6 +260,7 @@ impl Project {
             selection: "explicit".to_string(),
             wall_secs: 30,
             verdict: if status == "PASS" { "PASS" } else { "FAIL" }.to_string(),
+            stopped_reason: None,
             files: vec![FileResult {
                 file: file.to_string(),
                 status: status.to_string(),
