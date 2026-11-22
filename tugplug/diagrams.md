@@ -8,7 +8,18 @@ Beside its charts, the Session card draws diagrams of how things work: what call
 
 **One diagram says one thing, and its title states it.** "A shell edit the gate cannot read never reaches the file", not "The edit gate". If you cannot write the finding, you do not yet know why the figure is there.
 
-**Every box is something you read.** A diagram of code is a claim about the code, so draw only what you found by reading it. Each `where` names a real path relative to the project root, and the card checks it: a location it cannot confirm is shown as unresolved, never as a working link. Never draw a part you guessed at.
+**Every box is something you read.** A diagram of code is a claim about the code, so draw only what you found by reading it. Each `where` names a real path relative to the project root, and the card checks it: a location it cannot confirm is shown as unresolved, never as a working link. Never draw a part you guessed at. A figure of proposed work may also draw the parts the proposal adds, as the next paragraphs say, but every part of the current code it draws is still one you read.
+
+**A sketch draws the work it proposes, when that work has a shape.** A proposal is judged far faster from a figure than from prose, so when a sketch proposes work with states, a path through parts, an exchange between processes, layers or a tree of parts, draw it. It is encouraged and never required: a one-file fix, a wording change or a rename gets no figure. Pick the form from the kind of change:
+
+- new behaviour over time, or a new state a thing can be in: `states`;
+- a new path through parts: `flow`;
+- a new exchange between processes: `sequence`;
+- a new component: `tree` for its parts, `stack` for where it sits.
+
+**Draw one figure, of the after.** The figure is the work as it will be, not the code as it is; what is there now stays prose. Only a change that cannot be understood except as a before set against an after gets two figures, each with its own title. The title states the proposal's point, as "A quiet command is asked about, never stopped on a clock" does, not its subject.
+
+**A proposed part may not exist yet.** A keyed part's `where` names the real file where it lives or will land; a file not yet written shows as unresolved, which is the honest reading of a proposal, and a part with no home yet is drawn unkeyed. In a `flow`, a part the change adds may be lit `good`, with a legend entry saying "what this change adds". Other forms mark nothing as new, because the whole figure is the proposal.
 
 **Say the finding in a sentence, and let the figure show it.** Put one caption sentence under the figure saying how to read it. Where the figure carries a legend, the caption need not repeat what the colours mean.
 
