@@ -1252,9 +1252,6 @@ pub struct ArcDocuments {
     pub tasks: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tasks_title: Option<String>,
-    /// The idea record's text, what the Idea panel shows.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub idea_text: Option<String>,
     /// The sketch record's text, what the Sketch panel shows.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sketch_text: Option<String>,

@@ -12,16 +12,16 @@
  * | Element                                          | Surface                                           | Role          | Context                                                    |
  * |--------------------------------------------------|---------------------------------------------------|---------------|------------------------------------------------------------|
  * | --tug7-element-global-text-normal-default-rest   | --tug7-surface-global-primary-normal-content-rest | content       | .session-arc-panel-title, .session-arc-panel-text (color)  |
- * | --tug7-element-global-text-normal-muted-rest     | --tug7-surface-global-primary-normal-content-rest | informational | .session-arc-panel-name, .session-arc-panel-detail (color) |
+ * | --tug7-element-global-text-normal-muted-rest     | --tug7-surface-global-primary-normal-content-rest | informational | .session-arc-panel-name, .session-arc-panel-detail, the sketch's text after its lead (color) |
  * | --tug7-element-global-border-normal-default-rest | --tug7-surface-global-primary-normal-content-rest | informational | .session-arc-panel (border-color)                          |
  * | --tug7-element-global-border-normal-muted-rest   | --tug7-surface-global-primary-normal-content-rest | informational | pending panel border; pending seam; .session-arc-panel-foot |
  * | --tug7-element-global-text-normal-success-rest   | --tug7-surface-global-primary-normal-content-rest | informational | done panel top border; linked seam (currentColor)          |
  * | --tug7-element-global-fill-normal-accent-rest    | --tug7-surface-global-primary-normal-content-rest | informational | active panel top border                                    |
  */
 
-/* The arc panels: four fixed panels in a 2×2 grid and the seams between them,
-   in the arc shade's body. The component writes no style of its own; all of
-   it is this sheet.
+/* The arc panels: three fixed panels, Sketch across the top row and Brief and
+   Arc beneath it, and the seams between them, in the arc shade's body. The
+   component writes no style of its own; all of it is this sheet.
 
    The progress dot in each panel's header is a `TugProgressIndicator`, styled
    by its own sheet. */
@@ -37,29 +37,25 @@ body {
 
 /* ---- The grid ------------------------------------------------------------ */
 
-/* Three tracks each way: panel, seam, panel. The seams are real tracks, so
-   the marks on them never sit over a panel. The two panel columns may shrink
-   to nothing, so the grid holds at any width its host has and nothing a
-   panel carries can push it wider. At rest they are equal; the column of an
-   expanded panel takes two parts to the other's one, and the rows follow
-   whatever that does to their panels' text. The component moves the tracks
-   from the one arrangement to the other; this sheet says only where each
-   ends.
+/* A column of two rows: the Sketch panel across the top, and under it the
+   lower grid, which holds the drop, Brief, the arrow across, and Arc.
 
-   Each panel row is as tall as the taller of its two panels needs, and never
-   shorter than the floor: a panel's header and one line. The grid is a flex
-   item that may shrink, so when the shade's cap binds the rows share out the
-   room the cap leaves: the grid's track sizing grows each row from its floor
-   evenly and stops a row at its content's height, so a row that needs little
-   keeps all of it and the other takes the rest, its panels scrolling inside
-   themselves. Below the two floors the grid shrinks no further and the
-   shade's body scrolls. */
+   The Sketch panel is exactly its whole reading's height, so the drop starts
+   at its floor. The lower grid is as tall as the taller of its two panels
+   needs, and never shorter than its seam and the Arc panel's floor. The
+   column is a flex item that may shrink, and when the shade's cap binds the
+   lower grid gives way first, its panels scrolling inside themselves: its
+   shrink factor dwarfs the Sketch panel's, so the Sketch panel keeps its
+   height until the lower grid is down to its floor, and only then gives way
+   itself, down to its header and one line, its body scrolling. That order is
+   why the two rows are a column and not one grid, which would share the
+   shortfall between its rows. Below both floors the column shrinks no
+   further and the shade's body scrolls. */
 .session-arc-panels {
   --tugx-arc-panel-seam: 28px;
   /* A panel's borders, its header, and one line of its body with the body's
-     bottom padding. The line is the empty line's 28 px, the taller of the
-     two one-line bodies, so an empty seat's row is at its floor and gives
-     nothing up when the cap binds. */
+     bottom padding: the least the Sketch panel is, an empty seat's 28 px
+     line under its header. */
   --tugx-arc-panel-floor: calc(
     4px + 20px + 2 * var(--tug-space-sm) + 28px + var(--tug-space-md)
   );
@@ -88,66 +84,78 @@ body {
     var(--tugx-arc-panel-floor) + var(--tugx-arc-panel-floor-arc) + var(--tugx-arc-panel-seam) +
       2 * var(--tug-space-md)
   );
+  display: flex;
+  flex-direction: column;
+  padding: var(--tug-space-md);
+  overflow: hidden;
+}
+
+/* The lower grid: three tracks each way, seam and panels. The seams are real
+   tracks, so the marks on them never sit over a panel. The two panel columns
+   may shrink to nothing, so the grid holds at any width its host has and
+   nothing a panel carries can push it wider. At rest they are equal; the
+   column of an expanded panel takes two parts to the other's one, and the
+   row follows whatever that does to its panels' text. The component moves
+   the tracks from the one arrangement to the other; this sheet says only
+   where each ends. */
+.session-arc-panels-lower {
+  flex: 0 10000 auto;
+  min-width: 0;
+  min-height: calc(var(--tugx-arc-panel-seam) + var(--tugx-arc-panel-floor-arc));
   display: grid;
   grid-template-columns:
     minmax(0, var(--tugx-arc-panel-col-1))
     var(--tugx-arc-panel-seam)
     minmax(0, var(--tugx-arc-panel-col-2));
   grid-template-rows:
-    minmax(var(--tugx-arc-panel-floor), auto)
     var(--tugx-arc-panel-seam)
     minmax(var(--tugx-arc-panel-floor-arc), auto);
-  padding: var(--tug-space-md);
-  overflow: hidden;
 }
 
-/* Every item has its seat, so the return's tail can share the second panel's
-   cell without displacing anything. */
-.session-arc-panel[data-rung="idea"] {
-  grid-area: 1 / 1;
-}
-
+/* The Sketch panel fills the column's width, is its reading's height, and
+   gives way only to its floor. */
 .session-arc-panel[data-rung="sketch"] {
-  grid-area: 1 / 3;
+  flex: 0 1 auto;
+  align-self: stretch;
+  min-height: var(--tugx-arc-panel-floor);
+  max-height: none;
 }
 
 .session-arc-panel[data-rung="brief"] {
-  grid-area: 3 / 1;
+  grid-area: 2 / 1;
 }
 
 .session-arc-panel[data-rung="arc"] {
-  grid-area: 3 / 3;
-}
-
-.session-arc-panel-seam-row[data-from="idea"] {
-  grid-area: 1 / 2;
+  grid-area: 2 / 3;
 }
 
 .session-arc-panel-seam-row[data-from="brief"] {
-  grid-area: 3 / 2;
+  grid-area: 2 / 2;
 }
 
 /* The expanded panel's column, and its body's wider cap. A panel on its way
-   back to rest keeps the wider cap until it has arrived. */
-.session-arc-panels[data-expanded="idea"],
+   back to rest keeps the wider cap until it has arrived. The Sketch panel is
+   never expanded. */
 .session-arc-panels[data-expanded="brief"] {
   --tugx-arc-panel-col-1: 2fr;
 }
 
-.session-arc-panels[data-expanded="sketch"],
 .session-arc-panels[data-expanded="arc"] {
   --tugx-arc-panel-col-2: 2fr;
 }
 
-.session-arc-panels[data-expanded="idea"] [data-rung="idea"] > .session-arc-panel-body,
-.session-arc-panels[data-expanded="sketch"] [data-rung="sketch"] > .session-arc-panel-body,
 .session-arc-panels[data-expanded="brief"] [data-rung="brief"] > .session-arc-panel-body,
 .session-arc-panels[data-expanded="arc"] [data-rung="arc"] > .session-arc-panel-body,
-.session-arc-panels[data-leaving="idea"] [data-rung="idea"] > .session-arc-panel-body,
-.session-arc-panels[data-leaving="sketch"] [data-rung="sketch"] > .session-arc-panel-body,
 .session-arc-panels[data-leaving="brief"] [data-rung="brief"] > .session-arc-panel-body,
 .session-arc-panels[data-leaving="arc"] [data-rung="arc"] > .session-arc-panel-body {
   max-height: var(--tugx-arc-panel-body-expanded-max);
+}
+
+/* The Sketch panel is shown whole: its record is bounded at a few lines, so
+   a cap of lines would only cut it. Written with the column's class so it
+   outranks the panel's cap. */
+.session-arc-panels .session-arc-panel[data-rung="sketch"] > .session-arc-panel-body {
+  max-height: none;
 }
 
 /* ---- A panel ------------------------------------------------------------- */
@@ -156,10 +164,9 @@ body {
    is as tall as what it holds and stands at the top of its row: one shorter
    than its row neighbour leaves the rest of the row as space beneath it,
    never as empty panel. In a row shorter than what it holds it is the row's
-   height, and its body scrolls. It paints over the return's tail. */
+   height, and its body scrolls. */
 .session-arc-panel {
   position: relative;
-  z-index: 1;
   align-self: start;
   min-width: 0;
   min-height: 0;
@@ -268,7 +275,7 @@ body {
   opacity: 0.7;
 }
 
-/* A recorded text, the idea or the sketch: sentences, and under them a
+/* A recorded text, the sketch: what is wanted, the approach, and under them a
    short list. */
 /* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
 .session-arc-panel-text {
@@ -284,6 +291,14 @@ body {
 
 .session-arc-panel-text > p {
   margin: 0;
+}
+
+/* The sketch's lead is what is wanted, its opening paragraph, in the text's
+   full ink; the approach and its parts under it are quieter, so the want is
+   what the eye takes first. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-arc-panel[data-rung="sketch"] .session-arc-panel-text > :not(:first-child) {
+  color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
 .session-arc-panel-text > ul {
@@ -415,86 +430,25 @@ body {
   margin-inline: -5px -3px;
 }
 
-/* The return: laid on the grid's own columns, as a subgrid of them, so each
-   drop is over the middle of its panel wherever the columns are, mid-motion
-   included. */
-.session-arc-panel-seam-return {
-  grid-area: 2 / 1 / 3 / -1;
-  display: grid;
-  grid-template-columns: subgrid;
+/* The drop: from the Sketch panel's floor straight down the lower grid's
+   seam row, in the Brief panel's column and over its middle, to an
+   arrowhead on its roof. */
+.session-arc-panel-seam-drop {
+  grid-area: 1 / 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
-.session-arc-panel-return {
-  position: relative;
-  min-width: 0;
-}
-
-.session-arc-panel-return::before {
-  content: "";
-  position: absolute;
-  box-sizing: border-box;
-}
-
-/* The return's tail: the second panel's whole cell, under the panel, with
-   the drop down its middle. The panel covers what it fills, so the line
-   shows only in the space beneath a panel shorter than its row, and joins
-   the panel's floor to the seam. */
-.session-arc-panel-seam-tail {
-  grid-area: 1 / 3;
-  position: relative;
-  z-index: 0;
-}
-
-.session-arc-panel-seam-tail::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: calc(50% - 2px);
+.session-arc-panel-seam-drop .session-arc-panel-seam-line {
+  flex: 1 1 0;
   width: 0;
+  margin-bottom: -6px;
   border-left-width: 2px;
   border-left-style: var(--tugx-arc-panel-seam-style);
 }
 
-/* Out of the second panel: down from its floor to the seam's middle, then
-   left. */
-.session-arc-panel-return[data-part="out"]::before {
-  top: 0;
-  left: 0;
-  width: 50%;
-  height: 50%;
-  border-right-width: 2px;
-  border-right-style: var(--tugx-arc-panel-seam-style);
-  border-bottom-width: 2px;
-  border-bottom-style: var(--tugx-arc-panel-seam-style);
-  border-bottom-right-radius: 8px;
-}
-
-.session-arc-panel-return[data-part="across"]::before {
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 50%;
-  border-bottom-width: 2px;
-  border-bottom-style: var(--tugx-arc-panel-seam-style);
-}
-
-/* Into the third panel: from the seam's middle, left to the panel's middle,
-   then down to its roof. */
-.session-arc-panel-return[data-part="into"]::before {
-  top: calc(50% - 2px);
-  right: 0;
-  width: 50%;
-  height: calc(50% + 2px);
-  border-left-width: 2px;
-  border-left-style: var(--tugx-arc-panel-seam-style);
-  border-top-width: 2px;
-  border-top-style: var(--tugx-arc-panel-seam-style);
-  border-top-left-radius: 8px;
-}
-
-.session-arc-panel-return[data-part="into"] .session-arc-panel-seam-head {
-  position: absolute;
-  left: calc(50% - 6px);
-  bottom: -5px;
+.session-arc-panel-seam-drop .session-arc-panel-seam-head {
+  flex: none;
+  margin-bottom: -5px;
 }

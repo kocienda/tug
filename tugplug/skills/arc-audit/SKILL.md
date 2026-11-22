@@ -65,7 +65,7 @@ A present branch and worktree return as-is (`created: false`), so on a healthy r
 
 `arc documents --json` names all three paths and says which exist. Read the brief even when a plan exists — especially then, since the plan is one session's reading of the brief and this stage's job is not to trust a reading.
 
-**Keep the arc's record of its idea and sketch current** as the arc doctrine's *The record of where the work came from* says: rewrite either one when its source session has turns since that changed it or when it is not in the shape that section gives, and never invent one. The record is not the standard of comparison; the ledger and the brief are.
+**Keep the arc's sketch current** as the arc doctrine's *The record of where the work came from* says: rewrite it when its source session has turns since that changed it or when it is not in the shape that section gives, and never invent one. The record is not the standard of comparison; the ledger and the brief are.
 
 **Read the arc's `baseline.md` too if the implement stage left one.** It records what was already red before the first step, which is the difference between a defect this arc introduced and one it inherited.
 

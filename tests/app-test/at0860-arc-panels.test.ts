@@ -1,23 +1,25 @@
 /**
- * at0860-arc-panels.test.ts — the arc shade's four fixed panels: Idea,
- * Sketch, Brief and Arc in a 2×2 grid, read at the Session card's minimum
- * width.
+ * at0860-arc-panels.test.ts — the arc shade's three fixed panels: Sketch
+ * across the whole top row, and Brief and Arc beneath it, read at the
+ * Session card's minimum width.
  *
  * What is read:
  *
- *   1. With an arc bound, the raised shade holds the four panels in the
- *      ladder's order at their grid seats — Idea top-left, Sketch top-right,
+ *   1. With an arc bound, the raised shade holds the three panels in the
+ *      ladder's order at their grid seats — Sketch across the top row,
  *      Brief bottom-left, Arc bottom-right — each wearing its number, and the
  *      shade's header carries no button and its footer Done alone.
- *   2. Each panel's progress dot says where its rung is: an empty seat is
- *      still, the recorded idea and the brief are complete, and the arc,
- *      where the work is, runs.
- *   3. The seams are tracks of their own: three of them, joined only where
- *      there is something on both sides, and none lies over a panel.
- *   4. The two columns are equal. A press expands a panel as a motion: its
- *      width passes through values between the two arrangements, and the
- *      grid is at rest again when the motion ends. A second press puts it
- *      back, and nothing moves when focus enters a panel.
+ *   2. Each panel's progress dot says where its rung is: the recorded sketch
+ *      and the brief are complete, and the arc, where the work is, runs.
+ *   3. The seams are tracks of their own: two of them, a drop from the
+ *      Sketch panel's floor into the middle of the Brief panel's roof and an
+ *      arrow from Brief to Arc, joined where there is something on both
+ *      sides, and none lies over a panel.
+ *   4. The two lower columns are equal. A press on Brief expands it as a
+ *      motion: its width passes through values between the two
+ *      arrangements, and the grid is at rest again when the motion ends. A
+ *      second press puts it back, a press on the Sketch panel moves nothing,
+ *      and nothing moves when focus enters a panel.
  *   5. The Arc panel shows its whole verb row on one line, the next move in
  *      its word at the leading edge and the rest as icons at the trailing
  *      edge, under the reading's scroller and
@@ -26,18 +28,18 @@
  *      every panel is inside the grid, the body never scrolls across, and
  *      the Arc panel is in view with its lower edge, and so its verbs,
  *      showing.
- *      A panel is as tall as what it holds, at the top of its row, and the
- *      row is as tall as its taller panel; under a Sketch panel shorter than
- *      its row the return's tail runs from the panel's floor to the seam.
- *      Each row is as tall as its taller panel needs: the two one-line
- *      panels' row is short, the shade holds the grid whole when it is under
- *      its cap, and when the cap binds the short row keeps its height while
- *      the other row gives way and its panels scroll inside themselves, the
- *      Arc panel's verbs still on its floor.
+ *      A panel is as tall as what it holds, at the top of its row. The top
+ *      row is exactly the Sketch panel's height, so the drop starts at its
+ *      floor; the lower row is as tall as its taller panel. The shade holds
+ *      the grid whole when it is under its cap, and when the cap binds the
+ *      top row keeps its height while the lower row gives way and its
+ *      panels scroll inside themselves, the Arc panel's verbs still on its
+ *      floor. The Sketch panel never scrolls.
  *   7. The Brief panel names the arc's brief and its path and lists the
- *      findings and decisions it marks. The Idea panel shows the arc's idea
- *      record as written, without its heading or its `Source:` line, and
- *      the Sketch panel, with no record, says None.
+ *      findings and decisions it marks. The Sketch panel shows the arc's
+ *      record as written, without its heading or its `Source:` line: what
+ *      is wanted leads, in the text's full ink, and the approach and its
+ *      list under it are quieter.
  *   8. Discard on the Arc panel arms a confirm that stands on the panel, and
  *      Cancel dismisses it with the arc untouched.
  *   9. The Brief panel's path opens the brief's file.
@@ -83,19 +85,22 @@ const TEST_TIMEOUT_MS = 180_000;
 const SID = "a7c0d1ea-0000-4000-8000-000000000860";
 const ARC_NAME = "at0860-panels";
 const BRIEF_TITLE = "The panels brief";
-const IDEA_TEXT = "Show the arc as four panels.";
+const WANT_TEXT = "Show where an arc came from in one short account.";
+const APPROACH_TEXT = "The want leads the sketch, and the sketch spans the top row.";
+const PART_TEXT = "Brief and Arc stand beneath it";
 
 /**
  * The Session card's minimum width, the narrowest the shade can be, and tall
  * enough that the shade's cap leaves room above the rows' floors, so the
  * rows can be read sharing it.
  */
-const MIN_CARD_SIZE = { width: 675, height: 800 };
+const MIN_CARD_SIZE = { width: 675, height: 920 };
 
 const CARD = '[data-card-id="A"]';
 const SHADE = `${CARD} [data-slot="session-arc-shade"]`;
 const SLOT = `${CARD} .session-view-slot`;
 const GRID = `${SHADE} [data-slot="session-arc-panels"]`;
+const LOWER = `${GRID} [data-slot="session-arc-panels-lower"]`;
 const panel = (rung: string): string => `${GRID} [data-slot="session-arc-panel"][data-rung="${rung}"]`;
 const panelName = (rung: string): string => `${panel(rung)} .session-arc-panel-name`;
 const BRIEF_OPEN = `${panel("brief")} [data-slot="session-arc-brief-path"]`;
@@ -119,17 +124,19 @@ beforeAll(() => {
     [
       `# ${BRIEF_TITLE}`,
       "",
-      "**[F01] The shade has four panels.** Found by reading.",
+      "**[F01] The shade has three panels.** Found by reading.",
       "",
       "**[B01] The Brief panel lists these.** And nothing else.",
       "",
     ].join("\n"),
   );
-  // The record of the idea the door writes beside the brief. No sketch is
-  // recorded, so the Sketch panel keeps its empty seat.
+  // The record the door writes beside the brief: what is wanted, then the
+  // approach and its parts.
   writeFileSync(
-    join(dirname(arcBriefPath(projectDir(), ARC_NAME)), "idea.md"),
-    ["# Idea", "", IDEA_TEXT, "", `Source: session ${SID}, turn 1`, ""].join("\n"),
+    join(dirname(arcBriefPath(projectDir(), ARC_NAME)), "sketch.md"),
+    ["# Sketch", "", WANT_TEXT, "", APPROACH_TEXT, "", `- ${PART_TEXT}`, "", `Source: session ${SID}, turns 1–2`, ""].join(
+      "\n",
+    ),
   );
   createArc(projectDir(), ARC_NAME, "at0860 panels", scratch.cli);
   fixtureDir = seedScratchSession(projectDir(), SID);
@@ -177,8 +184,8 @@ interface GridReading {
   verbRow: Box;
   verbRowOverflow: number;
   scroller: Box;
-  /** The return's tail, under the Sketch panel. */
-  tail: Box;
+  /** The drop from the Sketch panel into the Brief panel. */
+  drop: Box;
 }
 
 const read = (app: App): Promise<GridReading> =>
@@ -227,7 +234,7 @@ const read = (app: App): Promise<GridReading> =>
          verbRow: box(row),
          verbRowOverflow: row.scrollWidth - row.clientWidth,
          scroller: box(arc.querySelector(".tug-popup-list-scroller")),
-         tail: box(grid.querySelector(".session-arc-panel-seam-tail")),
+         drop: box(grid.querySelector(".session-arc-panel-seam-drop")),
        };
      })()`,
   );
@@ -245,20 +252,20 @@ const inside = (inner: Box, outer: Box): boolean =>
   inner.l >= outer.l - 0.5 && inner.r <= outer.r + 0.5 && inner.t >= outer.t - 0.5 && inner.b <= outer.b + 0.5;
 
 /**
- * Records the Idea panel's width on every frame from now until the grid's
+ * Records the Brief panel's width on every frame from now until the grid's
  * motion has started and ended, or two seconds pass. Armed before a press.
  */
 const armWidthSampler = (app: App): Promise<boolean> =>
   app.body("A").evalJS<boolean>(
     `(() => {
        const grid = document.querySelector(${JSON.stringify(GRID)});
-       const idea = document.querySelector(${JSON.stringify(panel("idea"))});
+       const brief = document.querySelector(${JSON.stringify(panel("brief"))});
        const samples = [];
        window.__at0860Widths = samples;
        const until = performance.now() + 2000;
        let moved = false;
        const tick = () => {
-         samples.push(idea.getBoundingClientRect().width);
+         samples.push(brief.getBoundingClientRect().width);
          if (grid.dataset.moving === "true") moved = true;
          if ((moved && grid.dataset.moving !== "true") || performance.now() > until) return;
          requestAnimationFrame(tick);
@@ -268,12 +275,13 @@ const armWidthSampler = (app: App): Promise<boolean> =>
      })()`,
   );
 
-/** The grid's motion has ended: its tracks are the sheet's again. */
+/** The grid's motion has ended: the lower grid's tracks are the sheet's again. */
 const waitForRest = (app: App): Promise<boolean> =>
   app.body("A").waitForCondition<boolean>(
     `(() => {
        const grid = document.querySelector(${JSON.stringify(GRID)});
-       return grid.dataset.moving !== "true" && grid.style.gridTemplateColumns === "" && grid.getAnimations().length === 0;
+       const lower = document.querySelector(${JSON.stringify(LOWER)});
+       return grid.dataset.moving !== "true" && lower.style.gridTemplateColumns === "" && lower.getAnimations().length === 0;
      })()`,
     { timeoutMs: 4_000 },
   );
@@ -389,9 +397,9 @@ const readCap = (app: App): Promise<CapReading> =>
      })()`,
   );
 
-describe.skipIf(!SHOULD_RUN)("AT0860: the arc shade's four panels", () => {
+describe.skipIf(!SHOULD_RUN)("AT0860: the arc shade's three panels", () => {
   test(
-    "four panels stand in order in equal columns, rows by content, and nothing moves or overflows",
+    "three panels stand in order, Sketch across the top, rows by content, and nothing moves or overflows",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
@@ -419,25 +427,22 @@ describe.skipIf(!SHOULD_RUN)("AT0860: the arc shade's four panels", () => {
         await app.dispatchControlAction("toggle-arc-shade");
         await shadeSettled(app, true);
 
-        // ── Four panels at their seats, with their dots and seams ─────────
+        // ── Three panels at their seats, with their dots and seams ────────
         const rest = await read(app);
         note("at0860 at rest", JSON.stringify(rest));
-        expect(rest.panels.map((p) => p.rung)).toEqual(["idea", "sketch", "brief", "arc"]);
-        expect(rest.panels.map((p) => p.number)).toEqual(["1", "2", "3", "4"]);
+        expect(rest.panels.map((p) => p.rung)).toEqual(["sketch", "brief", "arc"]);
+        expect(rest.panels.map((p) => p.number)).toEqual(["1", "2", "3"]);
         expect(rest.headButtons, "the header carries no button").toEqual([]);
         expect(rest.footButtons, "the footer carries Done alone").toEqual(["Done"]);
-        const [idea, sketch, brief, arc] = ["idea", "sketch", "brief", "arc"].map((r) => panelOf(rest, r).box);
-        expect(Math.abs(idea.t - sketch.t), "Idea and Sketch share the top row").toBeLessThanOrEqual(0.5);
+        const [sketch, brief, arc] = ["sketch", "brief", "arc"].map((r) => panelOf(rest, r).box);
         expect(Math.abs(brief.t - arc.t), "Brief and Arc share the bottom row").toBeLessThanOrEqual(0.5);
-        expect(Math.abs(idea.l - brief.l), "Idea and Brief share the left column").toBeLessThanOrEqual(0.5);
-        expect(Math.abs(sketch.l - arc.l), "Sketch and Arc share the right column").toBeLessThanOrEqual(0.5);
-        expect(sketch.l, "Sketch is right of Idea").toBeGreaterThan(idea.r);
-        expect(brief.t, "Brief is under Idea").toBeGreaterThan(idea.b);
-        expect(rest.panels.map((p) => p.state)).toEqual(["done", "pending", "done", "active"]);
-        expect(rest.panels.map((p) => p.dot)).toEqual(["completed", "stopped", "completed", "running"]);
+        expect(Math.abs(sketch.l - brief.l), "Sketch starts where Brief does").toBeLessThanOrEqual(0.5);
+        expect(Math.abs(sketch.r - arc.r), "and ends where Arc does: the whole top row").toBeLessThanOrEqual(0.5);
+        expect(brief.t, "Brief is under Sketch").toBeGreaterThan(sketch.b);
+        expect(rest.panels.map((p) => p.state)).toEqual(["done", "done", "active"]);
+        expect(rest.panels.map((p) => p.dot)).toEqual(["completed", "completed", "running"]);
         expect(rest.seams.map((s) => [s.from, s.state])).toEqual([
-          ["idea", "pending"],
-          ["sketch", "pending"],
+          ["sketch", "linked"],
           ["brief", "linked"],
         ]);
 
@@ -448,19 +453,17 @@ describe.skipIf(!SHOULD_RUN)("AT0860: the arc shade's four panels", () => {
         expect(spare, "and no wider than it").toBeGreaterThanOrEqual(-1);
         expect(spare, "and narrower by no more than a scrollbar").toBeLessThanOrEqual(20);
         expect(height(rest.body), "the body has real height").toBeGreaterThan(100);
-        // A panel is as tall as what it holds, never stretched to its row:
-        // the row is its taller panel's height or its floor, and the seam
-        // starts there. The floor is a header and one line in a panel with a
-        // 3 px top border, so a pending seat, whose top border is 1 px, stands
-        // 2 px short of it.
-        note("at0860 top panels", JSON.stringify({ idea: height(idea), sketch: height(sketch), brief: height(brief), arc: height(arc) }));
-        const below = brief.t - 28 - Math.max(idea.b, sketch.b);
-        expect(below, "no panel runs past its row").toBeGreaterThanOrEqual(-0.5);
-        expect(below, "and the row is no taller than its taller panel or its floor").toBeLessThanOrEqual(2.5);
-        expect(Math.abs(rest.tail.t - sketch.t), "the return's tail starts in the Sketch panel's seat").toBeLessThanOrEqual(0.5);
-        expect(Math.abs(rest.tail.b - (brief.t - 28)), "and runs to the seam").toBeLessThanOrEqual(1);
-        expect(height(idea), "the row of two one-line panels is short").toBeLessThan(90);
-        expect(height(idea), "and shorter than the row holding the arc").toBeLessThan(height(arc));
+        // The top row is exactly the Sketch panel's height, so the drop runs
+        // from the panel's floor straight down to the Brief panel's roof,
+        // over the middle of its column.
+        note("at0860 panels", JSON.stringify({ sketch: height(sketch), brief: height(brief), arc: height(arc) }));
+        expect(Math.abs(brief.t - 28 - sketch.b), "the top row is no taller than the Sketch panel").toBeLessThanOrEqual(0.5);
+        expect(Math.abs(rest.drop.t - sketch.b), "the drop starts at the Sketch panel's floor").toBeLessThanOrEqual(0.5);
+        expect(Math.abs(rest.drop.b - brief.t), "and ends at the Brief panel's roof").toBeLessThanOrEqual(0.5);
+        expect(
+          Math.abs((rest.drop.l + rest.drop.r) / 2 - (brief.l + brief.r) / 2),
+          "over the middle of the Brief panel",
+        ).toBeLessThanOrEqual(1);
         const cap = await readCap(app);
         note("at0860 cap at rest", JSON.stringify(cap));
         // The ledger gives way before the reading's head does, down to one
@@ -470,11 +473,10 @@ describe.skipIf(!SHOULD_RUN)("AT0860: the arc shade's four panels", () => {
         expect(cap.arcHeadClip === 0 || cap.arcScroller <= cap.arcScrollerMin + 1, "at rest the head keeps its height while the ledger can give").toBe(true);
         if (!cap.binds) {
           expect(rest.overflow.bodyY, "under its cap the shade holds the grid whole").toBeLessThanOrEqual(0);
-          expect(cap.panelScroll, "and no panel scrolls").toEqual({ idea: 0, sketch: 0, brief: 0, arc: 0 });
+          expect(cap.panelScroll, "and no panel scrolls").toEqual({ sketch: 0, brief: 0, arc: 0 });
         }
         expectNoOverflow(rest, "at rest");
-        expect(Math.abs(width(idea) - width(sketch)), "the two columns are equal").toBeLessThanOrEqual(0.5);
-        expect(Math.abs(width(brief) - width(arc)), "in both rows").toBeLessThanOrEqual(0.5);
+        expect(Math.abs(width(brief) - width(arc)), "the two lower columns are equal").toBeLessThanOrEqual(0.5);
 
         // ── The Arc panel shows its whole row on one line ─────────────────
         expect(rest.verbs.length, "the row has verbs").toBeGreaterThan(1);
@@ -497,12 +499,14 @@ describe.skipIf(!SHOULD_RUN)("AT0860: the arc shade's four panels", () => {
         expect(after.l - lead.r, "the other verbs stand apart from the next move").toBeGreaterThan(8);
         expect(rest.verbRow.b, "the verbs are in the shade's view when it rises").toBeLessThanOrEqual(rest.body.b + 1);
 
-        // ── The cap binding: the short row keeps its height ───────────────
+        // ── The cap binding: the top row keeps its height ─────────────────
         // The shade is held shorter than it stands, as a shorter slot would
         // hold it, and read again: still above the rows' floors. It is held
-        // by a little less than the Arc panel's row stands over its 120 px
-        // floor, which is what that row can give alone.
-        const squeeze = Math.floor(height(arc) - 120) - 5;
+        // by a little less than the lower row, as tall as the taller of
+        // Brief and Arc, stands over its 120 px floor, which is what that row
+        // can give alone.
+        const lowerRow = (b: Box, a: Box): number => Math.max(height(b), height(a));
+        const squeeze = Math.floor(lowerRow(brief, arc) - 120) - 5;
         expect(squeeze, "the Arc panel's row has room to give").toBeGreaterThan(5);
         await app.body("A").evalJS<boolean>(
           `(() => {
@@ -514,9 +518,10 @@ describe.skipIf(!SHOULD_RUN)("AT0860: the arc shade's four panels", () => {
         const capped = await read(app);
         const cappedCap = await readCap(app);
         note("at0860 capped", JSON.stringify({ capped, cap: cappedCap }));
-        const [cIdea, cArc] = ["idea", "arc"].map((r) => panelOf(capped, r).box);
-        expect(Math.abs(height(cIdea) - height(idea)), "capped, the short row keeps its height").toBeLessThanOrEqual(1);
-        expect(height(cArc), "and the row holding the arc gives way").toBeLessThan(height(arc) - squeeze + 3);
+        const [cSketch, cBrief, cArc] = ["sketch", "brief", "arc"].map((r) => panelOf(capped, r).box);
+        expect(Math.abs(height(cSketch) - height(sketch)), "capped, the top row keeps its height").toBeLessThanOrEqual(1);
+        expect(cappedCap.panelScroll.sketch, "and the Sketch panel shows whole").toBe(0);
+        expect(lowerRow(cBrief, cArc), "and the row holding the arc gives way").toBeLessThan(lowerRow(brief, arc) - squeeze + 3);
         expect(capped.overflow.bodyY, "the grid still fits the shade, so the body does not scroll").toBeLessThanOrEqual(0);
         expect(
           Math.max(cappedCap.panelScroll.arc ?? 0, cappedCap.panelScroll.brief ?? 0),
@@ -525,49 +530,81 @@ describe.skipIf(!SHOULD_RUN)("AT0860: the arc shade's four panels", () => {
         expect(cappedCap.arcScroller, "capped, the ledger keeps its row").toBeGreaterThanOrEqual(cappedCap.arcScrollerMin - 1);
         expect(cappedCap.arcHeadClip === 0 || cappedCap.arcScroller <= cappedCap.arcScrollerMin + 1, "capped, the head keeps its height while the ledger can give").toBe(true);
         expectFloorClear(capped, "capped");
+
+        // ── Down to both floors: the Sketch panel gives way, the verbs stay ──
+        // Held to the panels' own least height, the lower row is at its
+        // floor and the Sketch panel is the one that scrolls, so the Arc
+        // panel's verbs are still on its floor and in view.
+        await app.body("A").evalJS<boolean>(
+          `(() => {
+             const shade = document.querySelector(${JSON.stringify(SHADE)});
+             const grid = document.querySelector(${JSON.stringify(GRID)});
+             const spare = grid.getBoundingClientRect().height - parseFloat(getComputedStyle(grid).minHeight);
+             shade.style.maxHeight = (shade.getBoundingClientRect().height - spare + 1) + "px";
+             return true;
+           })()`,
+        );
+        const floored = await read(app);
+        const flooredCap = await readCap(app);
+        note("at0860 floored", JSON.stringify({ floored, cap: flooredCap }));
+        expect(flooredCap.panelScroll.sketch, "at both floors, the Sketch panel scrolls inside itself").toBeGreaterThan(0);
+        expect(height(panelOf(floored, "sketch").box), "having given way").toBeLessThan(height(sketch) - 1);
+        expectFloorClear(floored, "at both floors");
+        expectNoOverflow(floored, "at both floors");
         await app.body("A").evalJS<boolean>(
           `(() => { document.querySelector(${JSON.stringify(SHADE)}).style.maxHeight = ""; return true; })()`,
         );
 
-        // ── A press expands a panel, a second puts it back, focus moves nothing ──
+        // ── A press expands Brief, a second puts it back, Sketch and focus move nothing ──
         const settledRest = await read(app);
         await armWidthSampler(app);
-        await app.body("A").nativeClickAtElement(panelName("idea"));
+        await app.body("A").nativeClickAtElement(panelName("brief"));
         await app.body("A").waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(GRID)}).dataset.expanded === "idea"`,
+          `document.querySelector(${JSON.stringify(GRID)}).dataset.expanded === "brief"`,
           { timeoutMs: 4_000 },
         );
         await waitForRest(app);
         const pressed = await read(app);
-        note("at0860 idea pressed", JSON.stringify(pressed));
-        const [pIdea, pSketch, pBrief, pArc] = ["idea", "sketch", "brief", "arc"].map((r) => panelOf(pressed, r).box);
-        expect(width(pIdea) / width(pSketch), "pressed, Idea's column is two parts to one").toBeGreaterThan(1.9);
+        note("at0860 brief pressed", JSON.stringify(pressed));
+        const [pSketch, pBrief, pArc] = ["sketch", "brief", "arc"].map((r) => panelOf(pressed, r).box);
+        expect(width(pBrief) / width(pArc), "pressed, Brief's column is two parts to one").toBeGreaterThan(1.9);
         // The press was a motion: the panel was seen at widths between the
         // two arrangements, and never narrower than it started or wider
         // than it ended.
         const widths = await app.body("A").evalJS<number[]>(`window.__at0860Widths`);
-        const restWidth = width(panelOf(settledRest, "idea").box);
-        note("at0860 idea widths", JSON.stringify(widths.map((w) => Math.round(w))));
+        const restWidth = width(panelOf(settledRest, "brief").box);
+        note("at0860 brief widths", JSON.stringify(widths.map((w) => Math.round(w))));
         expect(
-          widths.filter((w) => w > restWidth + 2 && w < width(pIdea) - 2).length,
+          widths.filter((w) => w > restWidth + 2 && w < width(pBrief) - 2).length,
           "the panel passes through widths between rest and expanded",
         ).toBeGreaterThanOrEqual(2);
         expect(
-          widths.every((w) => w >= restWidth - 0.5 && w <= width(pIdea) + 0.5),
+          widths.every((w) => w >= restWidth - 0.5 && w <= width(pBrief) + 0.5),
           "and never leaves the span between them",
         ).toBe(true);
-        expect(Math.abs(width(pBrief) - width(pIdea)), "and Brief, under it, is as wide").toBeLessThanOrEqual(0.5);
-        expect(Math.abs(width(pArc) - width(pSketch))).toBeLessThanOrEqual(0.5);
+        expect(Math.abs(width(pSketch) - width(sketch)), "and Sketch still spans the top row").toBeLessThanOrEqual(0.5);
+        expect(
+          Math.abs((pressed.drop.l + pressed.drop.r) / 2 - (pBrief.l + pBrief.r) / 2),
+          "the drop follows the Brief panel's middle",
+        ).toBeLessThanOrEqual(1);
         expect(pressed.verbs.every((v) => v.shown), "in the narrow column, the Arc panel keeps its whole row").toBe(true);
-        expectFloorClear(pressed, "Idea pressed");
-        expectNoOverflow(pressed, "Idea pressed");
-        await app.body("A").nativeClickAtElement(panelName("idea"));
+        expectFloorClear(pressed, "Brief pressed");
+        expectNoOverflow(pressed, "Brief pressed");
+        await app.body("A").nativeClickAtElement(panelName("brief"));
         await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(GRID)}).dataset.expanded === undefined`,
           { timeoutMs: 4_000 },
         );
         await waitForRest(app);
-        expectUnmoved(settledRest, await read(app), "Idea pressed again");
+        expectUnmoved(settledRest, await read(app), "Brief pressed again");
+        await app.body("A").nativeClickAtElement(panelName("sketch"));
+        expect(
+          await app.body("A").evalJS<boolean>(
+            `document.querySelector(${JSON.stringify(GRID)}).dataset.expanded === undefined`,
+          ),
+          "a press on the Sketch panel expands nothing",
+        ).toBe(true);
+        expectUnmoved(settledRest, await read(app), "Sketch pressed");
         await app.body("A").evalJS<boolean>(
           `(() => { document.querySelector(${JSON.stringify(BRIEF_OPEN)}).focus(); return true; })()`,
         );
@@ -584,8 +621,7 @@ describe.skipIf(!SHOULD_RUN)("AT0860: the arc shade's four panels", () => {
           title: string;
           path: string;
           headings: string[];
-          idea: { text: string; title: number };
-          sketch: string;
+          sketch: { paragraphs: string[]; items: string[]; title: number; ink: string[] };
         }>(
           `(() => {
              const el = document.querySelector(${JSON.stringify(panel("brief"))});
@@ -596,11 +632,16 @@ describe.skipIf(!SHOULD_RUN)("AT0860: the arc shade's four panels", () => {
                headings: Array.from(el.querySelectorAll('[data-slot="session-arc-brief-heading"]')).map(
                  (li) => li.getAttribute("data-kind") + ":" + Array.from(li.children).map(text).join(" "),
                ),
-               idea: {
-                 text: text(document.querySelector(${JSON.stringify(`${GRID} [data-rung="idea"] [data-slot="session-arc-panel-text"]`)})),
-                 title: document.querySelectorAll(${JSON.stringify(`${GRID} [data-rung="idea"] .session-arc-panel-title`)}).length,
-               },
-               sketch: text(document.querySelector(${JSON.stringify(`${GRID} [data-rung="sketch"] [data-slot="tug-empty-line"]`)})),
+               sketch: (() => {
+                 const record = document.querySelector(${JSON.stringify(`${GRID} [data-rung="sketch"] [data-slot="session-arc-panel-text"]`)});
+                 const paragraphs = Array.from(record.querySelectorAll(":scope > p"));
+                 return {
+                   paragraphs: paragraphs.map(text),
+                   items: Array.from(record.querySelectorAll(":scope > ul > li")).map(text),
+                   title: document.querySelectorAll(${JSON.stringify(`${GRID} [data-rung="sketch"] .session-arc-panel-title`)}).length,
+                   ink: [getComputedStyle(record).color, ...paragraphs.map((p) => getComputedStyle(p).color)],
+                 };
+               })(),
              };
            })()`,
         );
@@ -609,11 +650,17 @@ describe.skipIf(!SHOULD_RUN)("AT0860: the arc shade's four panels", () => {
         expect(briefPanel.path).toBe(`.tug/arcs/${ARC_NAME}/brief.md`);
         expect(briefPanel.headings).toEqual([
           "decision:B01 The Brief panel lists these",
-          "finding:F01 The shade has four panels",
+          "finding:F01 The shade has three panels",
         ]);
-        expect(briefPanel.idea.text, "the Idea panel shows the record as written").toBe(IDEA_TEXT);
-        expect(briefPanel.idea.title, "under no heading of its own").toBe(0);
-        expect(briefPanel.sketch, "the Sketch panel, with no record, says so").toBe("None");
+        expect(briefPanel.sketch.paragraphs, "the Sketch panel shows the record as written, the want first").toEqual([
+          WANT_TEXT,
+          APPROACH_TEXT,
+        ]);
+        expect(briefPanel.sketch.items, "and its parts").toEqual([PART_TEXT]);
+        expect(briefPanel.sketch.title, "under no heading of its own").toBe(0);
+        const [textInk, wantInk, approachInk] = briefPanel.sketch.ink;
+        expect(wantInk, "the want is in the text's full ink").toBe(textInk);
+        expect(approachInk, "and the approach under it is quieter").not.toBe(textInk);
 
         // ── Discard's confirm stands on the Arc panel ─────────────────────
         await app.body("A").click(arcVerb("discard"));

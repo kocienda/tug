@@ -1,17 +1,17 @@
 /**
  * SessionArcShadeContent — what the arc shade's body shows of the card's arc.
  *
- * With an arc it is the arc's four panels: Idea, Sketch, Brief and Arc, in
- * that order. The Arc panel is the arc's own reading and its verbs, as the
+ * With an arc it is the arc's three panels: Sketch, Brief and Arc, in that
+ * order. The Arc panel is the arc's own reading and its verbs, as the
  * cell's popup shows them: the binding line, the track and its phase word,
  * the ledger, and the footer's Stop, Changes, Unbind, Replay, Discard, Join
  * and Resume, on one row: the next move keeps its word and the rest are
  * icons that open under the pointer or keyboard focus. Its dot holds its
  * pose while the arc is stopped. The Brief panel shows the arc's brief when
  * it has one: its title, its path, which opens it, and the findings
- * and decisions it marks. The Idea and Sketch panels show the arc's records
- * of the prompt the work began as and of how the conversation took it to
- * the brief, as written; an arc with no record says None.
+ * and decisions it marks. The Sketch panel shows the arc's record of where
+ * the work came from, as written: what is wanted, then the shape the work
+ * will take; an arc with no record says None.
  * With no arc there are no panels: the body is
  * the short form's hint, which says so in the one word the ARC cell says,
  * says what an arc is and how to start one, and links to the guide.
@@ -73,9 +73,9 @@ export const NOT_RECORDED: SessionArcPanel = {
 };
 
 /**
- * The Idea or Sketch panel for an arc's record: its sentences and the list
- * under them, or the empty seat when the arc has none, as an arc opened
- * before records were kept has none.
+ * The Sketch panel for an arc's record: its opening paragraph, what is
+ * wanted, then the approach and the list under it, or the empty seat when
+ * the arc has none, as an arc opened before records were kept has none.
  */
 export function recordPanel(text: string | undefined): SessionArcPanel {
   if (text === undefined || text.trim() === "") return NOT_RECORDED;
@@ -196,7 +196,6 @@ export function SessionArcShadeContent({
           // The seams follow from the panels: the arc is cut from its brief,
           // so Brief to Arc is joined whenever there is one.
           panels={{
-            idea: recordPanel(fact.documents?.idea_text),
             sketch: recordPanel(fact.documents?.sketch_text),
             brief:
               fact.documents?.brief !== undefined

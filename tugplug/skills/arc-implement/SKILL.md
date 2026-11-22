@@ -115,7 +115,7 @@ That writes the sentence as the arc's last note and stops the arc as `needs a de
    Where the project's own test tooling keeps a history of past runs, read it rather than trusting your memory of this one — `tugtool apptest history` answers for a project whose checks run through it, and a project with no such record simply has none. Say which reds the history already knew about; those are the ones this arc did not cause.
 
    **A session that inherits a recorded baseline does not re-establish one.** Read `baseline.md`, say what it says, and carry on — re-running a whole suite at every rotation is the cost the record exists to remove.
-5. **Keep the arc's record of its idea and sketch current**, once per session, as the arc doctrine's *The record of where the work came from* says: rewrite either one when its source session has turns since that changed it or when it is not in the shape that section gives, and never invent one. It is untracked, so it is no round and no step's work.
+5. **Keep the arc's sketch current**, once per session, as the arc doctrine's *The record of where the work came from* says: rewrite it when its source session has turns since that changed it or when it is not in the shape that section gives, and never invent one. It is untracked, so it is no round and no step's work.
 6. **The Step Status Ledger is the progress surface.** `arc step start`, `arc step done` and `arc step withdraw` move its rows, and the Arcs card, the Changes card, and the Z2 placard all read from it. There is no second list to keep: the ledger is the record of where the arc is, and the verbs are what move it.
 
 ### 2. Implement (walk the steps)

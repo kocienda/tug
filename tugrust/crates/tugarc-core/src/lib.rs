@@ -84,7 +84,7 @@ pub use ops::{
     JoinBlocker, JoinOptions, JoinOutcome, JoinStrategy, MarkOutcome, OpenOutcome, RoundItem,
     ShowOutcome, StepOutcome, arc_detail_entries_in, arc_draft_key, brief_file, commit_in,
     create_in, delete_documents_in, derive_stage, discard_in, document_arcs, documents_dir,
-    ensure_tug_excluded, idea_file, join_in, join_in_flight, join_in_with_progress,
+    ensure_tug_excluded, join_in, join_in_flight, join_in_with_progress,
     join_preflight_in, ledger_file, list_in, mark_in, open_arc, plan_file, show_in, sketch_file,
     status_in, step_done_in, step_start_in, tasks_file, worktree_path,
 };

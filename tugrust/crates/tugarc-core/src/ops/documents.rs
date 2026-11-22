@@ -39,22 +39,14 @@ pub fn plan_file(repo: &Path, name: &str) -> PathBuf {
     documents_dir(repo, name).join("plan.md")
 }
 
-/// The arc's record of its idea: `<repo>/.tug/arcs/<name>/idea.md`.
-///
-/// The prompt the work began as, copied by the `/arc` door at the hand-off
-/// with a reference to the session and turn it came from. A record and not a
-/// document the arc runs on: it neither opens an arc nor decides its kind, and
-/// an arc without one is an arc whose source could not be found.
-pub fn idea_file(repo: &Path, name: &str) -> PathBuf {
-    documents_dir(repo, name).join("idea.md")
-}
-
 /// The arc's record of its sketch: `<repo>/.tug/arcs/<name>/sketch.md`.
 ///
-/// A few sentences on how the conversation took the idea to the brief, with a
+/// The one record of where the work came from: an opening paragraph saying
+/// what is wanted, then the approach and the parts of the work, with a
 /// reference to the session and turns. The turns themselves are not copied:
-/// the brief carries the decisions. Like [`idea_file`], a record the arc does
-/// not run on.
+/// the brief carries the decisions. A record and not a document the arc runs
+/// on: it neither opens an arc nor decides its kind, and an arc without one is
+/// an arc whose source could not be found.
 pub fn sketch_file(repo: &Path, name: &str) -> PathBuf {
     documents_dir(repo, name).join("sketch.md")
 }
@@ -392,9 +384,6 @@ pub struct ArcDocuments {
     pub tasks: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tasks_title: Option<String>,
-    /// The idea record's text (`idea.md`), when it holds any.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub idea_text: Option<String>,
     /// The sketch record's text (`sketch.md`), when it holds any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sketch_text: Option<String>,
@@ -414,7 +403,6 @@ impl ArcDocuments {
             plan_title,
             tasks,
             tasks_title,
-            idea_text: read_record(&dir.join("idea.md")),
             sketch_text: read_record(&dir.join("sketch.md")),
         }
     }
@@ -756,28 +744,30 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
 
         let none = ArcDocuments::read(root, "records");
-        assert_eq!((none.idea_text, none.sketch_text), (None, None));
+        assert_eq!(none.sketch_text, None);
 
         fs::write(
-            dir.join("idea.md"),
-            "# Idea\n\nMake New Arc a button.\n\nAnd a menu item.\n\nSource: session 0f3c1e5a-9b27-4c1d-8e36-5a7f2d4b6c90, turn 3\n",
-        )
-        .unwrap();
-        fs::write(
             dir.join("sketch.md"),
-            "# Sketch\n\nSource: session x, turn 4\n",
+            "# Sketch\n\nMake New Arc a button.\n\nA button and a menu item.\n\n- The button\n\nSource: session 0f3c1e5a-9b27-4c1d-8e36-5a7f2d4b6c90, turns 3–4\n",
         )
         .unwrap();
 
         let docs = ArcDocuments::read(root, "records");
         assert_eq!(
-            docs.idea_text.as_deref(),
-            Some("Make New Arc a button.\n\nAnd a menu item.")
+            docs.sketch_text.as_deref(),
+            Some("Make New Arc a button.\n\nA button and a menu item.\n\n- The button")
         );
-        // A record with nothing past its heading and its source is no record.
-        assert_eq!(docs.sketch_text, None);
         // Records are not documents.
         assert!(docs.is_empty());
+
+        fs::write(
+            dir.join("sketch.md"),
+            "# Sketch\n\nSource: session x, turn 4\n",
+        )
+        .unwrap();
+        let docs = ArcDocuments::read(root, "records");
+        // A record with nothing past its heading and its source is no record.
+        assert_eq!(docs.sketch_text, None);
 
         fs::write(dir.join("sketch.md"), "x".repeat(RECORD_TEXT_LIMIT + 10)).unwrap();
         let long = ArcDocuments::read(root, "records").sketch_text.unwrap();

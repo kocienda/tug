@@ -1,12 +1,13 @@
 /**
- * SessionArcPanels — the arc shade's body as four fixed panels in a 2×2 grid:
- * Idea top-left, Sketch top-right, Brief bottom-left, Arc bottom-right.
+ * SessionArcPanels — the arc shade's body as three fixed panels: Sketch across
+ * the whole top row, and under it Brief on the left and Arc on the right.
  *
  * The order is said three ways: by position, by the number each panel wears,
- * and by the seams, an arrow across each row and a return from the second
- * panel down to the third. A seam is solid where there is something on both
- * sides of it and dotted where there is not. The seams are grid tracks of
- * their own, so no mark ever sits over a panel.
+ * and by the seams, a drop from the Sketch panel's floor straight down into
+ * the middle of the Brief panel's roof, and an arrow across the lower row
+ * from Brief to Arc. A seam is solid where there is something on both sides
+ * of it and dotted where there is not. The seams are grid tracks of their
+ * own, so no mark ever sits over a panel.
  *
  * A panel is three bands: a header with its progress dot, number and name on
  * one line; a body that scrolls inside the panel; and an optional floor under
@@ -15,24 +16,32 @@
  * panel under the header, for content that is a surface in its own right and
  * brings its own scroller and footer.
  *
- * Each row is as tall as the taller of its two panels needs, down to a floor
- * of a header and one line, so the grid is as tall as what it holds. Under a
- * host that caps its height the rows share the room: a row that needs little
- * keeps it, and the other's panels scroll inside themselves.
- * A panel is as tall as what it holds, never stretched to its row: the
- * shorter of a row's two panels stands at the top, with space beneath it.
+ * The top row is exactly as tall as the Sketch panel, which is shown whole:
+ * it is not line-capped and it is not pressable, since it has no column to
+ * widen and what it holds is bounded at a few lines. The lower row is as tall
+ * as the taller of its two panels needs, down to the Arc panel's floor, so
+ * the grid is as tall as what it holds. Under a host that caps its height
+ * the top row keeps its height and the lower row gives way, its panels
+ * scrolling inside themselves. Only when the lower row is down to its floor
+ * does the Sketch panel give way too, down to its header and one line, and
+ * scroll inside itself, so the Arc panel's verbs are never cut off. The
+ * order of giving way is why the two rows are a column of their own, the
+ * Sketch panel over a grid of the lower row and its seams: one grid shares
+ * a shortfall between its rows, and a column gives it to one first. A lower
+ * panel is as tall as what it holds, never stretched to its row: the shorter
+ * stands at the top, with space beneath it.
  *
- * At rest the two columns are equal. A press on a panel expands it: its
+ * At rest the two columns are equal. A press on Brief or Arc expands it: its
  * column takes two parts to the other's one, and its body's cap of lines
  * doubles. A second press on the expanded panel, anywhere but on one of its
  * controls, puts the grid back at rest. Which panel is expanded is the
- * `data-expanded` attribute on the grid, written straight to the DOM and
+ * `data-expanded` attribute on the panels' root, written straight to the DOM and
  * read by the sheet, so a press renders nothing. It is not saved, and each
  * time `raised` becomes true the grid is at rest again. Keyboard focus moves
  * nothing. The grid never shrinks below its two rows' floors; in a host
  * shorter than that the host scrolls.
  *
- * The change is a motion, never a cut. A press reads the grid's tracks as
+ * The change is a motion, never a cut. A press reads the lower grid's tracks as
  * they stand, applies the new state, reads the tracks it settles at, and
  * moves the columns and the rows from the one to the other on one curve, so
  * the column edge, both rows and the host's height arrive together and the
@@ -69,7 +78,6 @@ import { isTugMotionEnabled } from "@/lib/scale-timing";
 
 /** The name each panel wears in its header. */
 const RUNG_LABELS: Record<ArcPanelRung, string> = {
-  idea: "Idea",
   sketch: "Sketch",
   brief: "Brief",
   arc: "Arc",
@@ -80,6 +88,9 @@ const PANEL_SELECTOR = '[data-slot="session-arc-panel"]';
 
 /** A panel's own controls: a press on one in the expanded panel is the control's alone. */
 const CONTROL_SELECTOR = 'button, input, textarea, a, [role="button"], [contenteditable="true"]';
+
+/** The panel a press never expands: alone in its row, it has no column to widen. */
+const UNPRESSABLE_RUNG: ArcPanelRung = "sketch";
 
 /** How long a panel takes to expand or go back, in ms before the timing scale. */
 const EXPAND_MS = 300;
@@ -128,7 +139,7 @@ export interface SessionArcPanel {
 }
 
 export interface SessionArcPanelsProps {
-  /** The four panels' content. */
+  /** The three panels' content. */
   panels: Readonly<Record<ArcPanelRung, SessionArcPanel>>;
   /**
    * Whether the surface holding the panels is showing. Each time it becomes
@@ -139,12 +150,15 @@ export interface SessionArcPanelsProps {
 }
 
 export function SessionArcPanels({ panels, raised = true }: SessionArcPanelsProps): React.ReactElement {
+  /** The panels' root: the column that wears `data-expanded`, `data-moving` and `data-leaving`. */
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  /** The lower row's grid: the tracks the motion moves. */
   const gridRef = useRef<HTMLDivElement | null>(null);
   /** The motion under way, if any. */
   const motionRef = useRef<TugAnimation | null>(null);
 
   /** Ends the motion under way where it stands and hands the tracks back to the sheet. */
-  const stopMotion = (grid: HTMLElement): void => {
+  const stopMotion = (root: HTMLElement, grid: HTMLElement): void => {
     const motion = motionRef.current;
     motionRef.current = null;
     // The effect is removed outright: a motion ended through the animator
@@ -153,27 +167,27 @@ export function SessionArcPanels({ panels, raised = true }: SessionArcPanelsProp
     motion?.raw.cancel();
     grid.style.gridTemplateColumns = "";
     grid.style.gridTemplateRows = "";
-    delete grid.dataset.moving;
-    delete grid.dataset.leaving;
+    delete root.dataset.moving;
+    delete root.dataset.leaving;
   };
 
   /**
    * Puts `rung` in the expanded seat, or nothing, and moves the grid there
    * from where it stands.
    */
-  const expand = (grid: HTMLElement, rung: string | undefined): void => {
-    const before = grid.dataset.expanded;
+  const expand = (root: HTMLElement, grid: HTMLElement, rung: string | undefined): void => {
+    const before = root.dataset.expanded;
     const from = tracksOf(grid);
-    stopMotion(grid);
-    if (rung === undefined) delete grid.dataset.expanded;
-    else grid.dataset.expanded = rung;
+    stopMotion(root, grid);
+    if (rung === undefined) delete root.dataset.expanded;
+    else root.dataset.expanded = rung;
     if (!isTugMotionEnabled()) return;
     const to = tracksOf(grid);
     if (from.columns === to.columns && from.rows === to.rows) return;
-    grid.dataset.moving = "true";
+    root.dataset.moving = "true";
     // The panel going back keeps its wider cap until it has arrived, so its
     // body is not cut short in a row still on its way down.
-    if (before !== undefined && before !== rung) grid.dataset.leaving = before;
+    if (before !== undefined && before !== rung) root.dataset.leaving = before;
     const motion = animate(
       grid,
       [
@@ -187,7 +201,7 @@ export function SessionArcPanels({ panels, raised = true }: SessionArcPanelsProp
     // back to the sheet, which sizes them by content again. A motion that a
     // later press replaced is no longer this one's to end.
     const arrived = (): void => {
-      if (motionRef.current === motion) stopMotion(grid);
+      if (motionRef.current === motion) stopMotion(root, grid);
     };
     motion.finished.then(arrived, arrived);
   };
@@ -195,10 +209,11 @@ export function SessionArcPanels({ panels, raised = true }: SessionArcPanelsProp
   // The expanded panel is forgotten when the surface is put away, without a
   // motion: the grid is at rest by the time it shows.
   useLayoutEffect(() => {
+    const root = rootRef.current;
     const grid = gridRef.current;
-    if (!raised || grid === null) return;
-    stopMotion(grid);
-    delete grid.dataset.expanded;
+    if (!raised || root === null || grid === null) return;
+    stopMotion(root, grid);
+    delete root.dataset.expanded;
   }, [raised]);
 
   // Nothing is left running on a grid that is gone.
@@ -211,21 +226,22 @@ export function SessionArcPanels({ panels, raised = true }: SessionArcPanelsProp
   );
 
   /**
-   * A press expands the panel it lands in. On the panel already expanded it
-   * puts the grid back at rest, unless it landed on one of the panel's
-   * controls, which is a press on the control and nothing more.
+   * A press expands the panel it lands in, Brief or Arc. On the panel already
+   * expanded it puts the grid back at rest, unless it landed on one of the
+   * panel's controls, which is a press on the control and nothing more. A
+   * press on the Sketch panel does nothing.
    */
   const onClick = (event: React.MouseEvent<HTMLDivElement>): void => {
+    const root = rootRef.current;
     const grid = gridRef.current;
-    if (grid === null || !(event.target instanceof Element)) return;
+    if (root === null || grid === null || !(event.target instanceof Element)) return;
     const rung = event.target.closest<HTMLElement>(PANEL_SELECTOR)?.dataset.rung;
-    if (rung === undefined) return;
-    if (grid.dataset.expanded !== rung) expand(grid, rung);
-    else if (event.target.closest(CONTROL_SELECTOR) === null) expand(grid, undefined);
+    if (rung === undefined || rung === UNPRESSABLE_RUNG) return;
+    if (root.dataset.expanded !== rung) expand(root, grid, rung);
+    else if (event.target.closest(CONTROL_SELECTOR) === null) expand(root, grid, undefined);
   };
 
   const states = {
-    idea: panels.idea.state,
     sketch: panels.sketch.state,
     brief: panels.brief.state,
     arc: panels.arc.state,
@@ -272,14 +288,14 @@ export function SessionArcPanels({ panels, raised = true }: SessionArcPanelsProp
   };
 
   return (
-    <div ref={gridRef} data-slot="session-arc-panels" className="session-arc-panels" onClick={onClick}>
-      {panel("idea")}
-      <RowSeam from="idea" state={seams[0]} />
+    <div ref={rootRef} data-slot="session-arc-panels" className="session-arc-panels" onClick={onClick}>
       {panel("sketch")}
-      <ReturnSeam state={seams[1]} />
-      {panel("brief")}
-      <RowSeam from="brief" state={seams[2]} />
-      {panel("arc")}
+      <div ref={gridRef} data-slot="session-arc-panels-lower" className="session-arc-panels-lower">
+        <DropSeam state={seams[0]} />
+        {panel("brief")}
+        <RowSeam from="brief" state={seams[1]} />
+        {panel("arc")}
+      </div>
     </div>
   );
 }
@@ -305,29 +321,23 @@ function RowSeam({ from, state }: { from: ArcPanelRung; state: ArcPanelSeamState
 }
 
 /**
- * The return across the middle: down out of the second panel, back along the
- * seam, and down into the third. It is laid on the grid's own columns, so its
- * two drops stay over the middles of the panels. Its tail lies under the
- * second panel, so the drop starts at the panel's floor however far above
- * the seam that is.
+ * The drop from the Sketch panel into the Brief panel: a line straight down
+ * the seam row, over the middle of the Brief panel's column, ending in an
+ * arrowhead at its roof. It sits in that column's own cell, so it stays over
+ * the panel's middle wherever the column is, mid-motion included, and the
+ * Sketch panel's floor is the top of the row it starts from.
  */
-function ReturnSeam({ state }: { state: ArcPanelSeamState }): React.ReactElement {
+function DropSeam({ state }: { state: ArcPanelSeamState }): React.ReactElement {
   return (
-    <>
-      <div className="session-arc-panel-seam session-arc-panel-seam-tail" data-state={state} aria-hidden="true" />
-      <div
-        className="session-arc-panel-seam session-arc-panel-seam-return"
-        data-slot="session-arc-panel-seam"
-        data-from="sketch"
-        data-state={state}
-        aria-hidden="true"
-      >
-        <span className="session-arc-panel-return" data-part="into">
-          <ChevronDown className="session-arc-panel-seam-head" size={14} />
-        </span>
-        <span className="session-arc-panel-return" data-part="across" />
-        <span className="session-arc-panel-return" data-part="out" />
-      </div>
-    </>
+    <div
+      className="session-arc-panel-seam session-arc-panel-seam-drop"
+      data-slot="session-arc-panel-seam"
+      data-from="sketch"
+      data-state={state}
+      aria-hidden="true"
+    >
+      <span className="session-arc-panel-seam-line" />
+      <ChevronDown className="session-arc-panel-seam-head" size={14} />
+    </div>
   );
 }

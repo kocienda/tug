@@ -7,12 +7,12 @@ import {
   type ArcPanelStates,
 } from "../arc-panels";
 
-const states = (idea: string, sketch: string, brief: string, arc: string): ArcPanelStates =>
-  ({ idea, sketch, brief, arc }) as ArcPanelStates;
+const states = (sketch: string, brief: string, arc: string): ArcPanelStates =>
+  ({ sketch, brief, arc }) as ArcPanelStates;
 
 describe("arc panels", () => {
-  test("the panels read idea, sketch, brief, arc", () => {
-    expect([...ARC_PANEL_RUNGS]).toEqual(["idea", "sketch", "brief", "arc"]);
+  test("the panels read sketch, brief, arc", () => {
+    expect([...ARC_PANEL_RUNGS]).toEqual(["sketch", "brief", "arc"]);
   });
 
   test("a settled rung's dot is complete and an empty seat's is still", () => {
@@ -29,25 +29,13 @@ describe("arc panels", () => {
   });
 
   test("a seam is joined only with something on both sides", () => {
-    // An arc cut from its brief, with no idea or sketch recorded.
-    expect(arcPanelSeamStates(states("pending", "pending", "done", "active"))).toEqual([
-      "pending",
-      "pending",
-      "linked",
-    ]);
+    // An arc cut from its brief, with no sketch recorded.
+    expect(arcPanelSeamStates(states("pending", "done", "active"))).toEqual(["pending", "linked"]);
     // An arc with no brief joins nothing.
-    expect(arcPanelSeamStates(states("pending", "pending", "pending", "active"))).toEqual([
-      "pending",
-      "pending",
-      "pending",
-    ]);
+    expect(arcPanelSeamStates(states("pending", "pending", "active"))).toEqual(["pending", "pending"]);
     // Every rung recorded, and the arc finished.
-    expect(arcPanelSeamStates(states("done", "done", "done", "done"))).toEqual(["linked", "linked", "linked"]);
-    // The work is at the sketch: the seam into it is joined, the one out is not.
-    expect(arcPanelSeamStates(states("done", "active", "pending", "pending"))).toEqual([
-      "linked",
-      "pending",
-      "pending",
-    ]);
+    expect(arcPanelSeamStates(states("done", "done", "done"))).toEqual(["linked", "linked"]);
+    // A sketch and a brief, and the arc not yet cut: only the first seam is joined.
+    expect(arcPanelSeamStates(states("done", "active", "pending"))).toEqual(["linked", "pending"]);
   });
 });

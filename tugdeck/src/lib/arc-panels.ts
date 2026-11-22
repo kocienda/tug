@@ -1,5 +1,5 @@
 /**
- * arc-panels.ts — the arc shade's four panels as data: their order, and what
+ * arc-panels.ts — the arc shade's three panels as data: their order, and what
  * each panel's state says about its progress dot and the seams between
  * panels.
  *
@@ -8,8 +8,8 @@
  * @module lib/arc-panels
  */
 
-/** The four panels, in reading order: top-left, top-right, bottom-left, bottom-right. */
-export const ARC_PANEL_RUNGS = ["idea", "sketch", "brief", "arc"] as const;
+/** The three panels, in reading order: the full top row, then bottom-left and bottom-right. */
+export const ARC_PANEL_RUNGS = ["sketch", "brief", "arc"] as const;
 
 export type ArcPanelRung = (typeof ARC_PANEL_RUNGS)[number];
 
@@ -40,13 +40,13 @@ export function arcPanelDotState(state: ArcPanelState, paused: boolean): ArcPane
 }
 
 /**
- * The three seams, in order: Idea to Sketch, Sketch to Brief, Brief to Arc.
+ * The two seams, in order: Sketch to Brief, Brief to Arc.
  * A seam is joined once there is something on both sides of it.
  */
 export function arcPanelSeamStates(
   states: ArcPanelStates,
-): readonly [ArcPanelSeamState, ArcPanelSeamState, ArcPanelSeamState] {
+): readonly [ArcPanelSeamState, ArcPanelSeamState] {
   const seam = (from: ArcPanelRung, to: ArcPanelRung): ArcPanelSeamState =>
     states[from] !== "pending" && states[to] !== "pending" ? "linked" : "pending";
-  return [seam("idea", "sketch"), seam("sketch", "brief"), seam("brief", "arc")];
+  return [seam("sketch", "brief"), seam("brief", "arc")];
 }

@@ -434,7 +434,6 @@ fn test_arc_documents_reports_a_state_not_an_error() {
         serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("valid JSON");
     assert_eq!(json["data"]["brief_exists"], false);
     assert_eq!(json["data"]["plan_exists"], false);
-    assert_eq!(json["data"]["idea_exists"], false);
     assert_eq!(json["data"]["sketch_exists"], false);
     assert!(
         json["data"]["dir"]
@@ -463,15 +462,15 @@ fn test_arc_documents_reports_a_state_not_an_error() {
     assert_eq!(String::from_utf8_lossy(&porcelain.stdout).trim(), "");
 }
 
-/// The record of the idea and the sketch is reported beside the documents,
-/// each with whether it exists, so the door and the stages can tell a record
-/// they must write from one they must keep current.
+/// The sketch, the one record of where the work came from, is reported beside
+/// the documents with whether it exists, so the door and the stages can tell a
+/// record they must write from one they must keep current; the idea has no
+/// record of its own.
 #[test]
-fn test_arc_documents_reports_the_idea_and_the_sketch() {
+fn test_arc_documents_reports_the_sketch() {
     let temp = git_project();
     let dir = temp.path().join(".tug/arcs/recorded");
     std::fs::create_dir_all(&dir).expect("documents dir");
-    std::fs::write(dir.join("idea.md"), "# Idea\n\nMake the ring pulse.\n").expect("idea.md");
 
     let output = Command::new(tug_binary())
         .args(["arc", "documents", "recorded", "--json"])
@@ -485,18 +484,27 @@ fn test_arc_documents_reports_the_idea_and_the_sketch() {
     );
     let json: serde_json::Value =
         serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("valid JSON");
-    assert_eq!(json["data"]["idea_exists"], true);
     assert_eq!(json["data"]["sketch_exists"], false);
-    assert!(
-        json["data"]["idea"]
-            .as_str()
-            .expect("the idea's path is named")
-            .ends_with(".tug/arcs/recorded/idea.md")
-    );
+    assert!(json["data"].get("idea").is_none());
+    assert!(json["data"].get("idea_exists").is_none());
     assert!(
         json["data"]["sketch"]
             .as_str()
             .expect("the sketch's path is named even when absent")
             .ends_with(".tug/arcs/recorded/sketch.md")
     );
+
+    std::fs::write(
+        dir.join("sketch.md"),
+        "# Sketch\n\nMake the ring pulse.\n\nSource: session s, turn 1\n",
+    )
+    .expect("sketch.md");
+    let output = Command::new(tug_binary())
+        .args(["arc", "documents", "recorded", "--json"])
+        .current_dir(temp.path())
+        .output()
+        .expect("failed to run tugtool arc documents");
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("valid JSON");
+    assert_eq!(json["data"]["sketch_exists"], true);
 }
