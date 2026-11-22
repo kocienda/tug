@@ -661,13 +661,20 @@ body {
 
 /* Activity's workspace chip: where a row lives, said by the workspace's own
    swatch and its name, in the disambiguator's annotation voice. When the row
-   is narrow the name elides and the swatch stays. */
+   is narrow the name elides and the swatch stays.
+
+   The swatch stands a full step off its name: its 1px hairline reaches past
+   its box, so the old 2px gap read as one. The chip and the slot badges
+   after it are two facts (where the row lives, where its card stands), so
+   the chip stands the name line's own gap off the badges rather than butting
+   its name into the badge's frame. */
 .cards-activity-place {
   display: inline-flex;
   align-items: center;
-  gap: var(--tug-space-2xs);
+  gap: var(--tug-space-sm);
   flex: 0 1 auto;
   min-inline-size: 0;
+  margin-inline-end: var(--tug-space-md);
   font-size: 0.9em;
   color: var(--tug7-element-global-text-normal-subtle-rest);
 }
