@@ -230,7 +230,8 @@ enum InstanceConfig {
 
     // MARK: - Internals
 
-    private static var baseDataDir: URL {
+    /// The `Tug/` data root: the parent of `instances/` and `retired/`.
+    static var baseDataDir: URL {
         // Application Support directory. On macOS this resolves to
         // `~/Library/Application Support`; this matches what the
         // Rust `dirs::data_dir()` crate returns on macOS, keeping

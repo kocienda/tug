@@ -623,9 +623,10 @@ pub(crate) fn layout(flow: &Flow, title: Option<&str>, animate: bool, m: &dyn Me
     }
     // An edge within a column that would pass through a box between its
     // ends goes round by the column's right.
-    for r in routed.iter_mut().filter(|r| {
-        r.kind == Kind::Stack && r.edge.from.node.abs_diff(r.edge.to.node) > 1
-    }) {
+    for r in routed
+        .iter_mut()
+        .filter(|r| r.kind == Kind::Stack && r.edge.from.node.abs_diff(r.edge.to.node) > 1)
+    {
         let c = r.edge.from.col;
         r.turn = Some(if c + 1 < cols {
             take(&mut lanes, c, true)
@@ -641,7 +642,11 @@ pub(crate) fn layout(flow: &Flow, title: Option<&str>, animate: bool, m: &dyn Me
             let rect = end_rect(&placed, from);
             r.y1 = settle(from, l.right_of(from.col), r.y1, false, rect);
         }
-        let arrive = if r.kind == Kind::Stack { r.turn } else { r.rise };
+        let arrive = if r.kind == Kind::Stack {
+            r.turn
+        } else {
+            r.rise
+        };
         if let (Some(l), None) = (arrive, to.row) {
             let rect = end_rect(&placed, to);
             r.y2 = settle(to, l.right_of(to.col), r.y2, false, rect);

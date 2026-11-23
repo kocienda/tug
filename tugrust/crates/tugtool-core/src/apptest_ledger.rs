@@ -1591,7 +1591,10 @@ mod tests {
             &root,
             "abc",
             1_700_000_000,
-            vec![file("ok.test.ts", "PASS"), file("caught.test.ts", "STALLED")],
+            vec![
+                file("ok.test.ts", "PASS"),
+                file("caught.test.ts", "STALLED"),
+            ],
         );
         stopped.verdict = "STOPPED".into();
         stopped.stopped_reason = Some("the GPU service is wedged".into());
@@ -1607,7 +1610,10 @@ mod tests {
             .unwrap();
         assert_eq!(verdict, "STOPPED");
         assert_eq!(reason.as_deref(), Some("the GPU service is wedged"));
-        assert_eq!(history_of(&conn, &root, "caught.test.ts"), History::NoHistory);
+        assert_eq!(
+            history_of(&conn, &root, "caught.test.ts"),
+            History::NoHistory
+        );
         let base = resolve_base_root(Path::new(&root));
         assert!(recent_red_files(&conn, &base, 5).unwrap().is_empty());
     }

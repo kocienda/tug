@@ -239,6 +239,23 @@ impl SessionIndex {
         Ok(touched)
     }
 
+    /// Refile every segment recorded under instance `from` as `to`'s.
+    ///
+    /// For an instance whose data dir was renamed: the ledger that minted
+    /// those rows' line ids is now `to`'s ledger, so the rows are `to`'s
+    /// own, and left under the old name they would read as another
+    /// instance's — a retitle scoped to `(instance, line_id)` would miss
+    /// them, and the crash-debris demote would refuse their sessions.
+    /// Idempotent: with no row under `from` it changes nothing.
+    pub fn adopt_instance(&self, from: &str, to: &str) -> Result<usize, SessionIndexError> {
+        let conn = self.db.lock();
+        let moved = conn.execute(
+            "UPDATE session_index SET instance = ?2 WHERE instance = ?1",
+            params![from, to],
+        )?;
+        Ok(moved)
+    }
+
     /// Forget one segment. The only delete there is — trash is what calls
     /// it, and the index carries no retention policy.
     pub fn remove(&self, session_id: &str) -> Result<usize, SessionIndexError> {
@@ -526,6 +543,56 @@ mod tests {
 
         // A prefix carrying a LIKE metacharacter matches literally.
         assert!(lookup_prefix(&path, "abcd%").is_empty());
+    }
+
+    #[test]
+    fn adopt_instance_refiles_only_the_named_instances_rows() {
+        let (_dir, path) = on_disk();
+        let index = SessionIndex::open(&path).unwrap();
+
+        let mut stranded = entry("aaaa1111", "curly-apple", "/u/src/eucit");
+        stranded.instance = crate::instance::STRANDED_RELEASE_INSTANCE.into();
+        index.upsert(&stranded).unwrap();
+
+        let mut already = entry("bbbb2222", "zany-ghost", "/u/src/eucit");
+        already.instance = crate::instance::RELEASE_INSTANCE.into();
+        index.upsert(&already).unwrap();
+
+        // `entry` files under `debug-a`: another instance's, left alone.
+        index
+            .upsert(&entry("cccc3333", "warm-grit", "/u/src/tug"))
+            .unwrap();
+
+        let moved = index
+            .adopt_instance(
+                crate::instance::STRANDED_RELEASE_INSTANCE,
+                crate::instance::RELEASE_INSTANCE,
+            )
+            .unwrap();
+        assert_eq!(moved, 1);
+
+        let by_id = |id: &str| index.lookup_uuid(id).unwrap();
+        assert_eq!(by_id("aaaa1111").instance, "release-main");
+        assert_eq!(by_id("aaaa1111").callsign.as_deref(), Some("curly-apple"));
+        assert_eq!(by_id("bbbb2222").instance, "release-main");
+        assert_eq!(by_id("cccc3333").instance, "debug-a");
+
+        // A retitle scoped to the adopting instance now reaches the row.
+        assert_eq!(
+            index
+                .retitle_line("release-main", "line-1", Some("Named"))
+                .unwrap(),
+            2
+        );
+
+        // Idempotent.
+        let again = index
+            .adopt_instance(
+                crate::instance::STRANDED_RELEASE_INSTANCE,
+                crate::instance::RELEASE_INSTANCE,
+            )
+            .unwrap();
+        assert_eq!(again, 0);
     }
 
     #[test]

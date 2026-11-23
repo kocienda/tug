@@ -88,6 +88,36 @@ TugApplication.recordLaunchReadings()
 let app = NSApplication.shared
 #endif
 
+/// Take on the data v0.9.5 wrote under its own instance, before
+/// `AppDelegate` opens the log, tugbank or a window (`InstanceAdoption`).
+/// An app-test instance is never `release-main`, so it adopts nothing.
+func adoptStrandedInstance() {
+    let registry = try? Data(contentsOf: LaunchHandoff.registryURL)
+    let outcome = InstanceAdoption.adopt(
+        dataRoot: InstanceConfig.baseDataDir,
+        instanceId: InstanceConfig.instanceId,
+        isLive: { id in
+            guard let registry,
+                  let entry = LaunchHandoff.entry(in: registry, instanceId: id) else { return false }
+            return entry.hostPid != getpid() && LaunchHandoff.processIsAlive(entry.hostPid)
+        }
+    )
+    switch outcome {
+    case .nothingToAdopt:
+        return
+    case .adopted(let retired):
+        InstanceAdoption.adoptDefaults(bundleId: Bundle.main.bundleIdentifier ?? "")
+        TugLog.info("launch", "adopted the stranded instance's data", [
+            TugLog.field("from", InstanceAdoption.strandedInstanceId),
+            TugLog.field("retired", retired?.path ?? "none"),
+        ])
+    case .deferredWhileLive:
+        TugLog.info("launch", "stranded instance's data left for the next launch: an instance is running")
+    case .failed(let why):
+        TugLog.info("launch", "could not adopt the stranded instance's data", [TugLog.field("error", why)])
+    }
+}
+
 // A copy that finds its instance already running, live at the registry's
 // bundle path, hands its launch to that copy and quits; it never constructs
 // `AppDelegate`, so it touches none of the running instance's state. Any
@@ -99,6 +129,7 @@ case .handOff(let entry):
     app.delegate = handoff
     app.run()
 case .proceed:
+    adoptStrandedInstance()
     let delegate = AppDelegate()
     app.delegate = delegate
     app.run()

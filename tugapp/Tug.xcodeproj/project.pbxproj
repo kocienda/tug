@@ -74,6 +74,9 @@
 		AA0000010000000000000E21 /* LaunchHandoff.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000E20 /* LaunchHandoff.swift */; };
 		AA0000010000000000000E22 /* LaunchHandoffTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000E21 /* LaunchHandoffTests.swift */; };
 		AA0000010000000000000E23 /* LaunchHandoffDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000E22 /* LaunchHandoffDelegate.swift */; };
+		AA0000010000000000000E24 /* InstanceAdoption.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000E23 /* InstanceAdoption.swift */; };
+		AA0000010000000000000E25 /* InstanceAdoption.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000E23 /* InstanceAdoption.swift */; };
+		AA0000010000000000000E26 /* InstanceAdoptionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000E24 /* InstanceAdoptionTests.swift */; };
 		AA00000100000000000000F8 /* ExportChoiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000F5 /* ExportChoiceTests.swift */; };
 		AA00000100000000000000F9 /* SharePreviewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000F6 /* SharePreviewSheet.swift */; };
 		AA00000100000000000000FA /* ShareRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000F7 /* ShareRenderer.swift */; };
@@ -187,6 +190,8 @@
 		AA0000020000000000000E20 /* LaunchHandoff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchHandoff.swift; sourceTree = "<group>"; };
 		AA0000020000000000000E21 /* LaunchHandoffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchHandoffTests.swift; sourceTree = "<group>"; };
 		AA0000020000000000000E22 /* LaunchHandoffDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchHandoffDelegate.swift; sourceTree = "<group>"; };
+		AA0000020000000000000E23 /* InstanceAdoption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstanceAdoption.swift; sourceTree = "<group>"; };
+		AA0000020000000000000E24 /* InstanceAdoptionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstanceAdoptionTests.swift; sourceTree = "<group>"; };
 		AA00000200000000000000F6 /* SharePreviewSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharePreviewSheet.swift; sourceTree = "<group>"; };
 		AA00000200000000000000F7 /* ShareRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareRenderer.swift; sourceTree = "<group>"; };
 		AA0000020000000000000E12 /* SessionNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionNotifier.swift; sourceTree = "<group>"; };
@@ -272,6 +277,7 @@
 				AA00000200000000000000F4 /* ExportChoice.swift */,
 				AA0000020000000000000E20 /* LaunchHandoff.swift */,
 				AA0000020000000000000E22 /* LaunchHandoffDelegate.swift */,
+				AA0000020000000000000E23 /* InstanceAdoption.swift */,
 				AA00000200000000000000F6 /* SharePreviewSheet.swift */,
 				AA00000200000000000000F7 /* ShareRenderer.swift */,
 				AA0000020000000000000E12 /* SessionNotifier.swift */,
@@ -352,6 +358,7 @@
 				AA00000200000000000000F3 /* OpenableFilesTests.swift */,
 				AA00000200000000000000F5 /* ExportChoiceTests.swift */,
 				AA0000020000000000000E21 /* LaunchHandoffTests.swift */,
+				AA0000020000000000000E24 /* InstanceAdoptionTests.swift */,
 				AA00000200000000000000F9 /* ShareRenderOutputTests.swift */,
 				AA0000020000000000000048 /* MenuStateTests.swift */,
 				AA0000020000000000000050 /* FrameMeterStatsTests.swift */,
@@ -479,6 +486,7 @@
 				AA00000100000000000000F6 /* ExportChoice.swift in Sources */,
 				AA0000010000000000000E20 /* LaunchHandoff.swift in Sources */,
 				AA0000010000000000000E23 /* LaunchHandoffDelegate.swift in Sources */,
+				AA0000010000000000000E24 /* InstanceAdoption.swift in Sources */,
 				AA00000100000000000000F9 /* SharePreviewSheet.swift in Sources */,
 				AA00000100000000000000FA /* ShareRenderer.swift in Sources */,
 				AA0000010000000000000E13 /* SessionNotifier.swift in Sources */,
@@ -558,6 +566,8 @@
 				AA00000100000000000000F7 /* ExportChoice.swift in Sources */,
 				AA0000010000000000000E21 /* LaunchHandoff.swift in Sources */,
 				AA0000010000000000000E22 /* LaunchHandoffTests.swift in Sources */,
+				AA0000010000000000000E25 /* InstanceAdoption.swift in Sources */,
+				AA0000010000000000000E26 /* InstanceAdoptionTests.swift in Sources */,
 				AA00000100000000000000F8 /* ExportChoiceTests.swift in Sources */,
 				AA00000100000000000000FC /* ShareRenderOutput.swift in Sources */,
 				AA00000100000000000000FD /* ShareRenderOutputTests.swift in Sources */,

@@ -42,6 +42,18 @@ pub const ENV_BUNDLE_PATH: &str = "TUG_BUNDLE_PATH";
 /// bundle.
 pub const BUNDLE_PATH_MARKER: &str = "bundle-path";
 
+/// The instance every released build runs as.
+pub const RELEASE_INSTANCE: &str = "release-main";
+
+/// The instance v0.9.5 ran as. It was built on a detached HEAD, so its
+/// identity followed the commit instead of staying [`RELEASE_INSTANCE`], and
+/// everyone who ran it has a data dir under this name. The next release's
+/// first launch renames that dir to `release-main` before anything opens it
+/// (`tugapp/Sources/InstanceAdoption.swift`, which mirrors this constant);
+/// [`crate::session_index::SessionIndex::adopt_instance`] moves the
+/// machine-wide rows to match.
+pub const STRANDED_RELEASE_INSTANCE: &str = "release-detached-3937df43";
+
 /// Resolve the runtime instance ID from `TUG_INSTANCE_ID`.
 ///
 /// Returns `None` when the variable is unset or empty. An empty

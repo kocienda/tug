@@ -1181,6 +1181,23 @@ impl SessionLedger {
         // instrument pointed at a copy must not write the machine-wide
         // index any more than it may claim the changes writer role.
         ledger.session_index = open_session_index(&tugcore::instance::session_index_db_path());
+        // v0.9.5 ran as its own instance, and the app renames that data dir
+        // to this one's at launch. The index rows it wrote follow here,
+        // before the repair below reads them.
+        if tugcore::instance::instance_id().as_deref() == Some(tugcore::instance::RELEASE_INSTANCE)
+            && let Some(index) = ledger.session_index.as_ref()
+        {
+            match index.adopt_instance(
+                tugcore::instance::STRANDED_RELEASE_INSTANCE,
+                tugcore::instance::RELEASE_INSTANCE,
+            ) {
+                Ok(0) => {}
+                Ok(moved) => {
+                    tracing::info!(moved, "session index rows adopted from v0.9.5's instance")
+                }
+                Err(err) => tracing::warn!(error = %err, "session index adoption failed"),
+            }
+        }
         // The index outlives any one ledger, so a ledger that disagrees with
         // it about which line a session is on — a ledger rebuilt from
         // transcripts, whose scan minted fresh callsigns over the user's —

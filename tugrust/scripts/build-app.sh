@@ -172,11 +172,15 @@ cp -R "$TMUX_OUT/terminfo" "$STAGING_APP/Contents/Resources/terminfo"
 mkdir -p "$STAGING_APP/Contents/Resources/third-party-licenses"
 cp "$TMUX_OUT/licenses/"*.txt "$STAGING_APP/Contents/Resources/third-party-licenses/"
 
-# Step 7: Override bundle ID and app name for nightly
+# Step 7: Pin the distributed identity, and the nightly's name and icon
+#
+# The Xcode build phases derive BuildBranch and the bundle id from the ref
+# the build ran on, and BuildBranch names the user's data dir. A bundle that
+# ships must not move with the ref: see stamp-distribution-identity.sh.
 PLIST="$STAGING_APP/Contents/Info.plist"
+bash "$SCRIPT_DIR/stamp-distribution-identity.sh" "$PLIST" "$BUNDLE_ID"
 if [ "$NIGHTLY" = true ]; then
-    echo "==> Configuring nightly bundle ID and icon"
-    /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$PLIST"
+    echo "==> Configuring nightly name and icon"
     /usr/libexec/PlistBuddy -c "Set :CFBundleName $APP_NAME" "$PLIST"
     /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile $ICON_NAME" "$PLIST"
     /usr/libexec/PlistBuddy -c "Set :CFBundleIconName $ICON_NAME" "$PLIST" 2>/dev/null \
