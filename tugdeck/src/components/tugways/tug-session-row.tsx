@@ -369,6 +369,19 @@ export interface TugSessionRowProps
   proseLines?: number;
 
   /**
+   * Whether the row draws its ACTIVITY line — the account run and its tape.
+   *
+   * Off on the Workspaces card's rows: at rest the line only said `Ready.`
+   * or `Done.`, which the dot already says, and during a turn the
+   * description's top rung is the Observer's current line, so the row's
+   * moving sentence is already on screen. Off, a {@link sparkline} the mount
+   * passes rides the trailing end of the {@link standing} line instead, and
+   * {@link activity} is ignored.
+   * @default true
+   */
+  activityLine?: boolean;
+
+  /**
    * Whether this row carries the pane chrome's GRAB HANDLE — the dot field that
    * is a content card's one drag surface. Off by default, and deliberately so:
    * this component is mounted by the Cards rail's session cells as well as by
@@ -526,6 +539,7 @@ export const TugSessionRow = React.forwardRef<
     slots,
     standing,
     proseLines,
+    activityLine: drawActivity = true,
     grabHandle = false,
     description,
     descriptionFull,
@@ -551,13 +565,18 @@ export const TugSessionRow = React.forwardRef<
   // where the baseline falls, and what a line with nothing to say says.
   // Named rather than written inline because it renders in two places — on
   // its own, and inside the pulse group a description opens below.
-  const activityLine = (
+  const activityLine = drawActivity ? (
     <TugActivityLine
       activity={activity}
       trailing={sparkline}
       stageProps={stageProps}
     />
-  );
+  ) : null;
+  // With no activity line to ride, the tape rides the standing line's end.
+  const standingTape =
+    !drawActivity && sparkline !== undefined && sparkline !== null
+      ? sparkline
+      : null;
   return (
     <TugListRow
       ref={ref}
@@ -624,7 +643,10 @@ export const TugSessionRow = React.forwardRef<
             className="tug-session-row-standing"
             data-slot="tug-session-row-standing"
           >
-            {standing}
+            <span className="tug-session-row-standing-run">{standing}</span>
+            {standingTape !== null ? (
+              <span className="tug-session-row-standing-tape">{standingTape}</span>
+            ) : null}
           </span>
         ) : null}
         {/* The description and the beat beneath it are ONE GROUP, and the

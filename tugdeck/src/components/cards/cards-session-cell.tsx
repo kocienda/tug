@@ -3,20 +3,26 @@
  * single-card session pane in the Cards card:
  *
  *   [dot] <session name>                        <slot layout>
- *   ^<arc> ⚒ Executing 7/12          — or: 14 turns, 6.8 MB. Last updated: …
- *   <description, wrapping to two lines>
- *   <activity, wrapping to two lines>              <activity sparkline>
+ *   ^<arc> ⚒ Executing 7/12                       <activity sparkline>
+ *     — or: 14 turns, 6.8 MB. Last updated: …     <activity sparkline>
+ *   <description>
  *
  * The title is the name and the slots, and nothing else. The arc — its
  * `^<arc>` run and its worded lifecycle mark — stands on a line of its own
  * under it, and a session on no arc says its standing facts there instead, so
  * every row carries the line and binding an arc never changes a row's height
- * ([D141] as amended). The description and the activity each wrap to
- * {@link CARDS_SESSION_ROW_PROSE_LINES} lines rather than eliding on one: a
- * rail is narrow, and those two sentences are what the row is there to say.
+ * ([D141] as amended). The tape rides that line's trailing end.
+ *
+ * There is no activity line. At rest it said only `Ready.` or `Done.`, which
+ * the dot already says, and during a turn the description's top rung is the
+ * Observer's current line — so the one sentence under the standing line is
+ * the session's moving sentence whenever it has one, and the row is three
+ * lines tall in every state. The description runs the row's whole width, to
+ * {@link CARDS_SESSION_ROW_PROSE_LINES} line(s).
+ *
  * All of it is `SessionIdentityRow`'s and `TugSessionRow`'s own doing, asked
- * for by `standingLine` and `proseLines`, so the row here has nothing
- * arc-shaped to assemble.
+ * for by `standingLine`, `activityLine` and `proseLines`, so the row here has
+ * nothing arc-shaped to assemble.
  *
  * The middle line is the agent's rolling description of the session, with the
  * session's creation date standing in until one is written — so the row is the
@@ -69,10 +75,11 @@ import { useSeedPath } from "@/components/tugways/cards/session-picker-seed";
 import { projectLeafName } from "@/lib/session-identity";
 
 /**
- * How many lines the description and the activity may each wrap to on a
- * Workspaces row before they elide. TUNE HERE.
+ * How many lines the description may wrap to on a Workspaces row before it
+ * elides. One: the row's height is spent on the name and the standing line,
+ * and the rail is read by scanning. TUNE HERE.
  */
-export const CARDS_SESSION_ROW_PROSE_LINES = 2;
+export const CARDS_SESSION_ROW_PROSE_LINES = 1;
 
 export interface CardsSessionRowProps {
   cardId: string;
@@ -163,9 +170,10 @@ export function CardsSessionRow({
         // arc is walking its plan.
         arcWord
         // The arc on a line of its own under the title, or the session's
-        // standing facts there when no arc holds it; and the two sentences
-        // under that wrap rather than elide.
+        // standing facts there when no arc holds it, with the tape at its
+        // end; and no activity line under the description.
         standingLine
+        activityLine={false}
         proseLines={CARDS_SESSION_ROW_PROSE_LINES}
         // A monitor row answers a right-click with the session's copies — the
         // atom, the citation, the id, the description, the newest beat — over
@@ -267,6 +275,7 @@ export function CardsUnconnectedSessionRow({
       name={renderFilterHighlight(title, filterQuery)}
       // The connected row's standing line, held empty: nothing stands yet.
       standing={null}
+      activityLine={false}
       proseLines={CARDS_SESSION_ROW_PROSE_LINES}
       description="Not connected to a session"
       descriptionStandIn

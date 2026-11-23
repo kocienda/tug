@@ -1,6 +1,6 @@
 /**
  * at0797-workspaces-done-spent-by-attention.test.ts — a turn that finished on
- * a card the user was not looking at reads Done on its Workspaces row until
+ * a card the user was not looking at reads done on its Workspaces row until
  * they look, and the reading survives a reload.
  *
  * The turn's end is the ledger's own: the seed writes it through the same
@@ -11,11 +11,16 @@
  * row's push. Three readings on the Workspaces card:
  *
  *  1. Card B's session finished a turn while card A was active: B's row wears
- *     the filled, still green dot and its line closes `Done.`;
- *     A's row, the one being attended, reads the ring and `Ready.`.
+ *     the filled, still green dot; A's row, the one being attended, reads the
+ *     ring.
  *  2. A deck reload leaves B's mark standing — it is the ledger's fact, and
  *     nothing about the page holds it.
- *  3. Activating card B spends it: the ring and `Ready.` come back.
+ *  3. Activating card B spends it: the ring comes back.
+ *
+ * The DOT is the whole reading. A Workspaces row draws no activity line
+ * ([D141] as amended), so the rest sentence's `Done.` / `Ready.` closer is
+ * never on it — which every reading below also pins, since a row that said
+ * either would be the line the user asked to have gone.
  *
  * A turn that completes on the active card is seen in the very write that
  * ends it (tugcast stamps attention there for the session the deck last
@@ -120,19 +125,22 @@ const readRow = (app: App, sid: string): Promise<RowReading> =>
      })()`,
   );
 
-/** Wait until `sid`'s row wears `state` and its text carries `closer`. */
-async function waitForRow(app: App, sid: string, state: string, closer: string): Promise<RowReading> {
+/** Wait until `sid`'s row's dot wears `state`; its text never carries a closer. */
+async function waitForRow(app: App, sid: string, state: string): Promise<RowReading> {
   await kindBody(app, "cards").waitForCondition<boolean>(
     `(function () {
        var el = document.querySelector(${JSON.stringify(rowOf(sid))});
        if (el === null) return false;
        var dot = el.querySelector('[data-slot="tug-progress-indicator"]');
-       if (dot === null || dot.getAttribute("data-state") !== ${JSON.stringify(state)}) return false;
-       return (el.textContent || "").indexOf(${JSON.stringify(closer)}) !== -1;
+       return dot !== null && dot.getAttribute("data-state") === ${JSON.stringify(state)};
      })()`,
     { timeoutMs: 20_000 },
   );
-  return readRow(app, sid);
+  const reading = await readRow(app, sid);
+  // No activity line on a Workspaces row: neither closer is ever drawn.
+  expect(reading.text).not.toContain("Ready.");
+  expect(reading.text).not.toContain("Done.");
+  return reading;
 }
 
 /** Seed the deck, bind both cards, and open the Workspaces card. */
@@ -151,9 +159,9 @@ async function standUp(app: App): Promise<void> {
   );
 }
 
-describe.skipIf(!SHOULD_RUN)("AT0797: Done on the Workspaces row is spent by attention", () => {
+describe.skipIf(!SHOULD_RUN)("AT0797: done on the Workspaces row is spent by attention", () => {
   test(
-    "an unseen turn end reads Done, survives a reload, and activating the card spends it",
+    "an unseen turn end reads done, survives a reload, and activating the card spends it",
     async () => {
       const app = await launchTugApp({ testName: "at0797-workspaces-done-spent-by-attention" });
       try {
@@ -174,29 +182,26 @@ describe.skipIf(!SHOULD_RUN)("AT0797: Done on the Workspaces row is spent by att
         await app.waitForCondition<boolean>("window.__tug.getHasFocus() === true", { timeoutMs: 10_000 });
         await standUp(app);
 
-        // 1. B finished while A was attended: filled and still, `Done.`.
-        const unseen = await waitForRow(app, SID_B, "completed", "Done.");
+        // 1. B finished while A was attended: filled and still.
+        const unseen = await waitForRow(app, SID_B, "completed");
         note("at0797 B before attention", JSON.stringify(unseen));
         expect(unseen.role, "green: the finished tone").toBe("success");
-        expect(unseen.text).not.toContain("Ready.");
-        const attended = await waitForRow(app, SID_A, "stopped", "Ready.");
+        const attended = await waitForRow(app, SID_A, "stopped");
         note("at0797 A, attended", JSON.stringify(attended));
-        expect(attended.text).not.toContain("Done.");
 
         // 2. A reload lists the row again from tugcast, mark and all.
         await app.appReload();
         await standUp(app);
-        const reloaded = await waitForRow(app, SID_B, "completed", "Done.");
+        const reloaded = await waitForRow(app, SID_B, "completed");
         note("at0797 B after reload", JSON.stringify(reloaded));
         expect(reloaded.role).toBe("success");
 
         // 3. Activating B is attention: tugcast stamps it and the push spends
         //    the mark on the row.
         await app.evalJS<null>(`(window.__tug.activateCard("B"), null)`);
-        const spent = await waitForRow(app, SID_B, "stopped", "Ready.");
+        const spent = await waitForRow(app, SID_B, "stopped");
         note("at0797 B after attention", JSON.stringify(spent));
         expect(spent.role).toBe("inherit");
-        expect(spent.text).not.toContain("Done.");
       } finally {
         await app.close();
       }

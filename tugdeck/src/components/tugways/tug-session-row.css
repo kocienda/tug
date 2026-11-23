@@ -642,16 +642,43 @@ body {
 .tug-session-row-standing {
   display: flex;
   align-items: center;
-  gap: var(--tug-space-sm);
   min-inline-size: 0;
-  overflow: hidden;
-  white-space: nowrap;
   padding-inline-start: var(--tugx-session-identity-row-indent, 10px);
   margin-block-end: var(--tugx-session-identity-lead-gap, 3px);
   font-size: var(--tug-font-size-xs);
   line-height: var(--tugx-session-row-sub-line-tight);
   min-block-size: var(--tugx-session-row-sub-line-tight);
   color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* The line's own facts — the arc, or the standing facts — clipped to the
+   line, so the tape beside them keeps its whole width. */
+.tug-session-row-standing-run {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* The tape, on a row that draws no activity line (`activityLine={false}`):
+   pinned to the standing line's trailing end, the vertical the slots above it
+   end on. Its box is the line's band and the graph overhangs it, so a 22px
+   instrument does not make a 16px line taller — the same bargain the dot
+   makes on the title line. */
+.tug-session-row-standing-tape {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  block-size: var(--tugx-session-row-sub-line-tight);
+  overflow: visible;
+  margin-inline-start: var(--tugx-activity-line-trailing-gap);
+}
+
+.tug-session-row-standing-tape .tug-sparkline {
+  flex-shrink: 0;
 }
 
 /* ── Wrapped prose ───────────────────────────────────────────────────────

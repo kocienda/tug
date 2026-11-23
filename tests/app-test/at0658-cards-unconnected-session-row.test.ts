@@ -12,7 +12,7 @@
  *
  *   1. **Same layout.** The unconnected row and a connected row in the same
  *      list measure the same height, and every part of the row — the dot, the
- *      title, the slot cluster, the description, the activity, the tape —
+ *      title, the slot cluster, the standing line, the description, the tape —
  *      stands at the same horizontal place in both. Height alone passed a row
  *      whose slots were pushed inward by a close box the connected row does
  *      not carry and which drew no tape.
@@ -100,8 +100,8 @@ const PARTS = [
   ".tug-session-row-dot",
   ".tug-list-row-title",
   ".tug-session-row-slots",
+  ".tug-session-row-standing",
   ".tug-session-row-description",
-  ".tug-activity-line",
   ".session-activity-spark",
 ] as const;
 
@@ -189,9 +189,9 @@ describe.skipIf(!SHOULD_RUN)("at0658 — an unconnected Session card's row", () 
             Math.abs(u!.left - c!.left),
             `${part} starts where the connected row's does`,
           ).toBeLessThan(0.5);
-          // The title and the activity end where their text ends, which
+          // The title ends where its text ends, which
           // differs between the two rows by design; their START is the claim.
-          if (part === ".tug-list-row-title" || part === ".tug-activity-line") {
+          if (part === ".tug-list-row-title") {
             continue;
           }
           expect(

@@ -108,7 +108,7 @@
    what makes a file row and a jot row the same height down the rail. No
    shared class carries the number: each rail card's list states it on its own
    rule, so the two are kept equal by hand rather than by the cascade. Scoped
-   to the one-line rows on purpose: the session monitor rows are four lines
+   to the one-line rows on purpose: the session monitor rows are three lines
    and keep the row default's air, and the group headers keep theirs so a
    group reads as separated from the one above it. */
 .cards-list .cards-oneline {
