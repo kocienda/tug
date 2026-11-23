@@ -39,6 +39,7 @@ use tugcore::instance::Paths;
 use tugcore::session_index::IndexEntry;
 
 use crate::archive::{ArchiveEntry, compact_stamp};
+use crate::brief_revision::RevisionCell;
 use crate::docket::{Docket, DocketItem};
 use crate::log::{GenerationEnd, arc_generations, is_round_line, is_yield_note, split_log_line};
 use crate::sketch::{SketchArc, SketchAuthor};
@@ -105,6 +106,8 @@ pub struct IdeaFact {
     pub created: String,
     /// Session uuids, oldest first.
     pub sessions: Vec<String>,
+    /// The arc the idea was filed from, when the user did not type it.
+    pub origin: Option<crate::idea::IdeaOrigin>,
 }
 
 /// Everything [`derive_threads`] reads.
@@ -124,6 +127,25 @@ pub struct DocketInputs {
     pub sessions: Vec<IndexEntry>,
     /// Every commit the derivation may name.
     pub commits: Vec<CommitFact>,
+    /// What a stale live arc's revision is read from, by arc name. Gathered
+    /// only for a live arc whose brief is an older brief version, so an
+    /// ordinary docket costs nothing more.
+    pub revisions: BTreeMap<String, RevisionInputs>,
+}
+
+/// The texts a stale live arc's revision is derived from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RevisionInputs {
+    /// The brief version the arc's `brief.md` holds, and its text.
+    pub from_version: u32,
+    pub from_text: String,
+    /// The newest brief version, and its text.
+    pub to_version: u32,
+    pub to_text: String,
+    /// The arc's ledger: its plan or task list.
+    pub ledger_text: String,
+    /// The newest version the user chose to keep going past.
+    pub kept_through: Option<u32>,
 }
 
 /// What became of a thread's arc.
@@ -221,6 +243,36 @@ pub struct ArcCell {
     /// reopen.
     #[serde(default = "one")]
     pub runs: u32,
+    /// What the newer brief changed and what it means for the arc's finished
+    /// steps — only for a live arc that is stale.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<RevisionCell>,
+    /// The arc was stopped as parked and not resumed since.
+    #[serde(default)]
+    pub parked: bool,
+    /// The successor the arc's park request names, while that request is
+    /// waiting for a step boundary or the arc stands parked on it. A parked
+    /// arc the user resumed has answered its request, so the cell names no
+    /// successor: a surface reading one would say the arc is still waiting to
+    /// park, which the wheel will never do.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub successor: Option<String>,
+    /// The boundary the arc's park request names (`tip`, `fork` or
+    /// `step:<K>`), so a parked arc's successor opens from the recorded choice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub park_boundary: Option<String>,
+    /// The arc this one succeeds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub succeeds: Option<String>,
+    /// The generation's audit follow-ups not yet accepted or dismissed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub proposals: Vec<ProposalCell>,
+    /// When the generation joined: its terminal line's timestamp.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub joined_at: Option<String>,
+    /// The commit on the base that reverted this generation's join.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reverted: Option<String>,
 }
 
 fn one() -> u32 {
@@ -234,6 +286,18 @@ pub struct IdeaCell {
     /// Its one line; the id when the record is missing.
     pub text: String,
     pub filed: bool,
+    /// The arc the idea was filed from: an accepted follow-up or a decision a
+    /// Keep going filed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<crate::idea::IdeaOrigin>,
+}
+
+/// An audit follow-up of an arc the user has not yet accepted or dismissed,
+/// offered in the docket's Inbox.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProposalCell {
+    pub k: u32,
+    pub text: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -295,11 +359,36 @@ struct Generation {
     stages: Vec<(String, String)>,
     /// Round lines, `(short sha, title)`, in log order.
     rounds: Vec<(String, String)>,
+    /// The successor the newest `arc-park` line names.
+    successor: Option<String>,
+    /// The boundary the newest `arc-park` line names.
+    park_boundary: Option<String>,
+    /// Whether an `arc-stop … parked` answered the newest `arc-park`.
+    park_answered: bool,
+    /// Whether the last stop was `parked`, with no resume since.
+    parked: bool,
+    /// The arc the `arc-succeeds` line names.
+    succeeds: Option<String>,
+    /// Follow-ups no decision has settled, `(k, line)` in log order.
+    follow_ups: Vec<(u32, String)>,
+    /// The revert commit a `reverted` line names for this generation's join.
+    reverted: Option<String>,
 }
 
 impl Generation {
     fn key(&self) -> String {
         format!("arc:{}@{}", self.name, self.started_at)
+    }
+
+    /// The arc runs again. A park request a parked stop already answered is
+    /// spent, so it names no successor any more; one still waiting stands.
+    fn unpark(&mut self) {
+        self.parked = false;
+        if self.park_answered {
+            self.successor = None;
+            self.park_boundary = None;
+            self.park_answered = false;
+        }
     }
 
     /// The log's short join marker.
@@ -333,10 +422,45 @@ fn generations(log: &str) -> Vec<Generation> {
                 sketch_id: None,
                 stages: Vec::new(),
                 rounds: Vec::new(),
+                successor: None,
+                park_boundary: None,
+                park_answered: false,
+                parked: false,
+                succeeds: None,
+                follow_ups: Vec::new(),
+                reverted: None,
             })
             .collect();
         if gens.is_empty() {
             continue;
+        }
+        // A follow-up decision names the generation it settles by its start,
+        // never by where it falls: one pressed after a Reopen arc's next
+        // `arc-start` still settles the ended generation's proposal.
+        let decided: BTreeSet<(String, u32)> = lines
+            .iter()
+            .filter_map(|line| split_log_line(line))
+            .filter(|(_, _, marker, _)| {
+                matches!(*marker, "follow-up-accepted" | "follow-up-dismissed")
+            })
+            .filter_map(|(_, _, _, note)| crate::arc::read_follow_up_decision(note))
+            .collect();
+        // A revert names the join it undid, never the generation by
+        // position: one pressed after a Reopen arc's next `arc-start` still
+        // marks the generation that joined.
+        for line in &lines {
+            let Some((_, _, "reverted", note)) = split_log_line(line) else {
+                continue;
+            };
+            let Some((revert, join)) = crate::arc::read_reverted(note) else {
+                continue;
+            };
+            if let Some(g) = gens
+                .iter_mut()
+                .find(|g| g.join_marker().is_some_and(|m| same_commit(&join, m)))
+            {
+                g.reverted = Some(revert);
+            }
         }
         // A later generation opens on the `arc-start` line its start names,
         // after the one before it ended; every other line belongs to the
@@ -356,7 +480,39 @@ fn generations(log: &str) -> Vec<Generation> {
             let g = &mut gens[current];
             match marker {
                 "arc-sketch" if !note.is_empty() => g.sketch_id = Some(note.to_string()),
+                "arc-park" => {
+                    let mut words = note.split_whitespace();
+                    if let Some(successor) = words.next() {
+                        g.successor = Some(successor.to_string());
+                        g.park_boundary = words.next().map(str::to_string);
+                        g.park_answered = false;
+                    }
+                }
+                "arc-succeeds" => {
+                    if let Some(old) = note.split_whitespace().next() {
+                        g.succeeds = Some(old.to_string());
+                    }
+                }
+                "arc-stop" => {
+                    g.parked = note
+                        .split_once(char::is_whitespace)
+                        .is_some_and(|(_, reason)| reason.trim() == "parked");
+                    if g.parked && g.successor.is_some() {
+                        g.park_answered = true;
+                    }
+                }
+                "arc-resume" | "arc-continue" => g.unpark(),
+                "follow-up" => {
+                    if let Some((k, text)) = crate::arc::read_follow_up(note) {
+                        if !decided.contains(&(g.started_at.clone(), k))
+                            && !g.follow_ups.iter().any(|(seen, _)| *seen == k)
+                        {
+                            g.follow_ups.push((k, text));
+                        }
+                    }
+                }
                 "arc-stage" => {
+                    g.unpark();
                     if let Some(stage) = crate::arc::read_stage_line(note, timestamp) {
                         if !g.stages.iter().any(|(u, _)| *u == stage.session_id) {
                             g.stages
@@ -700,6 +856,7 @@ impl<'a> Index<'a> {
                 .idea(id)
                 .map_or_else(|| id.to_string(), |i| i.text.clone()),
             filed: self.filed(&format!("idea:{id}")),
+            origin: self.idea(id).and_then(|i| i.origin.clone()),
         }
     }
 
@@ -839,6 +996,18 @@ impl<'a> Index<'a> {
                 .max(1) as u32,
             None => 1,
         };
+        let stale = brief_version.zip(latest_brief).is_some_and(|(n, l)| n < l);
+        // Once a parked arc's successor exists, the old arc's answer is its
+        // Parked row: a notice still offering a successor would open a second.
+        let successor_started = g.parked
+            && g.successor
+                .as_deref()
+                .is_some_and(|s| self.gens.iter().any(|o| o.name == s));
+        let revision = (fate == ArcFate::Live && stale && !successor_started)
+            .then(|| self.inputs.revisions.get(&g.name))
+            .flatten()
+            .filter(|r| Some(r.from_version) == brief_version && Some(r.to_version) == latest_brief)
+            .map(|r| revision_cell(r, g.parked));
         let arc = ArcCell {
             name: g.name.clone(),
             created: g.started_at.clone(),
@@ -846,8 +1015,23 @@ impl<'a> Index<'a> {
             join_sha: self.join_sha(g),
             filed: self.filed(&g.key()),
             brief_version,
-            stale: brief_version.zip(latest_brief).is_some_and(|(n, l)| n < l),
+            stale,
             runs,
+            revision,
+            parked: g.parked,
+            successor: g.successor.clone(),
+            park_boundary: g.park_boundary.clone(),
+            succeeds: g.succeeds.clone(),
+            proposals: g
+                .follow_ups
+                .iter()
+                .map(|(k, text)| ProposalCell {
+                    k: *k,
+                    text: text.clone(),
+                })
+                .collect(),
+            joined_at: g.join_marker().and(g.ended_at.clone()),
+            reverted: g.reverted.clone(),
         };
 
         // A brief filed beside its arc's own copy keeps its snapshot and its
@@ -1082,6 +1266,14 @@ impl<'a> Index<'a> {
                     brief_version: None,
                     stale: false,
                     runs: 1,
+                    revision: None,
+                    parked: false,
+                    successor: None,
+                    park_boundary: None,
+                    succeeds: None,
+                    proposals: Vec::new(),
+                    joined_at: None,
+                    reverted: None,
                 });
             }
             DocketItem::Sketch { id, .. } => {
@@ -1245,6 +1437,7 @@ pub fn gather_inputs(paths: &Paths, repo: &Path, docket: &Docket) -> DocketInput
         ideas: Vec::new(),
         sessions: Vec::new(),
         commits: Vec::new(),
+        revisions: BTreeMap::new(),
     };
     if docket.items.is_empty() {
         return inputs;
@@ -1314,6 +1507,7 @@ pub fn gather_inputs(paths: &Paths, repo: &Path, docket: &Docket) -> DocketInput
             text: idea.text,
             created: idea.created,
             sessions: idea.sessions.into_iter().map(|s| s.uuid).collect(),
+            origin: idea.origin,
         })
         .collect();
 
@@ -1398,7 +1592,93 @@ pub fn gather_inputs(paths: &Paths, repo: &Path, docket: &Docket) -> DocketInput
         .collect();
     let joined = commit_facts(repo, &joins);
     inputs.commits.extend(joined);
+    inputs.revisions = revision_inputs(paths, repo, &derive_threads(&inputs));
     inputs
+}
+
+/// A revision from what was gathered for it: the decision diff of the two
+/// brief versions, read against what the arc's finished steps carry.
+fn revision_cell(r: &RevisionInputs, parked: bool) -> RevisionCell {
+    use crate::brief_revision::{derive, diff, parse_decisions};
+    let citations = tugtool_core::plan::step_brief_citations(&r.ledger_text).unwrap_or_default();
+    let done: Vec<u32> = tugtool_core::plan::parse(&r.ledger_text)
+        .map(|doc| {
+            doc.ledger_rows
+                .iter()
+                .filter(|row| row.status == "done")
+                .filter_map(|row| row.anchor.strip_prefix("step-")?.parse().ok())
+                .collect()
+        })
+        .unwrap_or_default();
+    derive(
+        r.from_version,
+        r.to_version,
+        diff(&parse_decisions(&r.from_text), &parse_decisions(&r.to_text)),
+        &citations,
+        &done,
+        r.kept_through,
+        parked,
+    )
+}
+
+/// Read the texts every stale live arc of `threads` needs for its revision:
+/// the brief version its `brief.md` holds, the newest one, and its ledger.
+/// An arc whose versions or ledger cannot be read gets none, and its cell
+/// carries no revision rather than a wrong one.
+fn revision_inputs(
+    paths: &Paths,
+    repo: &Path,
+    threads: &[Thread],
+) -> BTreeMap<String, RevisionInputs> {
+    let mut out = BTreeMap::new();
+    let stale: Vec<(&ArcCell, &str)> = threads
+        .iter()
+        .filter_map(|t| {
+            let arc = t.arc.as_ref()?;
+            (arc.fate == ArcFate::Live && arc.stale)
+                .then_some((arc, t.sketch.as_ref()?.id.as_str()))
+        })
+        .collect();
+    if stale.is_empty() {
+        return out;
+    }
+    let records = crate::sketch::sketches(paths, repo);
+    for (arc, sketch_id) in stale {
+        let Some(from_version) = arc.brief_version else {
+            continue;
+        };
+        let Some(record) = records.iter().find(|r| r.id == sketch_id) else {
+            continue;
+        };
+        let Some(to_version) = record.briefs.iter().map(|b| b.n).max() else {
+            continue;
+        };
+        let (Ok(from_text), Ok(to_text)) = (
+            crate::sketch::read_brief_version(record, from_version),
+            crate::sketch::read_brief_version(record, to_version),
+        ) else {
+            continue;
+        };
+        let Some(ledger_text) =
+            crate::ops::ledger_file(repo, &arc.name).and_then(|p| fs::read_to_string(p).ok())
+        else {
+            continue;
+        };
+        let kept_through =
+            crate::arc::read_arc(paths, repo, &arc.name).and_then(|record| record.brief_kept);
+        out.insert(
+            arc.name.clone(),
+            RevisionInputs {
+                from_version,
+                from_text,
+                to_version,
+                to_text,
+                ledger_text,
+                kept_through,
+            },
+        );
+    }
+    out
 }
 
 #[cfg(test)]
@@ -1551,6 +1831,7 @@ mod tests {
                 entry(STAGE_B, "line-b", "odd-kiln", 2),
             ],
             commits: vec![fact(JOIN, "Add the rail", "2026-11-01T00:05:00Z", &[])],
+            revisions: BTreeMap::new(),
         }
     }
 
@@ -1898,6 +2179,7 @@ mod tests {
                 text: "Lines of work".into(),
                 created: "2026-11-10T00:00:00Z".into(),
                 sessions: vec![SKETCHER.into()],
+                origin: None,
             }],
             sessions: vec![entry(SKETCHER, "line-s", "busy-quill", 5)],
             commits: vec![fact(
@@ -1906,6 +2188,7 @@ mod tests {
                 "2026-11-10T00:30:00Z",
                 &[SKETCHER],
             )],
+            revisions: BTreeMap::new(),
         }
     }
 
@@ -1970,6 +2253,255 @@ mod tests {
         assert_eq!(t.sessions[0].stage.as_deref(), Some(SKETCH_STAGE));
         assert!(t.sessions[0].filed);
         assert_eq!(t.filed_keys.len(), 3);
+    }
+
+    /// The lineage fixture's arc `lin` with what its revision is read from:
+    /// brief v1 against v2, which changes [B01] and adds [B02], and a ledger
+    /// whose finished step 1 carries [B01].
+    fn with_revision(mut inputs: DocketInputs, kept_through: Option<u32>) -> DocketInputs {
+        let ledger = "## Lines {#tasks}\n\n### Execution Steps {#execution-steps}\n\n\
+                      #### Step Status Ledger {#step-status-ledger}\n\n\
+                      | Step | Title | Status | Commit |\n|---|---|---|---|\n\
+                      | #step-1 | One | done | `abc1234` |\n| #step-2 | Two | pending | — |\n\n\
+                      #### Step 1: One {#step-1}\n\nDo one.\n\nCarries: [B01].\n\n\
+                      #### Step 2: Two {#step-2}\n\nDo two.\n\nCarries: none.\n";
+        inputs.revisions.insert(
+            "lin".into(),
+            RevisionInputs {
+                from_version: 1,
+                from_text: "**[B01] Lines.** One way.\n".into(),
+                to_version: 2,
+                to_text: "**[B01] Lines.** Another way.\n\n**[B02] More.** Added.\n".into(),
+                ledger_text: ledger.into(),
+                kept_through,
+            },
+        );
+        inputs
+    }
+
+    #[test]
+    fn a_stale_live_arc_carries_its_revision() {
+        let inputs = with_revision(lineage(vec![idea_item(IDEA)], &adopted_log(), 2), Some(1));
+        let threads = derive_threads(&inputs);
+        let arc = threads[0].arc.as_ref().unwrap();
+        let revision = arc
+            .revision
+            .as_ref()
+            .expect("a stale live arc gets a revision");
+        assert_eq!((revision.from_version, revision.to_version), (1, 2));
+        assert_eq!(revision.changed[0].label, "B01");
+        assert_eq!(revision.added[0].label, "B02");
+        assert_eq!(revision.done_steps, vec![1]);
+        assert_eq!(revision.affected_steps, vec![1]);
+        assert_eq!(
+            revision.offer,
+            crate::brief_revision::RevisionOffer::SuccessorFork
+        );
+        assert_eq!(
+            revision.kept_through,
+            Some(1),
+            "kept_through rides the inputs"
+        );
+    }
+
+    /// Two follow-ups are two proposals; an accepted one becomes its idea's
+    /// thread, carrying its origin, and a dismissed one disappears.
+    #[test]
+    fn follow_ups_proposed_then_decided_one_by_one() {
+        let two = format!(
+            "{}2026-11-12T00:00:02Z  lin  follow-up  1 Name the rails\n2026-11-12T00:00:03Z  lin  follow-up  2 Paint the rails\n",
+            adopted_log()
+        );
+        let threads = derive_threads(&lineage(vec![idea_item(IDEA)], &two, 2));
+        let arc = threads[0].arc.as_ref().unwrap();
+        assert_eq!(
+            arc.proposals,
+            vec![
+                ProposalCell {
+                    k: 1,
+                    text: "Name the rails".into()
+                },
+                ProposalCell {
+                    k: 2,
+                    text: "Paint the rails".into()
+                },
+            ]
+        );
+
+        // Accepting the first files its idea, which becomes a thread of its
+        // own carrying its origin; the proposal leaves the arc.
+        const MADE: &str = "abcd0001";
+        let accepted =
+            format!("{two}2026-11-12T00:00:04Z  lin  follow-up-accepted  {LIN_1} 1 {MADE}\n");
+        let mut inputs = lineage(vec![idea_item(IDEA), idea_item(MADE)], &accepted, 2);
+        let origin = crate::idea::IdeaOrigin {
+            arc: "lin".into(),
+            created: LIN_1.into(),
+            kind: crate::idea::IdeaOriginKind::FollowUp { k: 1 },
+        };
+        inputs.ideas.push(IdeaFact {
+            id: MADE.into(),
+            text: "Name the rails".into(),
+            created: "2026-11-12T00:00:04Z".into(),
+            sessions: Vec::new(),
+            origin: Some(origin.clone()),
+        });
+        let threads = derive_threads(&inputs);
+        let arc = threads.iter().find_map(|t| t.arc.as_ref()).unwrap();
+        assert_eq!(
+            arc.proposals,
+            vec![ProposalCell {
+                k: 2,
+                text: "Paint the rails".into()
+            }]
+        );
+        let made = threads
+            .iter()
+            .find_map(|t| t.idea.as_ref().filter(|i| i.id == MADE))
+            .expect("the accepted idea is a thread");
+        assert_eq!(made.origin.as_ref(), Some(&origin));
+
+        // Dismissing the second leaves nothing to propose.
+        let dismissed =
+            format!("{accepted}2026-11-12T00:00:05Z  lin  follow-up-dismissed  {LIN_1} 2\n");
+        let threads = derive_threads(&lineage(vec![idea_item(IDEA)], &dismissed, 2));
+        assert!(threads[0].arc.as_ref().unwrap().proposals.is_empty());
+    }
+
+    /// A dismissal written after the name was reopened settles the joined
+    /// generation's proposal, by its start, and leaves the new one's alone.
+    #[test]
+    fn a_follow_up_decision_finds_its_generation_by_its_start() {
+        let log = format!(
+            "{}2026-11-12T00:00:02Z  lin  follow-up  1 Name the rails\n\
+             2026-11-12T00:00:03Z  lin  abc1234  joined via card\n\
+             2026-11-13T00:00:00Z  lin  arc-start  brief.md\n\
+             2026-11-13T00:00:01Z  lin  follow-up  1 Oil the rails\n\
+             2026-11-13T00:00:02Z  lin  follow-up-dismissed  {LIN_1} 1\n",
+            adopted_log()
+        );
+        let gens = generations(&log);
+        assert_eq!(gens.len(), 2);
+        assert!(
+            gens[0].follow_ups.is_empty(),
+            "the joined generation's proposal is settled"
+        );
+        assert_eq!(gens[1].follow_ups, vec![(1, "Oil the rails".to_string())]);
+    }
+
+    /// A joined arc carries when it joined, and a revert written after the
+    /// name was reopened marks the joined generation, by its join sha, and
+    /// not the new one.
+    #[test]
+    fn a_revert_marks_the_generation_whose_join_it_names() {
+        let log = format!(
+            "{}2026-11-12T00:00:03Z  lin  abc1234  joined via card\n\
+             2026-11-13T00:00:00Z  lin  arc-start  brief.md\n\
+             2026-11-13T00:00:02Z  lin  reverted  fedcba9876543210 abc1234deadbeef\n",
+            adopted_log()
+        );
+        let gens = generations(&log);
+        assert_eq!(gens.len(), 2);
+        assert_eq!(gens[0].reverted.as_deref(), Some("fedcba9876543210"));
+        assert_eq!(
+            gens[1].reverted, None,
+            "the reopened generation is untouched"
+        );
+
+        let joined = format!(
+            "{}2026-11-12T00:00:03Z  lin  abc1234  joined via card\n",
+            adopted_log()
+        );
+        let threads = derive_threads(&lineage(vec![idea_item(IDEA)], &joined, 2));
+        let arc = threads[0].arc.as_ref().unwrap();
+        assert_eq!(arc.joined_at.as_deref(), Some("2026-11-12T00:00:03Z"));
+        assert_eq!(arc.reverted, None);
+
+        let reverted =
+            format!("{joined}2026-11-12T00:00:09Z  lin  reverted  fedcba98 abc1234ffff\n");
+        let threads = derive_threads(&lineage(vec![idea_item(IDEA)], &reverted, 2));
+        let arc = threads[0].arc.as_ref().unwrap();
+        assert_eq!(arc.joined_at.as_deref(), Some("2026-11-12T00:00:03Z"));
+        assert_eq!(arc.reverted.as_deref(), Some("fedcba98"));
+    }
+
+    /// A parked arc names its successor and still carries its revision until
+    /// the successor opens; then the revision is withheld, and the successor
+    /// names the arc it succeeds.
+    #[test]
+    fn a_parked_arc_drops_its_revision_once_its_successor_opens() {
+        let parked = format!(
+            "{}2026-11-12T00:00:02Z  lin  arc-park  lin-v2 tip\n2026-11-12T00:00:03Z  lin  arc-stop  implement parked\n",
+            adopted_log()
+        );
+        let threads = derive_threads(&with_revision(
+            lineage(vec![idea_item(IDEA)], &parked, 2),
+            None,
+        ));
+        let arc = threads[0].arc.as_ref().unwrap();
+        assert!(arc.parked);
+        assert_eq!(arc.successor.as_deref(), Some("lin-v2"));
+        assert_eq!(arc.park_boundary.as_deref(), Some("tip"));
+        assert!(arc.revision.as_ref().is_some_and(|r| r.parked));
+
+        let opened = format!(
+            "{parked}2026-11-12T00:00:04Z  lin-v2  arc-start  brief.md\n2026-11-12T00:00:05Z  lin-v2  arc-succeeds  lin abc123 main\n"
+        );
+        let threads = derive_threads(&with_revision(
+            lineage(vec![idea_item(IDEA)], &opened, 2),
+            None,
+        ));
+        let arc = threads
+            .iter()
+            .filter_map(|t| t.arc.as_ref())
+            .find(|a| a.name == "lin")
+            .unwrap();
+        assert!(arc.parked);
+        assert!(arc.revision.is_none());
+
+        // A resume clears the parked mark, and the answered request with it:
+        // the cell names no successor, so no surface reads it as waiting.
+        let resumed = format!("{parked}2026-11-12T00:00:06Z  lin  arc-resume  implement\n");
+        let threads = derive_threads(&lineage(vec![idea_item(IDEA)], &resumed, 2));
+        let arc = threads[0].arc.as_ref().unwrap();
+        assert!(!arc.parked);
+        assert_eq!(arc.successor, None);
+        assert_eq!(arc.park_boundary, None);
+
+        // A request still waiting for its boundary survives the arc's next
+        // rotation.
+        let waiting = format!(
+            "{}2026-11-12T00:00:02Z  lin  arc-park  lin-v2 tip\n2026-11-12T00:00:03Z  lin  arc-stage  review {STAGE_B} -\n",
+            adopted_log()
+        );
+        let threads = derive_threads(&lineage(vec![idea_item(IDEA)], &waiting, 2));
+        let arc = threads[0].arc.as_ref().unwrap();
+        assert!(!arc.parked);
+        assert_eq!(arc.successor.as_deref(), Some("lin-v2"));
+    }
+
+    #[test]
+    fn a_successor_cell_names_the_arc_it_succeeds() {
+        let log = format!(
+            "{}2026-11-12T00:00:02Z  lin  arc-succeeds  old abc123 main\n",
+            adopted_log()
+        );
+        let threads = derive_threads(&lineage(vec![idea_item(IDEA)], &log, 2));
+        assert_eq!(
+            threads[0].arc.as_ref().unwrap().succeeds.as_deref(),
+            Some("old")
+        );
+    }
+
+    #[test]
+    fn an_arc_on_the_latest_brief_gets_no_revision() {
+        let mut inputs = with_revision(lineage(vec![idea_item(IDEA)], &adopted_log(), 2), None);
+        // The arc's brief.md now holds version 2's bytes.
+        inputs.arc_briefs[0].sha256 = "d".repeat(64);
+        let threads = derive_threads(&inputs);
+        let arc = threads[0].arc.as_ref().unwrap();
+        assert!(!arc.stale);
+        assert!(arc.revision.is_none());
     }
 
     #[test]

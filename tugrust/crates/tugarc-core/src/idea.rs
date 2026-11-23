@@ -53,9 +53,33 @@ pub struct IdeaRecord {
     pub body: Option<String>,
     #[serde(default)]
     pub sessions: Vec<IdeaSession>,
+    /// Where the idea came from when the user did not type it: a brief
+    /// decision a Keep going filed, or an audit follow-up accepted. `None`
+    /// for an idea the user wrote.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<IdeaOrigin>,
     /// The record's directory. Read from where it was found, never stored.
     #[serde(skip)]
     pub dir: PathBuf,
+}
+
+/// The arc an idea was filed from, and what of it the idea carries.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IdeaOrigin {
+    pub arc: String,
+    /// The arc generation's start.
+    pub created: String,
+    pub kind: IdeaOriginKind,
+}
+
+/// What of an arc an idea carries.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum IdeaOriginKind {
+    /// An audit follow-up the user accepted.
+    FollowUp { k: u32 },
+    /// A decision a newer brief version added, filed by a Keep going.
+    BriefDecision { label: String, version: u32 },
 }
 
 /// `<project_state_dir>/ideas`.
@@ -73,6 +97,17 @@ pub fn create_idea(
     text: &str,
     body: Option<&str>,
 ) -> Result<IdeaRecord, ArcError> {
+    create_idea_from(paths, repo, text, body, None)
+}
+
+/// [`create_idea`], naming the arc the idea was filed from.
+pub fn create_idea_from(
+    paths: &Paths,
+    repo: &Path,
+    text: &str,
+    body: Option<&str>,
+    origin: Option<IdeaOrigin>,
+) -> Result<IdeaRecord, ArcError> {
     let text = clean_text(text)?;
     let body = body
         .map(str::trim)
@@ -89,6 +124,7 @@ pub fn create_idea(
         text,
         body,
         sessions: Vec::new(),
+        origin,
         dir,
     };
     write_record(&record)?;

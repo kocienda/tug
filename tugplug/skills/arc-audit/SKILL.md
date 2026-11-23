@@ -160,6 +160,16 @@ An **imperative subject** in the repository's recent-commit style, bare — no `
 
 Read a good one before writing yours: `git log` on the base shows the project's recent joins.
 
+### 6b. Record follow-ups
+
+After the draft and before the mark, record each thing a person would want done next that lies **outside this arc's brief** — one line apiece, at most five:
+
+```bash
+tugtool arc follow-up <name> "<one line, at most 300 characters>"
+```
+
+A follow-up is a proposal, not a task: a docket that carries this arc offers it in its Inbox, and only the user's Accept makes it an idea. So record none for work the audit fixed itself, none that restates what the arc did, and none for anything the brief already asks for — those are this arc's, not the next one's. An arc on no docket records them the same way; the line waits on the arc's own record. A re-audit may record a line again, and the verb answers it with the number it already has without writing a second one. With nothing outside the brief worth doing next, record nothing.
+
 ### 7. Mark it, and stop
 
 ```bash

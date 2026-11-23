@@ -99,6 +99,15 @@ Preservation-by-mimicry is not an audit: copying the shape of neighbouring code 
 
 A project that declares no laws has nothing to name, and the round says nothing about it.
 
+## Steps name the brief decisions they carry
+
+A brief can be revised while its arc is running, and the arc is then judged by which of its finished steps the revision touches. That judgment is only as good as the record of what each step carries from the brief, so the record is written as the work is planned, not reconstructed afterwards.
+
+- **In a plan**, every `[P##]` decision carries a `**Brief:**` line naming the `[B##]` decisions it came from, or `**Brief:** none`. A step reaches the brief through the decisions on its `**References:**` line, and may name a `[B##]` there directly. `tugtool plan lint` warns on a decision with no `**Brief:**` line.
+- **In a task list**, every step ends with a `Carries:` line naming its `[B##]` labels, or `Carries: none.`
+
+Silence is not `none`: a step whose citations say nothing is one the user has to judge by hand when the brief moves. The commit message is not the carrier; it outlives the arc and carries no labels.
+
 ## Rounds
 
 A round is one commit plus one line in the per-project arc log, made by one command:

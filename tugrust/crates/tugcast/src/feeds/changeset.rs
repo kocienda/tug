@@ -6768,6 +6768,9 @@ Some context.
             resume: None,
             dispatched: None,
             owner: None,
+            brief_kept: None,
+            park: None,
+            succeeds: None,
             done: false,
             last_activity: None,
         }

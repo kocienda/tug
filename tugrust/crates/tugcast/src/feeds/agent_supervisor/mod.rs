@@ -2315,6 +2315,11 @@ impl AgentSupervisor {
             | A::SearchIdeas
             | A::SketchRead
             | A::SketchEdit => self.handle_idea_control(action, payload).await,
+            A::ArcKeepGoing
+            | A::ArcPark
+            | A::FollowUpAccept
+            | A::FollowUpDismiss
+            | A::ArcRevert => self.handle_docket_loop_control(action, payload).await,
             A::ChangesetGitInit
             | A::ChangesetCommit
             | A::ChangesetPush

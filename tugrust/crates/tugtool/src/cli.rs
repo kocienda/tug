@@ -1484,6 +1484,40 @@ pub enum ArcCommands {
         #[arg(long)]
         note: Option<String>,
     },
+    /// Record a follow-up: one thing a person would want done next that lies
+    /// outside this arc's brief.
+    ///
+    /// One arc log line, `follow-up <k> <line>`, with `k` counted from 1 in
+    /// the arc's newest generation. A docket that threads the arc offers it in
+    /// its Inbox, where Accept makes it an idea and Dismiss hides it. A line
+    /// the generation already records answers its existing `k` and writes
+    /// nothing.
+    #[command(name = "follow-up")]
+    FollowUp {
+        /// Arc name.
+        name: String,
+        /// The follow-up, one line of at most 300 characters.
+        line: String,
+    },
+    /// Revert a landed arc: commit `git revert` of its join on its base.
+    ///
+    /// Refused when the base checkout is not on the base the join landed on,
+    /// when anything is staged there, when a path the join touched has
+    /// uncommitted changes, and when the join was already reverted. A
+    /// conflict aborts the revert and leaves the base as it was. `--dry-run`
+    /// commits nothing and says how many files the join touched and which
+    /// later commits touched them too.
+    Revert {
+        /// Arc name.
+        name: String,
+        /// The generation's start, when the name joined more than once;
+        /// the newest generation otherwise.
+        #[arg(long)]
+        created: Option<String>,
+        /// Say what the revert would undo, and commit nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Hand this arc's documents to the wheel: record that its
     /// work runs as rotating devise / review / implement stages on the calling
     /// card.
@@ -1511,6 +1545,15 @@ pub enum ArcCommands {
         /// way an inherited one does.
         #[arg(long)]
         session: Option<String>,
+        /// Open the arc as a successor of this parked arc: its branch starts
+        /// at `--from`, inside that arc's history, and lands on that arc's
+        /// base. Requires `--from`.
+        #[arg(long = "successor-of", requires = "from")]
+        successor_of: Option<String>,
+        /// The commit a successor's branch starts at. Requires
+        /// `--successor-of`.
+        #[arg(long, requires = "successor_of")]
+        from: Option<String>,
     },
     /// Report where an arc's documents live and which of them exist.
     ///

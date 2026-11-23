@@ -1515,6 +1515,27 @@ export const TUG_ACTIONS = {
   //                         sketch version in the card's reader.
   // READ_BRIEF_VERSION:     payload — `value`: `"<sketch id>@<n>"`. Show the
   //                         sketch's brief version `n` in the reader.
+  // KEEP_GOING_ARC:         payload — `value`: the thread key. Keep the
+  //                         thread's live arc going past its newer brief; the
+  //                         added decisions are filed as ideas on this docket.
+  // OPEN_SUCCESSOR:         payload — `value`: `[threadKey, boundary]`, the
+  //                         boundary `tip`, `fork` or `step:<K>` (a pair, since
+  //                         a popup item's payload is a primitive or a string
+  //                         list). Park the thread's arc there and open its
+  //                         successor.
+  // DISCARD_AND_REOPEN_ARC: payload — `value`: the thread key. Arm the card's
+  //                         confirm; on confirm, discard the thread's arc and
+  //                         open Reopen arc on its brief.
+  // REQUEST_DISCARD_PARKED_ARC: payload — `value`: the thread key. Arm the
+  //                         card's confirm; on confirm, discard the parked arc.
+  // ACCEPT_FOLLOW_UP:       payload — `value`: the proposal key
+  //                         (`proposalKey`). Make the audit follow-up an idea
+  //                         filed on this docket.
+  // DISMISS_FOLLOW_UP:      payload — `value`: the proposal key. Dismiss the
+  //                         audit follow-up.
+  // REQUEST_REVERT_ARC:     payload — `value`: the thread key. Ask what
+  //                         reverting the thread's landed arc would undo, and
+  //                         arm the card's confirm; on confirm, revert it.
   SELECT_DOCKET_PROJECT:  "select-docket-project",
   SELECT_DOCKET:          "select-docket",
   NEW_DOCKET:             "new-docket",
@@ -1534,6 +1555,13 @@ export const TUG_ACTIONS = {
   REOPEN_ARC_ON_BRIEF:    "reopen-arc-on-brief",
   READ_SKETCH_VERSION:    "read-sketch-version",
   READ_BRIEF_VERSION:     "read-brief-version",
+  KEEP_GOING_ARC:         "keep-going-arc",
+  OPEN_SUCCESSOR:         "open-successor",
+  DISCARD_AND_REOPEN_ARC: "discard-and-reopen-arc",
+  REQUEST_DISCARD_PARKED_ARC: "request-discard-parked-arc",
+  ACCEPT_FOLLOW_UP:       "accept-follow-up",
+  DISMISS_FOLLOW_UP:      "dismiss-follow-up",
+  REQUEST_REVERT_ARC:     "request-revert-arc",
 
   // ---- Meta ----
   //

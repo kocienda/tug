@@ -100,6 +100,8 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Fold.** Collapse a card to its *masthead*. It keeps its slot, its address and its live readings and opens again on one press (Control-Command-Y). In a *split* slot, folding makes a *wall*.
 
+**Follow-up.** One thing an arc's audit found that a person would want done next, outside the arc's brief, recorded on the arc with `tugtool arc follow-up`. A *docket* that carries the arc offers it in its Inbox as a proposal: Accept makes it an *idea* filed on the docket, naming the arc it came from, and Dismiss hides it.
+
 **Form.** The kind of *figure* a request asks for. A *chart* has ten: bar, line, area, sparkline, dots, histogram, spans, heat, bullet and scatter. A *diagram* has six: flow, sequence, layers, stack, states and tree. End a request with "as a histogram" or "as a sequence" to name one, or leave it to the model. `tugtool chart forms` lists them all with a request that draws each.
 
 **Help.** Tug's help is five documents, the feature guide, the getting-started walk, the recipes, this glossary and the release notes, each opened as a read-only card from the Help menu: Tug Help, Getting Started, How Do I, Glossary and Release Notes. A link from one opens another. To ask a question the documents answer, ask the *Operator* in the *Overview* composer, which reads them and links to the passage it answered from. Help > Keyboard Shortcuts & Commands opens a session's `/help` sheet, and Control-Command-K opens the Keyboard Shortcuts card.
@@ -156,6 +158,8 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **PDF card.** A card that reads a document page by page, continuous, single or two-up, at any zoom, with the arrow and page keys turning its pages.
 
+**Parked.** An *arc* stopped so a *successor* can start from its finished *steps*. Open successor on an arc whose *brief* moved parks it: at once when it is already stopped, otherwise at the end of the step it is walking. A parked arc keeps its worktree and branch, and the *Docket card* lists it under Parked, naming the successor it was parked for, with Discard to clean it up once the successor has landed. Resume picks a parked arc back up like any other *stop*.
+
 **Permission mode.** How much a session's model may do without asking you. Default asks before it edits or runs anything consequential, Accept Edits lets file edits through, Plan has it plan without changing anything, and Auto lets it decide which actions are safe to take on its own. Control-Option-Command-P cycles those four. Bypass, which asks for nothing, is never in the cycle and is chosen only from the mode chip's sheet.
 
 **Plain arc.** See *kind*.
@@ -171,6 +175,8 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 **Receipt.** The block a transcript keeps for an act with a durable result: a commit, with its hash, message and files; a join; a discard; a file edit. A commit receipt names the session, and the arc if any, that made it.
 
 **Replay.** Moving an arc's commits onto the current tip of its *base* as the base advances. Tug does it automatically whenever the arc's worktree is quiet, no join is in flight, and no bound session is mid-turn. A clean replay interrupts nobody and leaves a line in the arc log; a conflicted one becomes an ordinary turn on the arc's bound session. `tugtool arc replay <name>` runs one by hand. A replay can be undone.
+
+**Revert.** A commit on the base that undoes one landed arc's join, offered for any landed arc on a *docket*. The Docket card lists landed arcs in the order they joined, each with its join commit; Revert says how many files the join touched and which later work touched them too, and on confirm commits the revert, or, when it conflicts, changes nothing. `tugtool arc revert <name>` does the same from the shell.
 
 **Review.** The second stage of a *planned arc*: a session that did not write the *plan* reads it against a rubric and the project's own rules, fixes the plan, and stamps it. If a decision is yours it stops the arc and asks in writing.
 
@@ -221,6 +227,8 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 **Step.** One unit of a *plan* or *task list*, walked by the *implement* stage one per turn and closed on its *checkpoint*. A checkpoint is the set of checks the plan names for the work that step did: the type checker, the tests that touch what moved, a real-app test when only the running program can show the change.
 
 **Stop.** An arc that has halted with a reason the receipt can explain, always with a Resume: `needs a decision`, `stalled`, `implement idle`, `stopped by user`, `card closed`, `card taken` and others. `tugtool arc run <name>` or the Resume button on the stop's receipt picks the work back up.
+
+**Successor.** A new *arc* that starts from another arc's finished work when that arc's *brief* has moved on. Its branch begins at the step you choose, its commits carry the old arc's finished *rounds*, and it lands on the old arc's *base*. It is named after the old arc with the new brief version, `rail-v2`. Open successor, in the revision notice on the *Docket card* or the *arc shade*'s Brief panel, *parks* the old arc and opens the successor through the *door*; the notice also offers Keep going, which files any added decisions as *ideas*, and Discard and reopen.
 
 **Task list.** The step list a *plain arc* carries instead of a *plan*, written by the *door* beside the brief. Shorter, with no decisions and no checkpoints, and walked the same way.
 

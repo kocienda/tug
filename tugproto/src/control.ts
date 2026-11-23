@@ -61,6 +61,14 @@ export const CONTROL_ACTIONS = [
   "sketch_read",
   "sketch_edit",
 
+  // Supervisor: the docket loop — an arc's answer to a newer brief, and
+  // the user's answer to an audit's follow-up.
+  "arc_keep_going",
+  "arc_park",
+  "follow_up_accept",
+  "follow_up_dismiss",
+  "arc_revert",
+
   // Supervisor: changesets, landings and joins.
   "changeset_git_init",
   "changeset_commit",

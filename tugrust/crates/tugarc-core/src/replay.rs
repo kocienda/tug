@@ -610,6 +610,36 @@ impl Reconciled {
 /// names has exactly one same-subject round on the branch; anything ambiguous is
 /// reported unmapped and left alone, because a wrong sha in the record is worse
 /// than a stale one (the old object still exists until gc).
+/// Move a successor's recorded cut point along a round mapping.
+///
+/// A successor's `tugfrom` names one of the rounds it carried from the old arc,
+/// and a replay rebuilds those rounds as new commits: the key follows its round.
+/// A `tugfrom` the mapping does not name is a base commit — a successor cut at
+/// the old arc's fork point, or from an old arc that never had a branch — and
+/// after the replay the right reading of that is the merge-base again, so the
+/// key is unset rather than left naming a commit the branch no longer sits on.
+fn remap_fork_point(repo: &Path, name: &str, mapping: &[(String, String)]) {
+    let key = crate::ops::fork_config_key(name);
+    let Some(from) = crate::ops::config_get(repo, &key) else {
+        return;
+    };
+    let from = from.trim();
+    if from.is_empty() {
+        return;
+    }
+    match mapping
+        .iter()
+        .find(|(old, _)| old.starts_with(from) || from.starts_with(old.as_str()))
+    {
+        Some((_, new)) => {
+            let _ = git_output(repo, &["config", &key, new]);
+        }
+        None => {
+            let _ = git_output(repo, &["config", "--unset", &key]);
+        }
+    }
+}
+
 pub(crate) fn reconcile_ledger_cells(
     repo: &Path,
     name: &str,
@@ -618,6 +648,9 @@ pub(crate) fn reconcile_ledger_cells(
     mapping: Option<&[(String, String)]>,
 ) -> Result<Reconciled, ArcError> {
     let mut out = Reconciled::default();
+    if let Some(pairs) = mapping {
+        remap_fork_point(repo, name, pairs);
+    }
     // Whichever document carries the ledger — a replayed task-list arc owns
     // its commit cells exactly as a plan does.
     let Some(plan) = ledger_file(repo, name) else {

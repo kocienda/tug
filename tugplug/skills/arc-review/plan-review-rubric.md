@@ -18,6 +18,8 @@ Is the design sound, internally consistent, and complete? Do the parts agree wit
 
 A step whose checkpoint is "it works" has no checkpoint.
 
+Every decision's `**Brief:**` line is present (lint warns when it is not) and **true to the brief**: it names the `[B##]` decisions the decision actually carries, no more and no fewer, and `none` only where the decision carries nothing from the brief. A revised brief is judged against the finished steps through these lines, so a wrong one sends the user the wrong offer.
+
 ### 2. Technical choices
 
 Are the chosen mechanisms right — or is there a simpler, more robust, or more idiomatic option the plan missed? Does the plan build on machinery that already ships, or does it grow a parallel one beside it?

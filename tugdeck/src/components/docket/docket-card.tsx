@@ -31,6 +31,19 @@
  * A stale brief, the brief an arc was opened on, and a sketch the user wrote
  * are said by attributes CSS draws ([L06]).
  *
+ * **A live arc whose brief moved carries its answers under its row.** The
+ * revision notice offers Keep going, Open successor from a chosen boundary,
+ * and Discard and reopen; the card's responder carries each out through the
+ * shared `lib/docket-loop-actions`, so the arc shade's copy of the notice acts
+ * the same way. A parked arc leaves the main list for the **Parked** group,
+ * which names the successor it was parked for and offers Discard, behind the
+ * same danger confirm Discard and reopen asks.
+ *
+ * **A landed arc leaves the main list for the Landed group**, in the order
+ * the arcs joined, each row carrying its join commit. Revert asks the server
+ * what the revert would undo, shows that in a confirm anchored on the row,
+ * and on confirm commits it; a reverted arc carries its revert commit instead.
+ *
  * **The record is the feed's, the gesture's outcome is the reply's.** What
  * the card lists is the `DOCKETS` snapshot ([L02]); the CONTROL reply only
  * says how a gesture went, on the quiet line under the field. A live arc's
@@ -90,16 +103,40 @@ import { dispatchCommand } from "@/command-dispatch";
 import type { TugAction } from "@/lib/action-vocabulary";
 import {
   DOCKET_GESTURE_LABELS,
+  boundaryChoices,
+  docketProposals,
   gesturesFor,
+  isParkedThread,
+  isLandedThread,
+  landedOrder,
+  revertConfirmMessage,
   openingFor,
   keptVersionRef,
   needsStaleConfirm,
   parseKeptVersionRef,
   partitionInbox,
+  revisionPending,
   staleConfirmMessage,
   type DocketGesture,
+  type DocketProposal,
 } from "@/lib/docket-authoring";
 import { DocketReader, DocketSketchEditor, authorWords } from "./docket-sketch-editor";
+import {
+  ArcRevisionNotice,
+  discardAndReopenMessage,
+  parseSuccessorPayload,
+} from "@/components/tugways/cards/arc-revision-notice";
+import {
+  acceptFollowUp,
+  discardAndReopen,
+  discardParked,
+  dismissFollowUp,
+  keepGoing,
+  openSuccessor,
+  previewRevert,
+  revertLanded,
+  type LoopContext,
+} from "@/lib/docket-loop-actions";
 import { TUG_ATOM_CHAR } from "@/lib/tug-atom-char";
 import { type TugEditorContextMenuEntry } from "@/components/tugways/tug-editor-context-menu";
 import { getAtomsInState } from "@/components/tugways/tug-text-editor/atom-decoration";
@@ -196,24 +233,55 @@ function arcEntryFor(project: ProjectChangeset | null, name: string): ArcChanges
 // The thread list
 // ---------------------------------------------------------------------------
 
-/** One row of the list: the inbox's label, or a thread. */
-type DocketRow = { kind: "label" } | { kind: "thread"; thread: DocketThread };
+/**
+ * One row of the list: the inbox's label, an audit follow-up proposed in the
+ * inbox, a thread, or the Parked or Landed group's label.
+ */
+type DocketRow =
+  | { kind: "label" }
+  | { kind: "proposal"; proposal: DocketProposal }
+  | { kind: "thread"; thread: DocketThread }
+  | { kind: "parked-label" }
+  | { kind: "landed-label" };
 
-/** The rows a docket draws: its inbox under a label, newest first, then the rest. */
+/**
+ * The rows a docket draws: its inbox under a label — the arcs' follow-up
+ * proposals first, then its idea threads, newest first — then the rest, then
+ * the parked arcs under their own label, then the landed arcs under theirs,
+ * in the order they joined.
+ */
 function docketRows(threads: readonly DocketThread[]): DocketRow[] {
   const { inbox, rest } = partitionInbox(threads);
+  const proposals = docketProposals(threads);
   const rows: DocketRow[] = [];
-  if (inbox.length > 0) rows.push({ kind: "label" });
+  if (proposals.length > 0 || inbox.length > 0) rows.push({ kind: "label" });
+  for (const proposal of proposals) rows.push({ kind: "proposal", proposal });
   for (const thread of inbox) rows.push({ kind: "thread", thread });
-  for (const thread of rest) rows.push({ kind: "thread", thread });
+  const parked = rest.filter(isParkedThread);
+  for (const thread of rest) {
+    if (!isParkedThread(thread) && !isLandedThread(thread)) rows.push({ kind: "thread", thread });
+  }
+  if (parked.length > 0) rows.push({ kind: "parked-label" });
+  for (const thread of parked) rows.push({ kind: "thread", thread });
+  const landed = landedOrder(rest);
+  if (landed.length > 0) rows.push({ kind: "landed-label" });
+  for (const thread of landed) rows.push({ kind: "thread", thread });
   return rows;
 }
+
+/** The list id of a label row. */
+const LABEL_ROW_IDS: Readonly<Record<"label" | "parked-label" | "landed-label", string>> = {
+  label: "docket-inbox-label",
+  "parked-label": "docket-parked-label",
+  "landed-label": "docket-landed-label",
+};
 
 /** A flat, immutable source over one render's rows. */
 class DocketThreadSource implements TugListViewDataSource {
   constructor(
     readonly rows: readonly DocketRow[],
     readonly projectDir: string,
+    readonly docketId: string,
     readonly arcProject: ProjectChangeset | null,
     readonly open: ReadonlySet<string>,
   ) {}
@@ -222,13 +290,16 @@ class DocketThreadSource implements TugListViewDataSource {
   }
   idForIndex(index: number): string {
     const row = this.rows[index]!;
-    return row.kind === "label" ? "docket-inbox-label" : row.thread.key;
+    if (row.kind === "thread") return row.thread.key;
+    if (row.kind === "proposal") return row.proposal.key;
+    return LABEL_ROW_IDS[row.kind];
   }
   kindForIndex(index: number): string {
     return this.rows[index]!.kind;
   }
   roleForIndex(index: number): "cell" | "header" {
-    return this.rows[index]?.kind === "label" ? "header" : "cell";
+    const kind = this.rows[index]?.kind;
+    return kind === "thread" || kind === "proposal" ? "cell" : "header";
   }
   subscribe(): () => void {
     return () => {};
@@ -281,6 +352,7 @@ function ArcCell({
     <span
       className="docket-cell docket-cell-arc"
       data-slot="docket-arc-cell"
+      data-arc={arc.name}
       data-fate={arc.fate}
       data-stale={arc.stale === true ? "true" : undefined}
     >
@@ -391,6 +463,138 @@ const DocketInboxLabel: TugListViewCellRenderer<DocketThreadSource> = () => (
   <TugSectionLabel label={{ name: "Inbox" }} data-slot="docket-inbox-label" />
 );
 
+const DocketParkedLabel: TugListViewCellRenderer<DocketThreadSource> = () => (
+  <TugSectionLabel label={{ name: "Parked" }} data-slot="docket-parked-label" />
+);
+
+const DocketLandedLabel: TugListViewCellRenderer<DocketThreadSource> = () => (
+  <TugSectionLabel label={{ name: "Landed" }} data-slot="docket-landed-label" />
+);
+
+/**
+ * An audit follow-up the inbox proposes: the arc it came from, its line, and
+ * Accept and Dismiss, each dispatched to the card ([L11], [L30]).
+ */
+const DocketProposalCell: TugListViewCellRenderer<DocketThreadSource> = ({
+  index,
+  dataSource,
+}: TugListViewCellProps<DocketThreadSource>) => {
+  const { dispatch } = useControlDispatch();
+  const row = dataSource.rows[index];
+  if (row === undefined || row.kind !== "proposal") return null;
+  const { proposal } = row;
+  const press = (event: React.MouseEvent | undefined, action: TugAction): void => {
+    event?.stopPropagation();
+    event?.preventDefault();
+    dispatch({ action, value: proposal.key, phase: "discrete" });
+  };
+  return (
+    <TugListRow
+      variant="flush"
+      density="compact"
+      data-slot="docket-proposal-row"
+      data-proposal="true"
+      data-proposal-key={proposal.key}
+    >
+      <span className="docket-thread-cells">
+        <span className="docket-cell-note" data-slot="docket-proposal-from">
+          {`from ${proposal.arc}`}
+        </span>
+        <span className="docket-cell docket-cell-idea" data-slot="docket-proposal-text">
+          {proposal.text}
+        </span>
+        <TugPushButton
+          size="2xs"
+          emphasis="ghost"
+          data-tug-focus="refuse"
+          data-slot="docket-proposal-accept"
+          onClick={(event) => press(event, TUG_ACTIONS.ACCEPT_FOLLOW_UP)}
+        >
+          Accept
+        </TugPushButton>
+        <TugPushButton
+          size="2xs"
+          emphasis="ghost"
+          data-tug-focus="refuse"
+          data-slot="docket-proposal-dismiss"
+          onClick={(event) => press(event, TUG_ACTIONS.DISMISS_FOLLOW_UP)}
+        >
+          Dismiss
+        </TugPushButton>
+      </span>
+    </TugListRow>
+  );
+};
+
+/**
+ * A parked arc's line in the Parked group: the successor it was parked for,
+ * and Discard, which arms the card's danger confirm.
+ */
+function DocketParkedNote({ thread }: { thread: DocketThread }): React.ReactElement | null {
+  const { dispatch } = useControlDispatch();
+  const arc = thread.arc ?? null;
+  if (arc === null || !isParkedThread(thread)) return null;
+  return (
+    <span className="docket-thread-note" data-slot="docket-parked-note">
+      <span className="docket-cell-note">
+        {typeof arc.successor === "string" ? `parked for ${arc.successor}` : "parked"}
+      </span>
+      <TugPushButton
+        size="2xs"
+        emphasis="ghost"
+        data-tug-focus="refuse"
+        data-slot="docket-parked-discard"
+        onClick={(event) => {
+          event?.stopPropagation();
+          event?.preventDefault();
+          dispatch({
+            action: TUG_ACTIONS.REQUEST_DISCARD_PARKED_ARC,
+            value: thread.key,
+            phase: "discrete",
+          });
+        }}
+      >
+        Discard
+      </TugPushButton>
+    </span>
+  );
+}
+
+/**
+ * A landed arc's line in the Landed group: the commit that reverted its join,
+ * or Revert, which asks what a revert would undo and arms the card's confirm.
+ */
+function DocketLandedNote({ thread }: { thread: DocketThread }): React.ReactElement | null {
+  const { dispatch } = useControlDispatch();
+  const arc = thread.arc ?? null;
+  if (arc === null || !isLandedThread(thread)) return null;
+  if (typeof arc.reverted === "string" && arc.reverted.length > 0) {
+    return (
+      <span className="docket-thread-note" data-slot="docket-landed-note">
+        <span className="docket-cell-note">reverted by</span>
+        <TugCommitAtom sha={arc.reverted} data-slot="docket-landed-revert" />
+      </span>
+    );
+  }
+  return (
+    <span className="docket-thread-note" data-slot="docket-landed-note">
+      <TugPushButton
+        size="2xs"
+        emphasis="ghost"
+        data-tug-focus="refuse"
+        data-slot="docket-landed-revert-button"
+        onClick={(event) => {
+          event?.stopPropagation();
+          event?.preventDefault();
+          dispatch({ action: TUG_ACTIONS.REQUEST_REVERT_ARC, value: thread.key, phase: "discrete" });
+        }}
+      >
+        Revert
+      </TugPushButton>
+    </span>
+  );
+}
+
 const DocketThreadCell: TugListViewCellRenderer<DocketThreadSource> = ({
   index,
   dataSource,
@@ -411,6 +615,7 @@ const DocketThreadCell: TugListViewCellRenderer<DocketThreadSource> = ({
       data-slot="docket-thread-row"
       data-thread-key={thread.key}
       data-open={open ? "true" : undefined}
+      data-reverted={thread.arc?.reverted ? "true" : undefined}
     >
       <span className="docket-thread-cells">
         {thread.idea ? (
@@ -465,13 +670,30 @@ const DocketThreadCell: TugListViewCellRenderer<DocketThreadSource> = ({
         {hidden > 0 ? (
           <span className="docket-cell-more" data-slot="docket-thread-more">{`+${hidden}`}</span>
         ) : null}
+        {revisionPending(thread) ? (
+          <span className="docket-thread-note" data-slot="docket-thread-revision">
+            <ArcRevisionNotice
+              thread={thread}
+              docketId={dataSource.docketId}
+              projectDir={dataSource.projectDir}
+            />
+          </span>
+        ) : null}
+        <DocketParkedNote thread={thread} />
+        <DocketLandedNote thread={thread} />
       </span>
       <DocketGestureStrip thread={thread} />
     </TugListRow>
   );
 };
 
-const THREAD_CELL_RENDERERS = { label: DocketInboxLabel, thread: DocketThreadCell };
+const THREAD_CELL_RENDERERS = {
+  label: DocketInboxLabel,
+  proposal: DocketProposalCell,
+  thread: DocketThreadCell,
+  "parked-label": DocketParkedLabel,
+  "landed-label": DocketLandedLabel,
+};
 
 // ---------------------------------------------------------------------------
 // The name dialog
@@ -547,6 +769,21 @@ export function DocketCardContent({ cardId }: { cardId: string }): React.ReactEl
   // What the body shows: the threads, the sketch editor, or the reader.
   const [view, setView] = useState<DocketView>(THREADS_VIEW);
   const [verbsReady, setVerbsReady] = useState(false);
+  // A discard waiting on its danger confirm: Discard and reopen, or a parked
+  // arc's Discard.
+  const [discardAsk, setDiscardAsk] = useState<{
+    key: string;
+    reopen: boolean;
+    message: string;
+    anchor: HTMLElement | null;
+  } | null>(null);
+  // A landed arc's revert, waiting on its confirm: the sentence the dry run
+  // made, and the row it is anchored on.
+  const [revertAsk, setRevertAsk] = useState<{
+    key: string;
+    message: string;
+    anchor: HTMLElement | null;
+  } | null>(null);
   // An arc gesture on a stale brief, waiting on the confirm.
   const [staleAsk, setStaleAsk] = useState<{
     key: string;
@@ -841,6 +1078,87 @@ export function DocketCardContent({ cardId }: { cardId: string }): React.ReactEl
     [openGesture],
   );
 
+  // ---- An arc's answers to a newer brief ----
+
+  // The press's context: this docket, its project, and the card's sender.
+  const loopContext = useCallback((): LoopContext | null => {
+    const { docket: d, effectiveProjectDir: dir } = liveRef.current;
+    if (d === null || dir === null) return null;
+    return { projectDir: dir, docketId: d.id, originCardId: cardId, verbs: verbsRef.current };
+  }, [cardId]);
+
+  // Run one docket-loop act on the thread `key` names, saying how it went on
+  // the quiet line ([L31]).
+  const runLoop = useCallback(
+    (key: unknown, act: (ctx: LoopContext, thread: DocketThread) => Promise<string | null>): void => {
+      const ctx = loopContext();
+      const thread = liveRef.current.docket?.threads.find((t) => t.key === key);
+      if (ctx === null || thread === undefined) return;
+      setFilingLine(null);
+      void act(ctx, thread).then((said) => setFilingLine(said));
+    },
+    [loopContext],
+  );
+
+  // Answer the Inbox proposal `key` names, saying how it went on the quiet
+  // line ([L31]).
+  const runProposal = useCallback(
+    (key: unknown, act: (ctx: LoopContext, proposal: DocketProposal) => Promise<string | null>) => {
+      const ctx = loopContext();
+      const threads = liveRef.current.docket?.threads ?? [];
+      const proposal = docketProposals(threads).find((p) => p.key === key);
+      if (ctx === null || proposal === undefined) return;
+      setFilingLine(null);
+      void act(ctx, proposal).then((said) => setFilingLine(said));
+    },
+    [loopContext],
+  );
+
+  // Arm the danger confirm for a discard, anchored on the row.
+  const askDiscard = useCallback((key: unknown, reopen: boolean): void => {
+    if (typeof key !== "string") return;
+    const thread = liveRef.current.docket?.threads.find((t) => t.key === key);
+    const arc = thread?.arc ?? null;
+    if (arc === null) return;
+    const index = rowsRef.current.findIndex((r) => r.kind === "thread" && r.thread.key === key);
+    const rowEl = index === -1 ? null : (listRef.current?.getElementForIndex(index) ?? null);
+    const anchor =
+      rowEl?.querySelector<HTMLElement>(
+        reopen ? '[data-slot="arc-revision-discard"]' : '[data-slot="docket-parked-discard"]',
+      ) ?? rowEl;
+    const message = reopen
+      ? discardAndReopenMessage(arc.name)
+      : `Discard ${arc.name}? Its worktree and branch go; its work is archived, not landed.`;
+    setDiscardAsk({ key, reopen, message, anchor });
+  }, []);
+
+  // Ask what reverting the landed arc `key` names would undo, then arm the
+  // confirm anchored on its row; a refusal goes on the quiet line ([L31]).
+  const askRevert = useCallback(
+    (key: unknown): void => {
+      if (typeof key !== "string") return;
+      const ctx = loopContext();
+      const thread = liveRef.current.docket?.threads.find((t) => t.key === key);
+      if (ctx === null || thread === undefined || thread.arc === null || thread.arc === undefined) {
+        return;
+      }
+      const name = thread.arc.name;
+      setFilingLine(null);
+      void previewRevert(ctx, thread).then((answer) => {
+        if ("said" in answer) {
+          setFilingLine(answer.said);
+          return;
+        }
+        const index = rowsRef.current.findIndex((r) => r.kind === "thread" && r.thread.key === key);
+        const rowEl = index === -1 ? null : (listRef.current?.getElementForIndex(index) ?? null);
+        const anchor =
+          rowEl?.querySelector<HTMLElement>('[data-slot="docket-landed-revert-button"]') ?? rowEl;
+        setRevertAsk({ key, message: revertConfirmMessage(name, answer.preview), anchor });
+      });
+    },
+    [loopContext],
+  );
+
   // Read a sketch's latest version into the editor.
   const enterEditor = useCallback((id: string): void => {
     const verbs = verbsRef.current;
@@ -1007,6 +1325,20 @@ export function DocketCardContent({ cardId }: { cardId: string }): React.ReactEl
         const ref = parseKeptVersionRef(event.value);
         if (ref !== null) readKept(ref.id, { brief: ref.n });
       },
+      [TUG_ACTIONS.KEEP_GOING_ARC]: (event: ActionEvent) => runLoop(event.value, keepGoing),
+      [TUG_ACTIONS.OPEN_SUCCESSOR]: (event: ActionEvent) => {
+        const payload = parseSuccessorPayload(event.value);
+        if (payload === null) return;
+        runLoop(payload.key, (ctx, thread) => openSuccessor(ctx, thread, payload.boundary));
+      },
+      [TUG_ACTIONS.DISCARD_AND_REOPEN_ARC]: (event: ActionEvent) => askDiscard(event.value, true),
+      [TUG_ACTIONS.REQUEST_DISCARD_PARKED_ARC]: (event: ActionEvent) =>
+        askDiscard(event.value, false),
+      [TUG_ACTIONS.ACCEPT_FOLLOW_UP]: (event: ActionEvent) =>
+        runProposal(event.value, acceptFollowUp),
+      [TUG_ACTIONS.DISMISS_FOLLOW_UP]: (event: ActionEvent) =>
+        runProposal(event.value, dismissFollowUp),
+      [TUG_ACTIONS.REQUEST_REVERT_ARC]: (event: ActionEvent) => askRevert(event.value),
       [TUG_ACTIONS.REMOVE_THREAD_FROM_DOCKET]: (event: ActionEvent) => {
         const { docket: d, effectiveProjectDir: dir } = liveRef.current;
         if (d === null || dir === null) return;
@@ -1054,8 +1386,9 @@ export function DocketCardContent({ cardId }: { cardId: string }): React.ReactEl
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
   const source = useMemo(
-    () => new DocketThreadSource(rows, effectiveProjectDir ?? "", arcProject, open),
-    [rows, effectiveProjectDir, arcProject, open],
+    () =>
+      new DocketThreadSource(rows, effectiveProjectDir ?? "", docket?.id ?? "", arcProject, open),
+    [rows, effectiveProjectDir, docket?.id, arcProject, open],
   );
   const toggleFold = useCallback((key: string): void => {
     setOpen((prev) => {
@@ -1139,7 +1472,28 @@ export function DocketCardContent({ cardId }: { cardId: string }): React.ReactEl
     for (const gesture of gestures) {
       entries.push({ action: GESTURE_ACTIONS[gesture]!, value: key, label: DOCKET_GESTURE_LABELS[gesture] });
     }
-    if (gestures.length > 0) entries.push({ type: "separator" });
+    if (thread !== undefined && revisionPending(thread)) {
+      entries.push({ action: TUG_ACTIONS.KEEP_GOING_ARC, value: key, label: "Keep Going" });
+      if (thread.arc?.revision !== null && thread.arc?.revision !== undefined && thread.arc.parked !== true) {
+        for (const choice of boundaryChoices(thread.arc.revision)) {
+          entries.push({
+            action: TUG_ACTIONS.OPEN_SUCCESSOR,
+            value: [key, choice.boundary],
+            label: `Open Successor · ${choice.label}`,
+          });
+        }
+      }
+      entries.push({
+        action: TUG_ACTIONS.DISCARD_AND_REOPEN_ARC,
+        value: key,
+        label: "Discard and Reopen…",
+      });
+    } else if (thread !== undefined && isParkedThread(thread)) {
+      entries.push({ action: TUG_ACTIONS.REQUEST_DISCARD_PARKED_ARC, value: key, label: "Discard…" });
+    } else if (thread !== undefined && isLandedThread(thread) && !thread.arc?.reverted) {
+      entries.push({ action: TUG_ACTIONS.REQUEST_REVERT_ARC, value: key, label: "Revert…" });
+    }
+    if (entries.length > 0) entries.push({ type: "separator" });
     if (targets.length > 0) {
       entries.push({ type: "label", label: "Move to Docket" });
       for (const target of targets) {
@@ -1321,6 +1675,42 @@ export function DocketCardContent({ cardId }: { cardId: string }): React.ReactEl
             send((verbs, dir) => verbs.retire({ projectDir: dir, id: d.id, retired: true }));
           }}
           onCancel={() => setConfirmingRetire(false)}
+        />
+        <TugConfirmPopover
+          open={discardAsk !== null}
+          anchorEl={discardAsk?.anchor ?? null}
+          message={discardAsk?.message ?? ""}
+          confirmLabel="Discard"
+          confirm={{ role: "danger" }}
+          side="top"
+          align="end"
+          onConfirm={() => {
+            const ask = discardAsk;
+            setDiscardAsk(null);
+            if (ask === null) return;
+            const entryKey = `docket:${cardId}:${ask.key}`;
+            runLoop(ask.key, (ctx, thread) =>
+              ask.reopen
+                ? discardAndReopen(ctx, thread, entryKey)
+                : discardParked(ctx, thread, entryKey),
+            );
+          }}
+          onCancel={() => setDiscardAsk(null)}
+        />
+        <TugConfirmPopover
+          open={revertAsk !== null}
+          anchorEl={revertAsk?.anchor ?? null}
+          message={revertAsk?.message ?? ""}
+          confirmLabel="Revert"
+          confirm={{ role: "danger" }}
+          side="top"
+          align="end"
+          onConfirm={() => {
+            const ask = revertAsk;
+            setRevertAsk(null);
+            if (ask !== null) runLoop(ask.key, revertLanded);
+          }}
+          onCancel={() => setRevertAsk(null)}
         />
         <TugConfirmPopover
           open={staleAsk !== null}

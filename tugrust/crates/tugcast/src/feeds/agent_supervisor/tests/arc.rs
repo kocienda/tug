@@ -1349,6 +1349,123 @@ async fn an_ask_never_interrupts() {
     );
 }
 
+/// A git project holding a live `demo` arc whose two-step ledger has step 1
+/// open and whose worktree carries an uncommitted edit — the state a Stop
+/// pressed mid-step meets.
+fn project_with_an_open_step(root: &std::path::Path) {
+    GitFixture::init(root);
+    std::fs::write(root.join(".gitignore"), ".tug/\n.tugtool/\n").unwrap();
+    std::fs::write(root.join("a.txt"), "base\n").unwrap();
+    git(root, &["add", "-A"]);
+    git(root, &["commit", "-m", "base"]);
+    let paths = Paths::from_env();
+    tugarc_core::ops::create_in(&paths, root, "demo", None, false, None).unwrap();
+    std::fs::create_dir_all(root.join(".tug/arcs/demo")).unwrap();
+    std::fs::write(
+        root.join(".tug/arcs/demo/plan.md"),
+        "## Fixture Plan {#fixture-plan}\n\n### Execution Steps {#execution-steps}\n\n\
+         #### Step Status Ledger {#step-status-ledger}\n\n\
+         | Step | Title | Status | Commit |\n|---|---|---|---|\n\
+         | #step-1 | One | pending | — |\n| #step-2 | Two | pending | — |\n",
+    )
+    .unwrap();
+    tugarc_core::ops::step_start_in(&paths, root, "demo", 1, 2).unwrap();
+    let worktree = tugarc_core::ops::worktree_path(root, "demo");
+    std::fs::write(worktree.join("half.txt"), "half a step\n").unwrap();
+}
+
+/// The `demo` arc's log markers, in order, from the first `marker` on.
+fn demo_markers(root: &std::path::Path) -> Vec<String> {
+    let path = tugtool_core::paths::arc_log_path_at(&Paths::from_env(), root);
+    std::fs::read_to_string(path)
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|line| {
+            let (_, arc, marker, _) = tugarc_core::log::split_log_line(line)?;
+            (arc == "demo").then(|| marker.to_owned())
+        })
+        .collect()
+}
+
+/// **A user's Stop leaves whole steps** ([B07]). The open step goes back to
+/// `pending`, the settle names where the cut-off work is, and only then does
+/// the stop's own line land — so a resumed arc reads a step boundary.
+#[tokio::test]
+async fn a_user_stop_over_an_open_step_settles_before_it_records_the_stop() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    project_with_an_open_step(&root);
+    let (sup, entry, _input_rx, _register_rx) = stop_harness(&root, true).await;
+    entry.lock().await.stage_turn_active(false);
+
+    sup.stop_arc_now(
+        "claude-1",
+        &root,
+        "demo",
+        StopTerms {
+            stage: tugarc_core::ArcStage::Implement,
+            reason: tugarc_core::arc::ArcStopReason::StoppedByUser,
+            question: None,
+            halt: true,
+        },
+    )
+    .await
+    .expect("the stop lands");
+
+    let markers = demo_markers(&root);
+    let tail: Vec<&str> = markers
+        .iter()
+        .map(String::as_str)
+        .filter(|m| matches!(*m, "step-reset" | "partial" | "arc-stop"))
+        .collect();
+    assert_eq!(
+        tail,
+        vec!["step-reset", "partial", "arc-stop"],
+        "{markers:?}"
+    );
+    let worktree = tugarc_core::ops::worktree_path(&root, "demo");
+    assert!(!worktree.join("half.txt").exists());
+    assert!(
+        git(&root, &["rev-parse", "--verify", "refs/tug/partial/demo"])
+            .trim()
+            .len()
+            >= 40
+    );
+}
+
+/// And a stage's own `arc ask` over the same state settles nothing: it is
+/// mid-thought, not abandoned, and its half-made work is what it resumes to.
+#[tokio::test]
+async fn an_ask_over_an_open_step_settles_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    project_with_an_open_step(&root);
+    let (sup, entry, _input_rx, _register_rx) = stop_harness(&root, true).await;
+    entry.lock().await.stage_turn_active(false);
+
+    sup.stop_arc_now(
+        "claude-1",
+        &root,
+        "demo",
+        StopTerms {
+            stage: tugarc_core::ArcStage::Implement,
+            reason: tugarc_core::arc::ArcStopReason::NeedsDecision,
+            question: Some("which of the two?"),
+            halt: false,
+        },
+    )
+    .await
+    .expect("the stop lands");
+
+    let markers = demo_markers(&root);
+    assert!(
+        !markers.iter().any(|m| m == "partial" || m == "step-reset"),
+        "{markers:?}"
+    );
+    let worktree = tugarc_core::ops::worktree_path(&root, "demo");
+    assert!(worktree.join("half.txt").exists());
+}
+
 /// **A stop that did not happen answers `_err`** ([L31]). With no wheel
 /// there is nowhere for the hand-back or the receipt to go, so nothing is
 /// stopped and nothing is recorded — and a green button over an arc still

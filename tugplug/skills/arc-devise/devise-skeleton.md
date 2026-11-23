@@ -1,4 +1,4 @@
-<!-- devise-skeleton v6 -->
+<!-- devise-skeleton v7 -->
 
 <!--
   This is the format contract for plans authored by `/tugplug:arc-devise` and walked
@@ -198,6 +198,7 @@ Rules:
 - Cite **anchors** for deep links in parentheses using `#anchor` tokens (keep them stable).
 - **Do not cite line numbers.** If you find yourself writing "lines 5–10", add an anchor and cite that instead.
 - Prefer **rich, exhaustive citations**. Avoid `N/A` unless the step is truly refactor-only.
+- A step reaches the **brief's decisions** through the `[P##]` decisions it cites, each of which names its `[B##]` on its `**Brief:**` line. A step may also name a `[B##]` directly on its References line. A step that cites no decision with a `**Brief:**` line and names no `[B##]` carries nothing anyone can trace back to the brief, so a revised brief cannot say whether it is still sound.
 
 **Good References examples:**
 
@@ -263,10 +264,17 @@ Table T05, (#op-rename, #fundamental-wall)
 > — that prefix belongs to the project's global design decisions, where it keeps any. When a
 > plan-local decision restates or depends on a global one, cite the global by ID in the
 > rationale (e.g. "follows [D40]").
+>
+> Every decision carries a `**Brief:**` line naming the brief decisions (`[B##]`) it carries,
+> or `**Brief:** none` when it carries none. Silence is not the same as none: a revised brief
+> is judged against the finished steps by these lines, and `tugtool plan lint` warns on a
+> decision that has no line.
 
 #### [P01] <Decision Name> (DECIDED) {#p01-decision-slug}
 
 **Decision:** <One sentence decision statement>
+
+**Brief:** [B01], [B04]
 
 **Rationale:**
 - <Why>

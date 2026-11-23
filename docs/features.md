@@ -239,7 +239,7 @@ Every hand-off is checked by machine. A stage that ends without what it owed sto
 
 ### Stops and resumes
 
-An interrupted arc always ends in a state the receipt can name and a gesture that picks it back up. The receipt reads `arc stopped · <name> · in <stage> — <why>`, and carries a Resume button; `tugtool arc run <name>` is the same act from a shell. Among the reasons: `needs a decision` (the stage met a choice that is yours, and wrote its question as the arc's last note), `stopped by user`, `card taken` (you started a new session on the card), `card closed`, `stalled` (a turn that never ended, judged by a half-hour clock), and `implement idle` (the stage was asked twice and closed no step).
+An interrupted arc always ends in a state the receipt can name and a gesture that picks it back up. The receipt reads `arc stopped · <name> · in <stage> — <why>`, and carries a Resume button; `tugtool arc run <name>` is the same act from a shell. Among the reasons: `needs a decision` (the stage met a choice that is yours, and wrote its question as the arc's last note), `stopped by user`, `card taken` (you started a new session on the card), `card closed`, `stalled` (a turn that never ended, judged by a half-hour clock), and `implement idle` (the stage was asked twice and closed no step). A `stopped by user` pressed in the middle of a step leaves whole steps: the step goes back to pending, the worktree returns to where the last finished step left it, and the unfinished work is kept at `refs/tug/partial/<name>` rather than thrown away.
 
 You can take the card back at any time: a prompt typed into a stage during implement redirects it, and `/btw` asks a side question without disturbing anything.
 

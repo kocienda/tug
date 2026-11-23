@@ -5,6 +5,7 @@
 mod arc;
 mod changeset;
 mod deck;
+mod docket_loop;
 mod dockets;
 mod ideas;
 mod records;

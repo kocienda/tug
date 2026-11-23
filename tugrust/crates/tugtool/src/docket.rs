@@ -264,6 +264,12 @@ fn render(d: &Docket, threads: &[Thread], repo: &Path) -> String {
                 a.name,
                 a.created
             ));
+            if let Some(revision) = &a.revision {
+                out.push_str(&format!(
+                    "           {}\n",
+                    tugarc_core::brief_revision::summary_line(revision)
+                ));
+            }
         }
         for s in &t.sessions {
             let who = s.callsign.as_deref().unwrap_or(&s.uuid);

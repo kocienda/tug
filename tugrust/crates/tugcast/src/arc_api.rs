@@ -293,6 +293,7 @@ pub(crate) fn arc_run(
     project_dir: &std::path::Path,
     tug_session_id: &str,
     arc: &str,
+    succession: Option<(&str, &str)>,
 ) -> ArcApiOutcome {
     // The live segment, resolved before anything is written: an open that
     // landed and then failed to bind would leave the arc reading live with
@@ -301,7 +302,16 @@ pub(crate) fn arc_run(
         Ok(live) => live,
         Err(outcome) => return outcome,
     };
-    if tugarc_core::arc::read_arc(&Paths::from_env(), project_dir, arc).is_none() {
+    let paths = Paths::from_env();
+    // A successor opens through the one act that checks and records its
+    // succession; on a live record that already succeeds the same arc from the
+    // same commit it opens nothing and the bind below seats it, so a door that
+    // runs twice is a no-op rather than a refusal.
+    if let Some((old, from)) = succession {
+        if let Err(e) = tugarc_core::ops::open_successor(&paths, project_dir, arc, old, from) {
+            return ArcApiOutcome::Error(e.to_string());
+        }
+    } else if tugarc_core::arc::read_arc(&paths, project_dir, arc).is_none() {
         if let Err(e) = tugarc_core::ops::open_arc(&Paths::from_env(), project_dir, arc) {
             return ArcApiOutcome::Error(e.to_string());
         }
@@ -810,7 +820,7 @@ mod tests {
         write_brief(root, "beta");
 
         assert!(matches!(
-            arc_run(&ledger, root, "claude-1", "beta"),
+            arc_run(&ledger, root, "claude-1", "beta", None),
             ArcApiOutcome::Bound { .. }
         ));
         let record = tugarc_core::arc::read_arc(&Paths::from_env(), root, "beta")
@@ -826,7 +836,7 @@ mod tests {
         write_tasks(root, "gamma");
 
         assert!(matches!(
-            arc_run(&ledger, root, "claude-1", "gamma"),
+            arc_run(&ledger, root, "claude-1", "gamma", None),
             ArcApiOutcome::Bound { .. }
         ));
         let record = tugarc_core::arc::read_arc(&Paths::from_env(), root, "gamma")
@@ -846,7 +856,7 @@ mod tests {
         let root = dir.path();
         let ledger = idle_card(root);
 
-        match arc_run(&ledger, root, "claude-1", "beta") {
+        match arc_run(&ledger, root, "claude-1", "beta", None) {
             ArcApiOutcome::Error(message) => {
                 assert!(
                     message.contains("has no brief, plan, or task list"),
@@ -889,7 +899,7 @@ mod tests {
         .unwrap();
 
         assert!(matches!(
-            arc_run(&ledger, root, "claude-1", "beta"),
+            arc_run(&ledger, root, "claude-1", "beta", None),
             ArcApiOutcome::Bound { .. }
         ));
         let record = tugarc_core::arc::read_arc(&Paths::from_env(), root, "beta")

@@ -292,6 +292,19 @@ pub struct ArcFacts {
     /// because a stage between turns has an edge to be judged on and the
     /// horizon answers it in one turn rather than in thirty minutes.
     pub stalled: bool,
+    /// The user asked that the arc be parked so a successor can start from
+    /// its finished steps, and no parked stop has answered the request yet.
+    /// Honoured at the first idle moment with no ledger row open: a step
+    /// boundary, never the middle of a step.
+    pub park_requested: bool,
+}
+
+/// Whether `record` carries a park request no parked stop has answered, on an
+/// arc that is running. An answered request stays on the record so a surface
+/// can name the successor, and a resumed parked arc runs on rather than being
+/// parked again at its next boundary.
+pub fn park_outstanding(record: &ArcRecord) -> bool {
+    record.park.as_ref().is_some_and(|p| !p.honoured) && record.stopped.is_none()
 }
 
 impl ArcFacts {
@@ -755,6 +768,18 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
         }
     }
 
+    // A park the user asked for is honoured at the first step boundary. Above
+    // the compaction arms, so a boundary that would compact parks instead, and
+    // above `match stage`, so it outranks the implement stage's `Done` and the
+    // next rotation. A turn that ended on a `yield:` leaves its step open, so
+    // the arm waits and the yield's compaction runs as usual.
+    if facts.park_requested && !facts.ledger.step_open {
+        return Some(ArcAction::Stop {
+            stage: stage.unwrap_or(ArcStage::Devise),
+            reason: ArcStopReason::Parked,
+        });
+    }
+
     // A continued stage above the compaction threshold at a step boundary is
     // compacted before anything else is considered — a compaction is the
     // cheaper act and keeps the session, its context, and its label. The arm
@@ -1108,6 +1133,9 @@ mod tests {
             resume: None,
             dispatched: None,
             owner: None,
+            brief_kept: None,
+            park: None,
+            succeeds: None,
             done: false,
             last_activity: Some("2026-08-24T00:00:00Z".to_string()),
         }
@@ -1149,6 +1177,7 @@ mod tests {
             quiet_turns: 0,
             reask_pending: false,
             stalled: false,
+            park_requested: false,
         }
     }
 
@@ -2209,6 +2238,82 @@ mod tests {
         facts.context_share = share;
         facts.yielded_since_ask = true;
         facts
+    }
+
+    /// A park waits out an open step, even one that yielded: the yield's
+    /// compaction runs as it would have.
+    #[test]
+    fn a_park_waits_for_the_step_boundary() {
+        let mut facts = yielded(Some(0.65));
+        facts.park_requested = true;
+        let (kind, _) = prompt(arc_action(&record(&[ArcStage::Implement]), &facts));
+        assert_eq!(kind, PromptKind::Compact);
+    }
+
+    #[test]
+    fn a_park_stops_the_arc_at_a_step_boundary() {
+        let mut facts = implementing(Some(400_000), true);
+        facts.park_requested = true;
+        assert_eq!(
+            arc_action(&record(&[ArcStage::Implement]), &facts),
+            Some(ArcAction::Stop {
+                stage: ArcStage::Implement,
+                reason: ArcStopReason::Parked
+            }),
+            "a boundary that would compact parks instead"
+        );
+    }
+
+    #[test]
+    fn a_park_stops_an_idle_review() {
+        let mut facts = facts();
+        facts.park_requested = true;
+        assert_eq!(
+            arc_action(&record(&[ArcStage::Review]), &facts),
+            Some(ArcAction::Stop {
+                stage: ArcStage::Review,
+                reason: ArcStopReason::Parked
+            })
+        );
+    }
+
+    #[test]
+    fn a_park_outranks_done_on_the_final_step() {
+        let mut facts = facts();
+        facts.ledger.run_complete = true;
+        facts.audit_declared = true;
+        facts.park_requested = true;
+        assert_eq!(
+            arc_action(&record(&[ArcStage::Implement]), &facts),
+            Some(ArcAction::Stop {
+                stage: ArcStage::Implement,
+                reason: ArcStopReason::Parked
+            })
+        );
+    }
+
+    /// A parked arc the user resumed carries its answered request, which asks
+    /// nothing: the boundary gets its ordinary next action.
+    #[test]
+    fn an_answered_park_on_a_resumed_arc_is_not_parked_again() {
+        let mut resumed = record(&[ArcStage::Implement]);
+        resumed.park = Some(tugarc_core::arc::ParkRequest {
+            successor: "demo-v2".into(),
+            boundary: "tip".into(),
+            honoured: true,
+        });
+        assert!(!park_outstanding(&resumed));
+        let mut facts = implementing(Some(120_000), true);
+        facts.park_requested = park_outstanding(&resumed);
+        let (kind, _) = prompt(arc_action(&resumed, &facts));
+        assert_eq!(kind, PromptKind::Continue { steps: (4, 9) });
+
+        // An unanswered one on a running arc is outstanding; on a stopped arc
+        // it is the stop's to answer.
+        resumed.park.as_mut().unwrap().honoured = false;
+        assert!(park_outstanding(&resumed));
+        resumed.stopped = Some((ArcStage::Implement, "stopped by user".into()));
+        assert!(!park_outstanding(&resumed));
     }
 
     #[test]

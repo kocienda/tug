@@ -144,4 +144,62 @@ describe("isDocketsSnapshot", () => {
     expect(bad((t) => { (t.brief as Record<string, unknown>).stale = "yes"; })).toBe(false);
     expect(bad((t) => { (t.arc as Record<string, unknown>).runs = "2"; })).toBe(false);
   });
+
+  test("a stale live arc's revision, park and succession decode", () => {
+    const frame = specFrame();
+    const arc = frame.projects[0].dockets[0].threads[0].arc as Record<string, unknown>;
+    arc.fate = "live";
+    arc.revision = {
+      from_version: 1,
+      to_version: 2,
+      added: [{ label: "B03", title: "A third" }],
+      changed: [{ label: "B02", title: "The second" }],
+      removed: [],
+      affected_steps: [2],
+      uncited_steps: [],
+      done_steps: [1, 2],
+      offer: { kind: "successor_step", after: 1 },
+      kept_through: 1,
+      parked: true,
+    };
+    arc.parked = true;
+    arc.successor = "rail-panel-v2";
+    arc.park_boundary = "step:1";
+    arc.succeeds = "rail";
+    arc.proposals = [{ k: 1, text: "Name the rails" }];
+    arc.joined_at = "2026-11-02T00:00:00Z";
+    arc.reverted = "fedcba98";
+    expect(isDocketsSnapshot(frame)).toBe(true);
+
+    // Each offer the server names decodes; an unknown one does not.
+    for (const offer of [
+      { kind: "keep_going" },
+      { kind: "successor_tip" },
+      { kind: "successor_fork" },
+      { kind: "pick" },
+    ]) {
+      (arc.revision as Record<string, unknown>).offer = offer;
+      expect(isDocketsSnapshot(frame)).toBe(true);
+    }
+    (arc.revision as Record<string, unknown>).offer = { kind: "successor_step" };
+    expect(isDocketsSnapshot(frame)).toBe(false);
+    (arc.revision as Record<string, unknown>).offer = { kind: "rewind" };
+    expect(isDocketsSnapshot(frame)).toBe(false);
+  });
+
+  test("a revision or park field of the wrong type is not a snapshot", () => {
+    const bad = (patch: (a: Record<string, unknown>) => void) => {
+      const frame = specFrame();
+      patch(frame.projects[0].dockets[0].threads[0].arc as Record<string, unknown>);
+      return isDocketsSnapshot(frame);
+    };
+    expect(bad((a) => { a.parked = "yes"; })).toBe(false);
+    expect(bad((a) => { a.successor = 2; })).toBe(false);
+    expect(bad((a) => { a.park_boundary = 1; })).toBe(false);
+    expect(bad((a) => { a.proposals = [{ k: "1", text: "x" }]; })).toBe(false);
+    expect(bad((a) => { a.proposals = "none"; })).toBe(false);
+    expect(bad((a) => { a.joined_at = 1; })).toBe(false);
+    expect(bad((a) => { a.reverted = true; })).toBe(false);
+    expect(bad((a) => { a.revision = { from_version: 1, to_version: 2 }; })).toBe(false);
+  });
 });
