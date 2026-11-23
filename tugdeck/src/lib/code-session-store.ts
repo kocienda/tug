@@ -54,9 +54,11 @@ import type { SessionRefVerdict } from "./session-ref-block";
 import type { ArcRefFate, ArcRefVerdict } from "./arc-ref-block";
 import type { SketchRefVerdict } from "./sketch-ref-block";
 import type { DocketRefVerdict } from "./docket-ref-block";
+import type { IdeaRefVerdict } from "./idea-ref-block";
 import { arcCitationStore } from "./arc-citation-store";
 import { sketchCitationStore } from "./sketch-citation-store";
 import { docketCitationStore } from "./docket-citation-store";
+import { ideaCitationStore } from "./idea-citation-store";
 import { arcAtomName } from "./record-atom-shape";
 import { putImageBytes, synthesizeUserMessageFromBlocks } from "./synthesize-user-message";
 import {
@@ -359,6 +361,36 @@ function docketAtomVerdict(
     projectDir: answer.projectDir,
     threads: answer.threads,
     retired: answer.retired,
+  };
+}
+
+/**
+ * What the client knows about one idea atom, for the idea reference block, on
+ * the docket's terms: the server's `projectDir` is the canonical form of the
+ * checkout that holds the idea ([L29]).
+ */
+function ideaAtomVerdict(
+  atom: AtomSegment,
+  composerKey: string | undefined,
+): {
+  verdict: IdeaRefVerdict;
+  text?: string;
+  projectDir?: string;
+  docket?: string;
+  sketch?: string;
+} {
+  const answer = ideaCitationStore.getAnswer(atom.value);
+  if (answer.status === "missing") return { verdict: "absent" };
+  if (answer.status === "pending") return { verdict: "unverified" };
+  return {
+    verdict:
+      composerKey !== undefined && answer.projectDir === composerKey
+        ? "here"
+        : "elsewhere",
+    text: answer.text,
+    projectDir: answer.projectDir,
+    ...(answer.docket !== null ? { docket: answer.docket } : {}),
+    ...(answer.sketch !== null ? { sketch: answer.sketch } : {}),
   };
 }
 
@@ -1087,6 +1119,7 @@ export class CodeSessionStore extends Subscribable {
       arcVerdict: (atom) => arcAtomVerdict(atom, this.projectKey),
       sketchVerdict: (atom) => sketchAtomVerdict(atom, this.projectKey),
       docketVerdict: (atom) => docketAtomVerdict(atom, this.projectKey),
+      ideaVerdict: (atom) => ideaAtomVerdict(atom, this.projectKey),
     });
     // A leading command atom is sent as a clean `/name` for claude to
     // expand (no `@`-mention marker), so `wire.content` can't round-trip the
@@ -1696,6 +1729,7 @@ export class CodeSessionStore extends Subscribable {
       arcVerdict: (atom) => arcAtomVerdict(atom, this.projectKey),
       sketchVerdict: (atom) => sketchAtomVerdict(atom, this.projectKey),
       docketVerdict: (atom) => docketAtomVerdict(atom, this.projectKey),
+      ideaVerdict: (atom) => ideaAtomVerdict(atom, this.projectKey),
     });
     const synth = synthesizeUserMessageFromBlocks(wire.content, this.atomBytesStore, {
       atomIdAt: wire.atomIdAt,

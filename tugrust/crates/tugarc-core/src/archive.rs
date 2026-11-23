@@ -154,9 +154,17 @@ pub fn archive_documents(
     // recorded it. A sketch that cannot be recorded leaves the entry without
     // an id, never the archive unwritten.
     let sketch_id = if source.join("sketch.md").is_file() {
-        crate::sketch::record_arc_sketch(paths, repo, name)
-            .ok()
+        // A refusal over a user's version has already put the user's text back
+        // in the working copy the entry copies, so the entry still names the
+        // generation's sketch.
+        crate::sketch::record_arc_sketch(paths, repo, name, None)
             .map(|r| r.id)
+            .ok()
+            .or_else(|| {
+                let log_path = tugtool_core::paths::arc_log_path_at(paths, repo);
+                let log = fs::read_to_string(log_path).unwrap_or_default();
+                crate::log::generation_sketch_id(&log, name)
+            })
     } else {
         None
     };
@@ -557,6 +565,34 @@ mod tests {
         assert_eq!(
             entry(&paths, &repo, "wedge", Some("20250101T000000Z")),
             None
+        );
+    }
+
+    #[test]
+    fn an_archive_keeps_the_users_sketch_over_a_stages_rewrite() {
+        let (_temp, repo, paths) = scratch();
+        log_lines(
+            &paths,
+            &repo,
+            "2026-11-22T14:59:33Z  hand  arc-start  arc/hand-brief.md\n",
+        );
+        let first = "# Sketch\n\nWant it.\n\nSource: session u, turns 1–2\n";
+        let hand = "# Sketch\n\nWant it, as the user put it.\n";
+        write_docs(&repo, "hand", &[("sketch.md", first)]);
+        let made = crate::sketch::record_arc_sketch(&paths, &repo, "hand", None).unwrap();
+        crate::sketch::edit_sketch(&paths, &repo, &made.id, hand, 1).unwrap();
+        write_docs(
+            &repo,
+            "hand",
+            &[("sketch.md", "# Sketch\n\nA stage's rewrite.\n")],
+        );
+
+        let entry =
+            archive_documents(&paths, &repo, "hand", ArchiveFate::Discarded, None, None).unwrap();
+        assert_eq!(entry.sketch_id.as_deref(), Some(made.id.as_str()));
+        assert_eq!(
+            fs::read_to_string(entry.dir.join("sketch.md")).unwrap(),
+            hand
         );
     }
 

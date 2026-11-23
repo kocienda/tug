@@ -8,7 +8,7 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Arc log.** The append-only record of an arc: every *round*, every *step* declaration, every *mark*, every *stop*. Everything a surface says about an arc that git cannot see is read from here. `tugtool arc record <name>` reads it back.
 
-**Arc shade.** The *shade* the arc reading in the *status row* raises, also on Option-Command-R. With an *arc* bound it holds three numbered panels, each with a progress dot: Sketch across the whole top, saying what is wanted and the shape of the work, and Brief and Arc beneath it, the last carrying the arc's steps and verbs. A press on Brief or Arc expands it. With no arc it is short, and says what an arc is and how to start one.
+**Arc shade.** The *shade* the arc reading in the *status row* raises, also on Option-Command-R. With an *arc* bound it holds three numbered panels, each with a progress dot: Sketch across the whole top, saying what is wanted and the shape of the work, and Brief and Arc beneath it, the last carrying the arc's steps and verbs. A press on Brief or Arc expands it. When the arc is on a *docket*, a press on Sketch opens the *Docket card* at the arc's thread with its sketch in the editor, and Open in Docket under Brief opens the card at the thread. With no arc it is short, and says what an arc is and how to start one.
 
 **Arcs (sidebar).** The *sidebar card* that lists every arc in every open project with its lifecycle strip and step progress, and the verbs to run, stop, join, replay or discard it.
 
@@ -106,7 +106,7 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Hint.** What a shell command earns in the *ledger* when it names no files: a note of what git saw change while it ran. A hint never makes a session an owner of a change.
 
-**Idea.** The seed of work: a concept for an investigation, feature, change or fix, typed as a prompt. The bottom rung of the *artifact ladder*, which runs idea, *sketch*, *brief*, *plan*.
+**Idea.** The seed of work: a concept for an investigation, feature, change or fix, typed as a prompt. The bottom rung of the *artifact ladder*, which runs idea, *sketch*, *brief*, *plan*. Typed into the *Docket card*'s field, an idea is filed on the docket: one line, an optional body, and an atom you can place in a prompt. Sketch it opens a session that starts from it, and `tugtool idea show <id>` reads it back.
 
 **Image card.** A card that shows a picture fit to the card, filling it, or at actual size. A click opens it full screen.
 
@@ -114,11 +114,15 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Imposition.** The scheme under which the *deck* arranges cards. The word comes from printing, where imposition is the arrangement of pages on the press sheet so each lands in place when folded and bound. You choose one to six *slots*; every card lives in one at the width you set; the deck does the arithmetic. You never position a card by hand.
 
+**Inbox.** The ideas on a *docket* that nothing has been made from yet: no sketch, no brief, no arc. The *Docket card* lists them first, newest first, under an Inbox label.
+
 **Join.** The merge of an arc back onto its *base*, done by Tug and asked for by you. It lands the whole arc as one commit, with the *join draft* as its message, a `Tug-Arc:` trailer, and one receipt in the transcript, and cleans up the branch and worktree. The model never joins. A join resolves nothing: an arc is offered only while its *audit* stands on the live base, and one whose base or rounds moved since goes back to its audit, which fits it to the new base before the offer returns. `/arc-join <name>`. A join can be undone.
 
 **Join draft.** The squash message the join will land, written by the *audit* stage with `tugtool draft set`. The only durable prose the base carries about an arc, so it describes the change, never the arc's history.
 
 **Jot.** A saved prompt fragment, something you found yourself typing again, kept in the *Jots* sidebar and ready to drag into any *composer*. Command-J makes a new one.
+
+**Keep sketch.** The *Docket card* gesture that writes the shape a session arrived at for an *idea* as that idea's *sketch*, and keeps it as a new version. It opens a session that runs `/tugplug:keep-sketch` on the idea. Keep sketch is offered once the idea has been sketched in a session.
 
 **Keyed table.** The table under a *diagram*, with one row for each numbered disc in the figure: the part's name, what it does, and where it is in the code. A location Tug can confirm is a link that opens the file in a card; one it cannot is marked unresolved.
 
@@ -194,7 +198,7 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Sigil.** The caret, `^`, that an arc wears wherever it is named to a person, as in `juicy-roach^arc-steps`. It draws the departure and return the word names.
 
-**Sketch.** The converged shape of the conversation an *idea* starts: what you and the model arrive at by going back and forth. When an arc's door writes a sketch down, it gets an id of its own and every version of it is kept, so `tugtool sketch show <id>` can read it back later. It stays informal: no skeleton and no required sections. An idea can skip this rung.
+**Sketch.** The converged shape of the conversation an *idea* starts: what you and the model arrive at by going back and forth. When an arc's door writes a sketch down, it gets an id of its own and every version of it is kept, so `tugtool sketch show <id>` can read it back later. It stays informal: no skeleton and no required sections. An idea can skip this rung. A filed idea's sketch is made with *Keep sketch*, and you can edit a sketch by hand on the *Docket card*: your version is marked as yours, and no stage ever rewrites it.
 
 **Slot.** One of the one to six numbered places on the *deck*. Every card lives in a slot at the width you set. A slot holding more than one card is either a *stack* or a *split*.
 
@@ -205,6 +209,8 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 **Stack.** The default arrangement of a slot with several cards: they share one place, the front card is the one you see, and a layers badge counts the ones behind it. Click the badge or press Command-R for a picker. Option-Command-Left Bracket and Option-Command-Right Bracket step through the stack.
 
 **Stage.** One rotation of the *wheel* on an arc: *devise*, *review*, *implement* or *audit*, each a fresh session that reads the arc's documents cold. Not to be confused with the arc's derived *state* words.
+
+**Stale.** Made from an older version than the one there is now. A *brief* is stale when the *sketch* it was written from has a newer version, and the *Docket card* marks it so, with the two versions named. Opening an arc on a stale brief asks first. Stale is a fact to see, not an error: the brief may still be right.
 
 **State (of an arc).** One of seven words read from git and the arc log on every look: `created`, `working`, `implementing`, `built`, `audited`, `draft-ready` and `joining`. The Arcs sidebar shows them on each arc's lifecycle strip.
 

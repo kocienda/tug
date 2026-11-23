@@ -984,6 +984,119 @@ export function encodeSearchDockets(opts: {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Idea verbs (Spec S03)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build an `idea_create` CONTROL request frame: make an idea from its one line
+ * and file it onto `docketId`. The idea is kept even when the docket refuses
+ * the filing; the reply's outcome says so.
+ */
+export function encodeIdeaCreate(opts: {
+  projectDir: string;
+  docketId: string;
+  text: string;
+  body?: string;
+  requestId: string;
+}): Frame {
+  return controlFrame("idea_create", {
+    project_dir: opts.projectDir,
+    docket_id: opts.docketId,
+    text: opts.text,
+    ...(opts.body !== undefined ? { body: opts.body } : {}),
+    request_id: opts.requestId,
+  });
+}
+
+/** Build an `idea_add_session` CONTROL request frame. */
+export function encodeIdeaAddSession(opts: {
+  projectDir: string;
+  id: string;
+  uuid: string;
+  requestId: string;
+}): Frame {
+  return controlFrame("idea_add_session", {
+    project_dir: opts.projectDir,
+    id: opts.id,
+    uuid: opts.uuid,
+    request_id: opts.requestId,
+  });
+}
+
+/**
+ * Build a `resolve_ideas` CONTROL request frame — "which of these idea ids
+ * does this machine hold?" An id is looked for under every checkout.
+ */
+export function encodeResolveIdeas(opts: {
+  projectDir: string;
+  ids: readonly string[];
+  requestId: string;
+}): Frame {
+  return controlFrame("resolve_ideas", {
+    project_dir: opts.projectDir,
+    ids: opts.ids,
+    request_id: opts.requestId,
+  });
+}
+
+/**
+ * Build a `search_ideas` CONTROL request frame — this checkout's ideas whose
+ * line contains the fragment or whose id it begins, newest first, at most 20.
+ */
+export function encodeSearchIdeas(opts: {
+  projectDir: string;
+  query: string;
+  requestId: string;
+}): Frame {
+  return controlFrame("search_ideas", {
+    project_dir: opts.projectDir,
+    query: opts.query,
+    request_id: opts.requestId,
+  });
+}
+
+/**
+ * Build a `sketch_read` CONTROL request frame: a version of a sketch's text
+ * (the latest when `version` is absent), or with `brief` one of its brief
+ * versions' kept bytes.
+ */
+export function encodeSketchRead(opts: {
+  projectDir: string;
+  id: string;
+  version?: number;
+  brief?: number;
+  requestId: string;
+}): Frame {
+  return controlFrame("sketch_read", {
+    project_dir: opts.projectDir,
+    id: opts.id,
+    ...(opts.version !== undefined ? { version: opts.version } : {}),
+    ...(opts.brief !== undefined ? { brief: opts.brief } : {}),
+    request_id: opts.requestId,
+  });
+}
+
+/**
+ * Build a `sketch_edit` CONTROL request frame: keep `text` as the user's
+ * version of the sketch. Refused when `baseVersion` is no longer the latest.
+ */
+export function encodeSketchEdit(opts: {
+  projectDir: string;
+  id: string;
+  text: string;
+  baseVersion: number;
+  requestId: string;
+}): Frame {
+  return controlFrame("sketch_edit", {
+    project_dir: opts.projectDir,
+    id: opts.id,
+    text: opts.text,
+    base_version: opts.baseVersion,
+    request_id: opts.requestId,
+  });
+}
+
 /**
  * Build a `search_sessions` CONTROL request frame — "which sessions on this
  * machine does this fragment name?", the read behind the composer's `@` popup.
@@ -2334,6 +2447,236 @@ export function decodeDocketVerbErr(payload: unknown): DocketVerbErr | null {
   if (!(DOCKET_VERBS as readonly string[]).includes(verb)) return null;
   return {
     verb: verb as DocketVerb,
+    requestId: typeof obj.request_id === "string" ? obj.request_id : null,
+    message: typeof obj.message === "string" ? obj.message : "",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Idea verb replies (Spec S03)
+// ---------------------------------------------------------------------------
+
+/** One idea a `search_ideas` found, or the one `idea_create` made. */
+export interface IdeaRef {
+  id: string;
+  text: string;
+}
+
+/** A session an idea was sketched in. */
+export interface IdeaSessionRef {
+  uuid: string;
+  at: string;
+}
+
+/** One row of a `resolve_ideas` answer: the id, and what was found for it. */
+export type ResolvedIdea =
+  | { id: string; found: false }
+  | {
+      id: string;
+      found: true;
+      projectDir: string;
+      text: string;
+      /** The docket it is filed on, in its own checkout; null when none. */
+      docket: DocketRef | null;
+      /** The newest sketch kept from it; null when none. */
+      sketch: { id: string; version: number } | null;
+    };
+
+/** Who wrote a sketch version. */
+export type SketchAuthorWord = "model" | "user";
+
+/** One kept version of a sketch, as `sketch_read` lists it. */
+export interface SketchVersionRow {
+  n: number;
+  at: string;
+  author: SketchAuthorWord;
+}
+
+/** One kept brief version, as `sketch_read` lists it. */
+export interface BriefVersionRow {
+  n: number;
+  at: string;
+  title: string;
+  sketchVersion: number;
+}
+
+/** Every idea verb's `_ok`, decoded; `requestId` is the asker's echoed mark. */
+export type IdeaVerbOk =
+  | {
+      verb: "idea_create";
+      requestId: string | null;
+      idea: IdeaRef;
+      outcome: DocketFileOutcome;
+    }
+  | {
+      verb: "idea_add_session";
+      requestId: string | null;
+      id: string;
+      sessions: readonly IdeaSessionRef[];
+    }
+  | {
+      verb: "resolve_ideas";
+      requestId: string | null;
+      projectDir: string;
+      ideas: readonly ResolvedIdea[];
+    }
+  | { verb: "search_ideas"; requestId: string | null; ideas: readonly IdeaRef[] }
+  | {
+      verb: "sketch_read";
+      requestId: string | null;
+      id: string;
+      version: number;
+      versions: readonly SketchVersionRow[];
+      briefs: readonly BriefVersionRow[];
+      text: string;
+      /** The brief version read, when the ask named one. */
+      brief: number | null;
+    }
+  | { verb: "sketch_edit"; requestId: string | null; id: string; version: number };
+
+/** The idea verbs, in Spec S03's order. */
+export const IDEA_VERBS = [
+  "idea_create",
+  "idea_add_session",
+  "resolve_ideas",
+  "search_ideas",
+  "sketch_read",
+  "sketch_edit",
+] as const;
+
+export type IdeaVerb = (typeof IDEA_VERBS)[number];
+
+function wholeNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
+function decodeIdeaRef(value: unknown): IdeaRef | null {
+  if (typeof value !== "object" || value === null) return null;
+  const v = value as Record<string, unknown>;
+  return nonEmpty(v.id) && typeof v.text === "string" ? { id: v.id, text: v.text } : null;
+}
+
+function decodeResolvedIdea(value: unknown): ResolvedIdea | null {
+  if (typeof value !== "object" || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (!nonEmpty(v.id)) return null;
+  if (v.found !== true) return { id: v.id, found: false };
+  if (!nonEmpty(v.project_dir) || typeof v.text !== "string") return null;
+  const sketch = v.sketch as Record<string, unknown> | null | undefined;
+  return {
+    id: v.id,
+    found: true,
+    projectDir: v.project_dir,
+    text: v.text,
+    docket: decodeDocketRef(v.docket),
+    sketch:
+      typeof sketch === "object" && sketch !== null && nonEmpty(sketch.id) && wholeNumber(sketch.version)
+        ? { id: sketch.id, version: sketch.version }
+        : null,
+  };
+}
+
+function decodeVersionRow(value: unknown): SketchVersionRow | null {
+  if (typeof value !== "object" || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (!wholeNumber(v.n) || typeof v.at !== "string") return null;
+  return { n: v.n, at: v.at, author: v.author === "user" ? "user" : "model" };
+}
+
+function decodeBriefRow(value: unknown): BriefVersionRow | null {
+  if (typeof value !== "object" || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (!wholeNumber(v.n) || typeof v.at !== "string" || !wholeNumber(v.sketch_version)) {
+    return null;
+  }
+  return {
+    n: v.n,
+    at: v.at,
+    title: typeof v.title === "string" ? v.title : "",
+    sketchVersion: v.sketch_version,
+  };
+}
+
+function rows<T>(value: unknown, decode: (v: unknown) => T | null): T[] {
+  return (Array.isArray(value) ? value : [])
+    .map(decode)
+    .filter((row): row is T => row !== null);
+}
+
+/**
+ * Type guard + decoder for any idea verb's `_ok`. A frame that is not one, or
+ * that lacks the field its verb answers with, is null; a malformed row inside
+ * a list is dropped.
+ */
+export function decodeIdeaVerbOk(payload: unknown): IdeaVerbOk | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const obj = payload as Record<string, unknown>;
+  if (typeof obj.action !== "string" || !obj.action.endsWith("_ok")) return null;
+  const verb = obj.action.slice(0, -"_ok".length);
+  const requestId = typeof obj.request_id === "string" ? obj.request_id : null;
+  switch (verb) {
+    case "idea_create": {
+      const idea = decodeIdeaRef(obj.idea);
+      const outcome = decodeFileOutcome(obj.outcome);
+      return idea === null || outcome === null ? null : { verb, requestId, idea, outcome };
+    }
+    case "idea_add_session": {
+      if (!nonEmpty(obj.id)) return null;
+      const sessions = rows(obj.sessions, (v) => {
+        if (typeof v !== "object" || v === null) return null;
+        const s = v as Record<string, unknown>;
+        return nonEmpty(s.uuid) ? { uuid: s.uuid, at: typeof s.at === "string" ? s.at : "" } : null;
+      });
+      return { verb, requestId, id: obj.id, sessions };
+    }
+    case "resolve_ideas":
+      if (!nonEmpty(obj.project_dir)) return null;
+      return {
+        verb,
+        requestId,
+        projectDir: obj.project_dir,
+        ideas: rows(obj.ideas, decodeResolvedIdea),
+      };
+    case "search_ideas":
+      return { verb, requestId, ideas: rows(obj.ideas, decodeIdeaRef) };
+    case "sketch_read":
+      if (!nonEmpty(obj.id) || !wholeNumber(obj.version) || typeof obj.text !== "string") {
+        return null;
+      }
+      return {
+        verb,
+        requestId,
+        id: obj.id,
+        version: obj.version,
+        versions: rows(obj.versions, decodeVersionRow),
+        briefs: rows(obj.briefs, decodeBriefRow),
+        text: obj.text,
+        brief: wholeNumber(obj.brief) ? obj.brief : null,
+      };
+    case "sketch_edit":
+      if (!nonEmpty(obj.id) || !wholeNumber(obj.version)) return null;
+      return { verb, requestId, id: obj.id, version: obj.version };
+    default:
+      return null;
+  }
+}
+
+/** An idea verb's `_err`: the refusal's sentence and the echoed mark. */
+export interface IdeaVerbErr {
+  verb: IdeaVerb;
+  requestId: string | null;
+  message: string;
+}
+
+/** Type guard + decoder for any idea verb's `_err`. */
+export function decodeIdeaVerbErr(payload: unknown): IdeaVerbErr | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const obj = payload as Record<string, unknown>;
+  if (typeof obj.action !== "string" || !obj.action.endsWith("_err")) return null;
+  const verb = obj.action.slice(0, -"_err".length);
+  if (!(IDEA_VERBS as readonly string[]).includes(verb)) return null;
+  return {
+    verb: verb as IdeaVerb,
     requestId: typeof obj.request_id === "string" ? obj.request_id : null,
     message: typeof obj.message === "string" ? obj.message : "",
   };

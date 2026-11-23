@@ -307,6 +307,9 @@ function mapMessageStrings(m: Message, f: (s: string) => string): Message {
           ...(atom.docket !== undefined
             ? { docket: mapStrings(atom.docket, f) as typeof atom.docket }
             : {}),
+          ...(atom.idea !== undefined
+            ? { idea: mapStrings(atom.idea, f) as typeof atom.idea }
+            : {}),
         })),
       };
     case "assistant_text":

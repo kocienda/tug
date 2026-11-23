@@ -2309,6 +2309,12 @@ impl AgentSupervisor {
             | A::DocketRemove
             | A::ResolveDockets
             | A::SearchDockets => self.handle_docket_control(action, payload).await,
+            A::IdeaCreate
+            | A::IdeaAddSession
+            | A::ResolveIdeas
+            | A::SearchIdeas
+            | A::SketchRead
+            | A::SketchEdit => self.handle_idea_control(action, payload).await,
             A::ChangesetGitInit
             | A::ChangesetCommit
             | A::ChangesetPush

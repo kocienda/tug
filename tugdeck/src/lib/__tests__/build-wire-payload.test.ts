@@ -790,3 +790,67 @@ describe("buildWirePayload — docket atoms and their reference block", () => {
     expect(content).toEqual([{ type: "text", text: "see `@src/a.ts`" }]);
   });
 });
+
+describe("buildWirePayload — idea atoms and their reference block", () => {
+  const IDEA: AtomSegment = {
+    kind: "atom",
+    type: "idea",
+    label: "An inbox for ideas",
+    value: "1a2b3c4d",
+    idea: { projectDir: "/u/src/tug" },
+  };
+  const DOCKET: AtomSegment = {
+    kind: "atom",
+    type: "docket",
+    label: "Inbox",
+    value: "3f9a1c2e",
+    docket: { projectDir: "/u/src/tug" },
+  };
+
+  test("reaches the text as a typed marker, its block after the docket block", () => {
+    const store = createAtomBytesStore();
+    const { content } = buildWirePayload(`${C} from ${C} ${C}`, [DOCKET, IDEA, IDEA], store, {
+      ideaVerdict: () => ({
+        verdict: "here",
+        text: "An inbox for ideas",
+        projectDir: "/u/src/tug",
+        docket: "Inbox",
+        sketch: "0a1b2c3d",
+      }),
+    });
+    const texts = content.map((b) => (b.type === "text" ? b.text : ""));
+    expect(texts[0]).toBe("`@docket:3f9a1c2e` from `@idea:1a2b3c4d` `@idea:1a2b3c4d`");
+    expect(texts).toHaveLength(3);
+    expect(texts[1]).toStartWith("<!-- tug:docket-refs -->\n");
+    expect(texts[2]).toBe(
+      "<!-- tug:idea-refs -->\n"
+      + "Idea references in this message (read one with the command shown; do not guess at what a reference means):\n"
+      + "- @idea:1a2b3c4d — \"An inbox for ideas\", project /u/src/tug, docket Inbox, sketch 0a1b2c3d, verdict: here — read: tugtool idea show 1a2b3c4d",
+    );
+  });
+
+  test("an absent idea says so, and no verdict function is unverified", () => {
+    const store = createAtomBytesStore();
+    const absent = buildWirePayload(C, [IDEA], store, { ideaVerdict: () => ({ verdict: "absent" }) });
+    const last = absent.content[absent.content.length - 1];
+    expect(last?.type === "text" ? last.text : "").toContain(
+      "- @idea:1a2b3c4d — verdict: absent — this idea is not on this machine",
+    );
+    const unasked = buildWirePayload(C, [IDEA], store);
+    const tail = unasked.content[unasked.content.length - 1];
+    expect(tail?.type === "text" ? tail.text : "").toContain(
+      "- @idea:1a2b3c4d — verdict: unverified — check: tugtool idea show 1a2b3c4d",
+    );
+  });
+
+  test("a message with no idea atom is byte-identical with or without the verdict", () => {
+    const store = createAtomBytesStore();
+    const atoms = [fileAtom("src/a.ts")];
+    const without = buildWirePayload(`see ${C}`, atoms, store);
+    const withIdeas = buildWirePayload(`see ${C}`, atoms, store, {
+      ideaVerdict: () => ({ verdict: "here" }),
+    });
+    expect(JSON.stringify(withIdeas.content)).toBe(JSON.stringify(without.content));
+    expect(withIdeas.content).toEqual([{ type: "text", text: "see `@src/a.ts`" }]);
+  });
+});

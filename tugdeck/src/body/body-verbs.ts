@@ -142,9 +142,15 @@ export function answerBodyVerbs(bus: PageBus, host: BodyVerbHost): () => void {
       scrollOpenHelpCard(cardId, anchor);
     }),
     // An open of the docket this card holds, from another page, naming a
-    // thread: the card is re-pointed and the thread marked.
-    docketMarkThread.on(bus).handle(({ projectDir, docketId, thread }) => {
-      getOpenDocketCard(cardId)?.setTarget({ projectDir, docketId, thread });
+    // thread or a sketch: the card is re-pointed, the thread marked and the
+    // sketch's editor entered.
+    docketMarkThread.on(bus).handle(({ projectDir, docketId, thread, editSketch }) => {
+      getOpenDocketCard(cardId)?.setTarget({
+        projectDir,
+        docketId,
+        ...(thread !== undefined ? { thread } : {}),
+        ...(editSketch !== undefined ? { editSketch } : {}),
+      });
     }),
     // A reveal the shell parked for the Settings card, now that this page
     // holds it: the card's own consumer takes it.

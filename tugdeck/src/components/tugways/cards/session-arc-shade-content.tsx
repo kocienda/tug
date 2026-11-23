@@ -41,6 +41,8 @@ import React, { useCallback, useContext, useMemo, useRef } from "react";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
 import { TugEmptyLine } from "@/components/tugways/tug-empty-line";
+import { TugPushButton } from "@/components/tugways/tug-push-button";
+import { dispatchCommand } from "@/command-dispatch";
 import type { ArcShadeController } from "@/lib/arc-shade-controller";
 import { compareArcEntries } from "@/lib/arc-order";
 import { parseArcRecord } from "@/lib/arc-record-text";
@@ -53,6 +55,7 @@ import type { CodeSessionStore } from "@/lib/code-session-store";
 import { useSessionFields } from "@/lib/code-session-store/hooks/use-session-fields";
 import { useTaskListState } from "@/lib/code-session-store/hooks/use-task-list-state";
 import { getConnection } from "@/lib/connection-singleton";
+import { docketForArc, useDockets } from "@/lib/docket-store";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { ArcBriefDetail, ArcBriefHeadings } from "./session-arc-brief";
@@ -178,6 +181,34 @@ export function SessionArcShadeContent({
     [snap.tugSessionId, projectDir],
   );
 
+  // The arc's docket thread, when it is on one: the Sketch panel opens the
+  // Docket card's editor on the thread's sketch, and the Brief panel carries a
+  // door to the thread. On no docket both panels are as they always were.
+  const dockets = useDockets();
+  const docketHit = fact === null ? null : docketForArc(dockets, fact.workspaceKey, fact.name);
+  const openDocket = useCallback(
+    (withSketch: boolean): void => {
+      if (docketHit === null) return;
+      const thread = docketHit.docket.threads.find((t) => t.key === docketHit.threadKey);
+      const sketchId = thread?.sketch?.id;
+      dispatchCommand(TUG_ACTIONS.OPEN_DOCKET, {
+        projectDir: docketHit.project.project_dir,
+        docketId: docketHit.docket.id,
+        thread: docketHit.threadKey,
+        ...(withSketch && sketchId !== undefined ? { editSketch: sketchId } : {}),
+      });
+    },
+    [docketHit],
+  );
+  const docketDoor =
+    docketHit === null ? undefined : (
+      <span data-arc-panel-door="" data-slot="session-arc-docket-door">
+        <TugPushButton size="2xs" emphasis="ghost" data-tug-focus="refuse" onClick={() => openDocket(false)}>
+          Open in Docket
+        </TugPushButton>
+      </span>
+    );
+
   const arcVerbs = useArcPopoverVerbs({
     fact,
     idle,
@@ -196,7 +227,10 @@ export function SessionArcShadeContent({
           // The seams follow from the panels: the arc is cut from its brief,
           // so Brief to Arc is joined whenever there is one.
           panels={{
-            sketch: recordPanel(fact.documents?.sketch_text),
+            sketch:
+              docketHit === null
+                ? recordPanel(fact.documents?.sketch_text)
+                : { ...recordPanel(fact.documents?.sketch_text), onPress: () => openDocket(true) },
             brief:
               fact.documents?.brief !== undefined
                 ? {
@@ -204,8 +238,9 @@ export function SessionArcShadeContent({
                     title: fact.documents.brief_title ?? "brief.md",
                     detail: <ArcBriefDetail path={fact.documents.brief} projectDir={fact.projectDir} />,
                     body: <ArcBriefHeadings path={fact.documents.brief} />,
+                    foot: docketDoor,
                   }
-                : { state: "pending", title: "No brief" },
+                : { state: "pending", title: "No brief", foot: docketDoor },
             arc: {
               state: fact.arc?.done === true ? "done" : "active",
               paused: fact.arc?.stopped !== undefined,

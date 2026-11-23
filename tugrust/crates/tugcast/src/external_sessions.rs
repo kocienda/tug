@@ -522,12 +522,13 @@ pub(crate) fn user_submission_opens_turn(
 /// plumbing and is dropped beside it.
 const SESSION_REFS_MARKER: &str = "<!-- tug:session-refs -->";
 
-/// The arc, sketch and docket reference blocks, written beside the session
+/// The arc, sketch, docket and idea reference blocks, written beside the session
 /// block on the same terms and dropped for the same reason.
-const RECORD_REFS_MARKERS: [&str; 3] = [
+const RECORD_REFS_MARKERS: [&str; 4] = [
     "<!-- tug:arc-refs -->",
     "<!-- tug:sketch-refs -->",
     "<!-- tug:docket-refs -->",
+    "<!-- tug:idea-refs -->",
 ];
 
 /// Extract the submission's display text: string content verbatim, or
@@ -1834,6 +1835,18 @@ mod tests {
               "text": "<!-- tug:sketch-refs -->\nSketch references in this message:\n- @sketch:00ff00ff — verdict: absent — this sketch is not on this machine" },
             { "type": "text",
               "text": "<!-- tug:docket-refs -->\nDocket references in this message:\n- @docket:00ff00ff — verdict: absent — this docket is not on this machine" },
+        ]);
+        assert_eq!(submission_text(&content), "hi");
+    }
+
+    #[test]
+    fn submission_text_drops_the_idea_reference_block() {
+        let content = serde_json::json!([
+            { "type": "text", "text": "hi" },
+            { "type": "text",
+              "text": "<!-- tug:sketch-refs -->\nSketch references in this message:\n- @sketch:00ff00ff — verdict: absent — this sketch is not on this machine" },
+            { "type": "text",
+              "text": "<!-- tug:idea-refs -->\nIdea references in this message:\n- @idea:00ff00ff — verdict: absent — this idea is not on this machine" },
         ]);
         assert_eq!(submission_text(&content), "hi");
     }

@@ -86,6 +86,14 @@ control_actions! {
     ResolveDockets => "resolve_dockets",
     SearchDockets => "search_dockets",
 
+    // Supervisor: ideas.
+    IdeaCreate => "idea_create",
+    IdeaAddSession => "idea_add_session",
+    ResolveIdeas => "resolve_ideas",
+    SearchIdeas => "search_ideas",
+    SketchRead => "sketch_read",
+    SketchEdit => "sketch_edit",
+
     // Supervisor: changesets, landings and joins.
     ChangesetGitInit => "changeset_git_init",
     ChangesetCommit => "changeset_commit",

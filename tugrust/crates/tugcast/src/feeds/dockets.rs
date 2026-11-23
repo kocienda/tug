@@ -13,7 +13,7 @@
 //! - its own recursive `notify` watch of `<data root>/projects/`, filtered by
 //!   [`is_docket_input_path`] to the files a thread is derived from — a
 //!   docket written by a CONTROL verb or by any other process, an archive
-//!   entry, a sketch, an arc-log line;
+//!   entry, a sketch, an idea, an arc-log line;
 //! - the process-wide `GIT_HEAD` broadcast every workspace's git watch sends
 //!   on, because a main-lane commit by a filed session lands in its thread;
 //! - the registry's `dockets_bump`, because a project opening or closing
@@ -62,7 +62,9 @@ pub(crate) fn is_docket_input_path(path: &Path) -> bool {
         return true;
     }
     path.components().any(|c| match c {
-        Component::Normal(name) => name == "dockets" || name == "arc-archive" || name == "sketches",
+        Component::Normal(name) => {
+            name == "dockets" || name == "arc-archive" || name == "sketches" || name == "ideas"
+        }
         _ => false,
     })
 }
@@ -261,6 +263,7 @@ mod tests {
             format!("{root}/dockets/3f9a1c2e/briefs/9f2c0a1b2c3d.md"),
             format!("{root}/arc-archive/rail/20261101T000000Z/arc.json"),
             format!("{root}/sketches/0a1b2c3d/sketch.json"),
+            format!("{root}/ideas/1a2b3c4d/idea.json"),
             format!("{root}/arc-log.md"),
         ] {
             assert!(is_docket_input_path(Path::new(&path)), "{path}");
@@ -268,6 +271,7 @@ mod tests {
         for path in [
             format!("{root}/oplog-001043.json"),
             format!("{root}/dockets/.lock"),
+            format!("{root}/ideas/.lock"),
             format!("{root}/dockets/3f9a1c2e/.docket.json.tmp-1234"),
             format!("{root}/changes.db"),
             "/u/src/tug/src/main.rs".to_string(),
@@ -331,6 +335,46 @@ mod tests {
         assert_eq!(seen, vec!["Rail work".to_string()]);
         let last: DocketsSnapshot = serde_json::from_slice(&rx.borrow().payload).unwrap();
         assert_eq!(last.projects[0].dockets[0].id, made.id);
+
+        // An idea filed on it, then changed under `ideas/` alone: the change
+        // reaches the feed through the watch, with no docket written.
+        async fn wait_for(rx: &mut watch::Receiver<Frame>, want: &str) {
+            let idea_text = |frame: &Frame| -> Option<String> {
+                let snapshot: DocketsSnapshot = serde_json::from_slice(&frame.payload).unwrap();
+                snapshot.projects[0].dockets[0]
+                    .threads
+                    .iter()
+                    .find_map(|t| t["idea"]["text"].as_str().map(str::to_owned))
+            };
+            tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                loop {
+                    if idea_text(&rx.borrow_and_update()).as_deref() == Some(want) {
+                        return;
+                    }
+                    rx.changed().await.unwrap();
+                }
+            })
+            .await
+            .unwrap_or_else(|_| panic!("a frame carrying the idea {want:?}"));
+        }
+        let mut idea = tugarc_core::idea::create_idea(&paths, &repo, "First words", None).unwrap();
+        let item = docket::resolve_item(
+            &paths,
+            &repo,
+            &docket::FileItem::Idea {
+                id: idea.id.clone(),
+            },
+        )
+        .unwrap();
+        docket::file_items(&paths, &repo, &made.id, &[item]).unwrap();
+        wait_for(&mut rx, "First words").await;
+        idea.text = "Second words".into();
+        std::fs::write(
+            idea.dir.join(tugarc_core::idea::IDEA_JSON),
+            serde_json::to_vec_pretty(&idea).unwrap(),
+        )
+        .unwrap();
+        wait_for(&mut rx, "Second words").await;
         cancel.cancel();
     }
 }

@@ -30,6 +30,7 @@ import {
   type ResumeDisplayMetadata,
 } from "../lib/session-restore";
 import { isReloadReason, type ReloadReason } from "../lib/reload-reasons";
+import { parseOpening, type Opening } from "../lib/opening-command-runner";
 import { subscribeToListCardBindingsOk } from "../lib/session-ledger-events";
 import { cardSessionBindingStore, type CardSessionMode } from "../lib/card-session-binding-store";
 import { sessionLineStore } from "../lib/session-line-store";
@@ -57,7 +58,7 @@ type BodyIntentKind =
       tugSessionId: string;
       projectDir: string;
       reason: ReloadReason;
-      openingCommand?: { name: string; args: string };
+      openingCommand?: Opening;
     }
   | {
       kind: "new";
@@ -129,15 +130,13 @@ function parseIntentKind(r: Record<string, unknown>): BodyIntentKind | null {
       };
     case "fresh": {
       if (!str(r.tugSessionId) || !str(r.projectDir) || !isReloadReason(r.reason)) return null;
-      const opening = r.openingCommand as { name?: unknown; args?: unknown } | undefined;
+      const opening = parseOpening(r.openingCommand);
       return {
         kind: "fresh",
         tugSessionId: r.tugSessionId,
         projectDir: r.projectDir,
         reason: r.reason,
-        ...(opening !== undefined && str(opening.name) && typeof opening.args === "string"
-          ? { openingCommand: { name: opening.name, args: opening.args } }
-          : {}),
+        ...(opening !== undefined ? { openingCommand: opening } : {}),
       };
     }
     case "new":

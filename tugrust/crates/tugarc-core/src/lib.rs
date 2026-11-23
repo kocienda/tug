@@ -16,6 +16,10 @@ pub mod archive;
 /// The sketch record: a sketch's own id and every version of its text.
 pub mod sketch;
 
+/// The idea store: a one-line idea as a record of its own, sketched in the
+/// sessions it lists.
+pub mod idea;
+
 /// The docket store: a named, per-checkout list of filed briefs, sketches,
 /// arcs, sessions and commits.
 pub mod docket;

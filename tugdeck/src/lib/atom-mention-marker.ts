@@ -39,13 +39,13 @@
  *
  * ## The typed marker
  *
- * Four kinds carry their type on the wire: a session, as
+ * Five kinds carry their type on the wire: a session, as
  * `` `@session:<project>/<callsign>` ``, an arc, as `` `@arc:<project>/<name>` ``,
- * a sketch, as `` `@sketch:<id>` ``, and a docket, as `` `@docket:<id>` ``. Every other kind is recovered on
+ * a sketch, as `` `@sketch:<id>` ``, a docket, as `` `@docket:<id>` ``, and an idea, as `` `@idea:<id>` ``. Every other kind is recovered on
  * replay from the shape of its own value — a trailing `/` is a directory, a
- * run of sha-shaped hex is a commit — and these four have no such shape:
+ * run of sha-shaped hex is a commit — and these five have no such shape:
  * `<project>/<callsign>` and `<project>/<name>` are spelled exactly like a
- * relative file path, and a sketch or docket id is spelled like a short sha. The
+ * relative file path, and a sketch, docket or idea id is spelled like a short sha. The
  * discriminator used to be the tag store, which made replay depend on what
  * THIS client happened to have seen, so the same JSONL read back on a
  * different instance gave a file chip where the user had put a session. The
@@ -56,7 +56,7 @@
  *
  * ```text
  * marker  := "`@" [ type ":" ] value "`"
- * type    := "session" | "arc" | "sketch" | "docket"
+ * type    := "session" | "arc" | "sketch" | "docket" | "idea"
  * value   := one-or-more non-backtick characters
  * ```
  *
@@ -114,15 +114,17 @@ const SESSION_MARKER_TYPE = "session";
 const ARC_MARKER_TYPE = "arc";
 const SKETCH_MARKER_TYPE = "sketch";
 const DOCKET_MARKER_TYPE = "docket";
+const IDEA_MARKER_TYPE = "idea";
 
 /** A type the marker can name, in the order the parser tries them. */
-export type MarkerAtomType = "session" | "arc" | "sketch" | "docket";
+export type MarkerAtomType = "session" | "arc" | "sketch" | "docket" | "idea";
 
 const MARKER_TYPES: readonly MarkerAtomType[] = [
   SESSION_MARKER_TYPE,
   ARC_MARKER_TYPE,
   SKETCH_MARKER_TYPE,
   DOCKET_MARKER_TYPE,
+  IDEA_MARKER_TYPE,
 ];
 
 /** The `type:` separator inside a marker. */
@@ -166,6 +168,14 @@ export function wrapDocketMention(value: string): string {
   return wrapTypedMention(DOCKET_MARKER_TYPE, value);
 }
 
+/**
+ * Wrap an idea atom's `value` as `` `@idea:<id>` ``, with the same backtick
+ * fallback.
+ */
+export function wrapIdeaMention(value: string): string {
+  return wrapTypedMention(IDEA_MARKER_TYPE, value);
+}
+
 function wrapTypedMention(type: MarkerAtomType, value: string): string {
   if (value.includes("`")) return value;
   return "`" + MENTION_PREFIX + type + MARKER_TYPE_SEP + value + "`";
@@ -188,7 +198,7 @@ export type AtomMentionSegment =
       value: string;
       /**
        * The type the marker named, where it named one: `` `@session:…` ``,
-       * `` `@arc:…` ``, `` `@sketch:…` `` or `` `@docket:…` ``. `value` has the prefix stripped, so a reader that
+       * `` `@arc:…` ``, `` `@sketch:…` ``, `` `@docket:…` `` or `` `@idea:…` ``. `value` has the prefix stripped, so a reader that
        * ignores this field still sees the same value an untyped marker
        * carries. Absent means the wire said nothing, and the synthesizer
        * recovers the type from the value's own shape as it always has.

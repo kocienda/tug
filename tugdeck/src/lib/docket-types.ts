@@ -13,8 +13,11 @@
 /** How an arc generation ended, as the arc log and the archive tell it. */
 export type DocketArcFate = "live" | "joined" | "discarded" | "unknown";
 
-/** Where a thread's brief came from: the arc's own, or a filed snapshot. */
-export type DocketBriefSource = "arc" | "filed";
+/** Where a thread's brief came from: the arc's own, a filed snapshot, or the sketch's brief versions. */
+export type DocketBriefSource = "arc" | "filed" | "sketch";
+
+/** Who wrote a sketch's newest version; absent on the wire means `model`. */
+export type DocketSketchAuthor = "model" | "user";
 
 /** Why a commit is in a thread. */
 export type DocketCommitRole = "round" | "join" | "arc" | "session" | "filed";
@@ -23,6 +26,8 @@ export interface DocketSketchCell {
   id: string;
   versions: number;
   want?: string | null;
+  /** Who wrote the newest version; absent means `model`. */
+  author?: DocketSketchAuthor;
   filed: boolean;
 }
 
@@ -34,6 +39,14 @@ export interface DocketBriefCell {
   /** Where a filed brief was read from, relative to the checkout when it could be. */
   source_path?: string | null;
   filed: boolean;
+  /** The newest brief version kept on the thread's sketch; absent for an arc's copy or a filed snapshot. */
+  version?: number | null;
+  /** How many brief versions the sketch keeps; absent means 0. */
+  versions?: number;
+  /** The sketch version the newest brief version was written from. */
+  sketch_version?: number | null;
+  /** The sketch has moved on since the newest brief version; absent means false. */
+  stale?: boolean;
 }
 
 export interface DocketArcCell {
@@ -41,6 +54,20 @@ export interface DocketArcCell {
   created: string;
   fate: DocketArcFate;
   join_sha?: string | null;
+  filed: boolean;
+  /** The brief version whose bytes the arc's brief holds. */
+  brief_version?: number | null;
+  /** A newer brief version than the arc's exists; absent means false. */
+  stale?: boolean;
+  /** How many generations ran on the thread's sketch; absent means 1. */
+  runs?: number;
+}
+
+/** A thread's idea. */
+export interface DocketIdeaCell {
+  id: string;
+  /** Its one line; the id when the record is missing. */
+  text: string;
   filed: boolean;
 }
 
@@ -61,10 +88,11 @@ export interface DocketCommitCell {
 
 /** One line of work on a docket: an arc, a session's line, or an item alone. */
 export interface DocketThread {
-  /** The anchor's key: `arc:<name>@<created>`, `session:<line>`, or the item's own. */
+  /** The anchor's key: `arc:<name>@<created>`, `idea:<id>`, `session:<line>`, or the item's own. */
   key: string;
   /** When the thread's work began; threads come oldest first. */
   start: string;
+  idea?: DocketIdeaCell | null;
   sketch?: DocketSketchCell | null;
   brief?: DocketBriefCell | null;
   arc?: DocketArcCell | null;
@@ -112,12 +140,30 @@ function isOptionalString(value: unknown): boolean {
   return value === undefined || value === null || typeof value === "string";
 }
 
+function isOptionalNumber(value: unknown): boolean {
+  return value === undefined || value === null || typeof value === "number";
+}
+
+function isOptionalBoolean(value: unknown): boolean {
+  return value === undefined || typeof value === "boolean";
+}
+
+function isIdeaCell(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    isString(value.id) &&
+    isString(value.text) &&
+    typeof value.filed === "boolean"
+  );
+}
+
 function isSketchCell(value: unknown): boolean {
   return (
     isRecord(value) &&
     isString(value.id) &&
     typeof value.versions === "number" &&
     isOptionalString(value.want) &&
+    (value.author === undefined || value.author === "model" || value.author === "user") &&
     typeof value.filed === "boolean"
   );
 }
@@ -125,8 +171,12 @@ function isSketchCell(value: unknown): boolean {
 function isBriefCell(value: unknown): boolean {
   return (
     isRecord(value) &&
-    (value.source === "arc" || value.source === "filed") &&
+    (value.source === "arc" || value.source === "filed" || value.source === "sketch") &&
     isOptionalString(value.title) &&
+    isOptionalNumber(value.version) &&
+    isOptionalNumber(value.versions) &&
+    isOptionalNumber(value.sketch_version) &&
+    isOptionalBoolean(value.stale) &&
     typeof value.filed === "boolean"
   );
 }
@@ -141,6 +191,9 @@ function isArcCell(value: unknown): boolean {
       value.fate === "discarded" ||
       value.fate === "unknown") &&
     isOptionalString(value.join_sha) &&
+    isOptionalNumber(value.brief_version) &&
+    isOptionalBoolean(value.stale) &&
+    isOptionalNumber(value.runs) &&
     typeof value.filed === "boolean"
   );
 }
@@ -177,6 +230,7 @@ export function isDocketThread(value: unknown): value is DocketThread {
     isString(value.key) &&
     value.key.length > 0 &&
     isString(value.start) &&
+    isOptionalCell(value.idea, isIdeaCell) &&
     isOptionalCell(value.sketch, isSketchCell) &&
     isOptionalCell(value.brief, isBriefCell) &&
     isOptionalCell(value.arc, isArcCell) &&

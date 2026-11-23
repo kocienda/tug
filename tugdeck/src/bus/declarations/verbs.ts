@@ -262,7 +262,7 @@ export const helpScrollTo = defineAction({
 export const docketMarkThread = defineAction({
   id: "docket.markThread",
   owner: "card",
-  codec: obj({ projectDir: str, docketId: str, thread: str }),
+  codec: obj({ projectDir: str, docketId: str, thread: optional(str), editSketch: optional(str) }),
 });
 
 /**

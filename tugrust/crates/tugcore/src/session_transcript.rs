@@ -71,6 +71,7 @@ const SWALLOWED_MARKERS: &[&str] = &[
     "<!-- tug:arc-refs -->",
     "<!-- tug:sketch-refs -->",
     "<!-- tug:docket-refs -->",
+    "<!-- tug:idea-refs -->",
     "<!-- tug:compact-seed -->",
 ];
 
@@ -575,6 +576,18 @@ mod tests {
             t.turns[0].assistant.is_empty(),
             "a sidechain is another agent's conversation"
         );
+    }
+
+    #[test]
+    fn the_idea_reference_block_is_swallowed_beside_the_sketch_one() {
+        let jsonl = user_blocks(serde_json::json!([
+            { "type": "text", "text": "sketch this" },
+            { "type": "text", "text": "<!-- tug:sketch-refs -->\nSketch references in this message:\n- @sketch:3f9a1c2e — verdict: absent" },
+            { "type": "text", "text": "<!-- tug:idea-refs -->\nIdea references in this message:\n- @idea:1a2b3c4d — verdict: absent" },
+        ]));
+        let t = read_str(&jsonl);
+        assert_eq!(t.turns.len(), 1);
+        assert_eq!(t.turns[0].user, "sketch this");
     }
 
     #[test]

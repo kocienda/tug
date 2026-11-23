@@ -97,4 +97,51 @@ describe("isDocketsSnapshot", () => {
     delete frame.projects[0].workspace_key;
     expect(isDocketsSnapshot(frame)).toBe(false);
   });
+
+  test("an idea thread and the lineage fields decode, and each may be absent", () => {
+    const frame = specFrame();
+    frame.projects[0].dockets[0].threads.push({
+      key: "idea:1a2b3c4d",
+      start: "2026-11-21T10:00:00.000Z",
+      idea: { id: "1a2b3c4d", text: "An inbox for ideas", filed: true },
+      sketch: { id: "0a1b2c3e", versions: 3, author: "user", filed: false },
+      brief: {
+        title: "The inbox brief",
+        source: "sketch",
+        source_path: "briefs/inbox-brief.md",
+        filed: false,
+        version: 2,
+        versions: 2,
+        sketch_version: 2,
+        stale: true,
+      },
+      arc: {
+        name: "inbox",
+        created: "2026-11-21T11:00:00.000Z",
+        fate: "live",
+        filed: false,
+        brief_version: 1,
+        stale: true,
+        runs: 2,
+      },
+      sessions: [{ uuid: "u-1", stage: "sketch", filed: false }],
+      commits: [],
+      filed_keys: ["idea:1a2b3c4d"],
+    });
+    expect(isDocketsSnapshot(frame)).toBe(true);
+    // Spec S05's own thread carries none of them, and still decodes.
+    expect(isDocketsSnapshot(specFrame())).toBe(true);
+  });
+
+  test("a lineage field of the wrong type is not a snapshot", () => {
+    const bad = (patch: (t: Record<string, unknown>) => void) => {
+      const frame = specFrame();
+      patch(frame.projects[0].dockets[0].threads[0]);
+      return isDocketsSnapshot(frame);
+    };
+    expect(bad((t) => { t.idea = { id: "1a2b3c4d", filed: true }; })).toBe(false);
+    expect(bad((t) => { (t.sketch as Record<string, unknown>).author = "robot"; })).toBe(false);
+    expect(bad((t) => { (t.brief as Record<string, unknown>).stale = "yes"; })).toBe(false);
+    expect(bad((t) => { (t.arc as Record<string, unknown>).runs = "2"; })).toBe(false);
+  });
 });

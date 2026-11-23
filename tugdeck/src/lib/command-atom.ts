@@ -30,7 +30,12 @@
 
 import type { ContentBlock } from "@/protocol";
 import { isSessionAtomType } from "@/lib/session-atom-shape";
-import { isArcAtomType, isDocketAtomType, isSketchAtomType } from "@/lib/record-atom-shape";
+import {
+  isArcAtomType,
+  isDocketAtomType,
+  isIdeaAtomType,
+  isSketchAtomType,
+} from "@/lib/record-atom-shape";
 import { matchLeadingSlashCommand } from "@/lib/annotator/command-grammar";
 import { scanPathReferences } from "@/lib/annotator/detect-path-reference";
 
@@ -116,10 +121,10 @@ export const COMMIT_ATOM_TYPE = "commit";
  * Whether this type wears the PILL — the transparent, hairline-bounded,
  * text-ink enclosure, rather than the atom family's washed-and-recessed box.
  *
- * Five types do: a session, a commit, an arc, a sketch and a docket. That is
- * not a coincidence of taste but the same claim five times — each names an object
+ * Six types do: a session, a commit, an arc, a sketch, a docket and an idea. That is
+ * not a coincidence of taste but the same claim six times — each names an object
  * somebody can hold in their head and point at, where a file chip names a
- * thing you open. An arc, a sketch and a docket lead with an icon mark, since none
+ * thing you open. An arc, a sketch, a docket and an idea lead with an icon mark, since none
  * has a live reading for a dot or a fixed point for a ring. All the live pills
  * borrow one CSS skin (`session-identity.css`'s chip tier) and both bakes
  * take the geometry and ink below, so a pill cannot come out one shape in the
@@ -132,6 +137,7 @@ export function isPillAtomType(type: string): boolean {
     || isArcAtomType(type)
     || isSketchAtomType(type)
     || isDocketAtomType(type)
+    || isIdeaAtomType(type)
   );
 }
 

@@ -14,6 +14,7 @@ use tugarc_core::docket::{self, Docket};
 use tugarc_core::docket_threads::{
     ArcFate, BriefSource, CommitRole, Thread, derive_threads, gather_inputs,
 };
+use tugarc_core::sketch::SketchAuthor;
 use tugcore::instance::Paths;
 
 use crate::changes::AppError;
@@ -172,14 +173,27 @@ fn render(d: &Docket, threads: &[Thread], repo: &Path) -> String {
     }
     for t in threads {
         out.push_str(&format!("\nthread {}\n", t.key));
+        if let Some(i) = &t.idea {
+            out.push_str(&format!(
+                "  idea     {} \"{}\"{}  · tugtool idea show {}\n",
+                i.id,
+                i.text,
+                mark(i.filed),
+                i.id
+            ));
+        }
         if let Some(s) = &t.sketch {
             let want = s
                 .want
                 .as_deref()
                 .map(|w| format!(" — {w}"))
                 .unwrap_or_default();
+            let author = match s.author {
+                SketchAuthor::User => " (yours)",
+                SketchAuthor::Model => "",
+            };
             out.push_str(&format!(
-                "  sketch   {} v{}{want}{}  · tugtool sketch show {}\n",
+                "  sketch   {} v{}{author}{want}{}  · tugtool sketch show {}\n",
                 s.id,
                 s.versions,
                 mark(s.filed),
@@ -193,12 +207,32 @@ fn render(d: &Docket, threads: &[Thread], repo: &Path) -> String {
                     "tugtool arc show {} --created {} --document brief",
                     a.name, a.created
                 ),
+                (BriefSource::Sketch, _) => format!(
+                    "kept from {}",
+                    b.source_path.as_deref().unwrap_or("an unknown path")
+                ),
                 _ => format!(
                     "filed from {}",
                     b.source_path.as_deref().unwrap_or("an unknown path")
                 ),
             };
-            out.push_str(&format!("  brief    {title}{}  · {read}\n", mark(b.filed)));
+            let version = match b.version {
+                Some(n) => {
+                    let stale = match (b.stale, b.sketch_version, &t.sketch) {
+                        (true, Some(from), Some(s)) => {
+                            format!(" (stale: from sketch v{from}, now v{})", s.versions)
+                        }
+                        (true, _, _) => " (stale)".to_string(),
+                        _ => String::new(),
+                    };
+                    format!(" v{n}{stale}")
+                }
+                None => String::new(),
+            };
+            out.push_str(&format!(
+                "  brief   {version} {title}{}  · {read}\n",
+                mark(b.filed)
+            ));
         }
         if let Some(a) = &t.arc {
             let fate = match a.fate {
@@ -210,8 +244,21 @@ fn render(d: &Docket, threads: &[Thread], repo: &Path) -> String {
                 ArcFate::Discarded => "discarded".to_string(),
                 ArcFate::Unknown => "not in the arc log".to_string(),
             };
+            let on = match a.brief_version {
+                Some(n) => {
+                    let of = t.brief.as_ref().map(|b| b.versions).unwrap_or(n);
+                    let stale = if a.stale { " (stale)" } else { "" };
+                    format!(" on brief v{n} of {of}{stale}")
+                }
+                None => String::new(),
+            };
+            let runs = if a.runs > 1 {
+                format!(" · run {}", a.runs)
+            } else {
+                String::new()
+            };
             out.push_str(&format!(
-                "  arc      {} {fate}{}  · tugtool arc show {} --created {}\n",
+                "  arc      {} {fate}{on}{runs}{}  · tugtool arc show {} --created {}\n",
                 a.name,
                 mark(a.filed),
                 a.name,

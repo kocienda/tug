@@ -121,6 +121,11 @@ body {
   max-height: none;
 }
 
+/* A Sketch panel with somewhere to go takes the pointer's press. */
+.session-arc-panel[data-rung="sketch"][data-pressable="true"] {
+  cursor: pointer;
+}
+
 .session-arc-panel[data-rung="brief"] {
   grid-area: 2 / 1;
 }

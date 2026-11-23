@@ -93,6 +93,8 @@ import { deliverSketchSearchAnswer } from "./lib/sketch-search-answers";
 import { sketchCitationStore } from "./lib/sketch-citation-store";
 import { deliverDocketSearchAnswer } from "./lib/docket-search-answers";
 import { docketCitationStore } from "./lib/docket-citation-store";
+import { deliverIdeaSearchAnswer } from "./lib/idea-search-answers";
+import { ideaCitationStore } from "./lib/idea-citation-store";
 import { deliverScrubShareAnswer } from "./lib/share-scrub";
 import {
   applyAuthResultPayload,
@@ -120,6 +122,7 @@ import {
   fireRestore,
   stashOpeningCommand,
 } from "./lib/session-restore";
+import { parseOpening, type Opening } from "./lib/opening-command-runner";
 import { appInfoStore } from "./lib/app-info-store";
 import { getAppLifecycle } from "./lib/app-lifecycle";
 import { keyboardAccessStore } from "./keyboard-access-store";
@@ -128,6 +131,7 @@ import {
   decodeResolveArcsOk,
   decodeResolveSketchesOk,
   decodeDocketVerbOk,
+  decodeIdeaVerbOk,
   decodeScrubShareTextErr,
   decodeScrubShareTextOk,
   decodeSearchArcsOk,
@@ -1299,6 +1303,38 @@ function wireActionDispatch(
   // card id and the card's own composer runs it once the binding lands. The
   // opening prompt on `session_command` belongs to the wheel's rotations and
   // stays absent on everything the deck originates ([B07]).
+  //
+  // `openSessionWithOpening` is the road both this action and
+  // OPEN_AUTHORING_SESSION take: save the outgoing card's focus, add a bound
+  // Session card beside the origin, flash it, stash the opening against it,
+  // and spawn the given session id on the given project.
+  const openSessionWithOpening = (
+    projectDir: string,
+    sessionId: string,
+    opening: Opening,
+    origin: string | null,
+    label: string,
+  ): void => {
+    const outgoing = deckManager.getFirstResponderCardId();
+    // Save-before-activation ([L23]): `addCard` activates the fresh card, so
+    // the surface that dispatched this banks its focus bag first.
+    if (outgoing !== null) deckManager.invokeSaveCallback(outgoing);
+    const cardId = deckManager.addCard("session", undefined, {
+      origin,
+      opening: "bound",
+    });
+    if (cardId === null) {
+      console.warn(`${label}: no session card registration`);
+      return;
+    }
+    flashCardPane(deckManager, cardId);
+    // Stashed BEFORE the spawn: the binding can land inside the same tick,
+    // and a drain that found nothing would open a card that sits empty
+    // wearing every sign of being about to do something.
+    stashOpeningCommand(cardId, opening);
+    fireFreshSpawn(cardId, sessionId, projectDir, connection, "restore-open");
+  };
+
   registerAction(TUG_ACTIONS.RUN_COMMAND_IN_NEW_SESSION, (payload) => {
     const name = payload.name;
     if (typeof name !== "string" || name === "") {
@@ -1324,23 +1360,35 @@ function wireActionDispatch(
       console.warn("run-command-in-new-session: no project to open on", payload);
       return;
     }
-    // Save-before-activation ([L23]): `addCard` activates the fresh card, so
-    // the surface that dispatched this banks its focus bag first.
-    if (outgoing !== null) deckManager.invokeSaveCallback(outgoing);
-    const cardId = deckManager.addCard("session", undefined, {
+    openSessionWithOpening(
+      projectDir,
+      crypto.randomUUID(),
+      { kind: "command", name, args },
       origin,
-      opening: "bound",
-    });
-    if (cardId === null) {
-      console.warn("run-command-in-new-session: no session card registration");
+      "run-command-in-new-session",
+    );
+  });
+
+  // open-authoring-session: the Docket card's authoring gestures. The card
+  // names the project, mints the session id (so it can record the session on
+  // the idea before the spawn), and gives the first turn — a command or a
+  // plain prompt. Otherwise the same road as Run in New Session.
+  registerAction(TUG_ACTIONS.OPEN_AUTHORING_SESSION, (payload) => {
+    const projectDir = payload.projectDir;
+    const sessionId = payload.sessionId;
+    const opening = parseOpening(payload.opening);
+    if (
+      typeof projectDir !== "string" ||
+      projectDir === "" ||
+      typeof sessionId !== "string" ||
+      sessionId === "" ||
+      opening === undefined
+    ) {
+      console.warn("open-authoring-session: malformed payload", payload);
       return;
     }
-    flashCardPane(deckManager, cardId);
-    // Stashed BEFORE the spawn: the binding can land inside the same tick,
-    // and a drain that found nothing would open a card that sits empty
-    // wearing every sign of being about to do something.
-    stashOpeningCommand(cardId, { name, args });
-    fireFreshSpawn(cardId, crypto.randomUUID(), projectDir, connection, "restore-open");
+    const origin = typeof payload.originCardId === "string" ? payload.originCardId : null;
+    openSessionWithOpening(projectDir, sessionId, opening, origin, "open-authoring-session");
   });
 
   // show-card: Show a card by componentId. The Swift app menu sends
@@ -1456,9 +1504,18 @@ function wireActionDispatch(
       return;
     }
     const thread = typeof payload.thread === "string" ? payload.thread : undefined;
+    const editSketch =
+      typeof payload.editSketch === "string" && payload.editSketch.length > 0
+        ? payload.editSketch
+        : undefined;
     openDocketInCard(
       deckManager,
-      { projectDir, docketId, ...(thread !== undefined ? { thread } : {}) },
+      {
+        projectDir,
+        docketId,
+        ...(thread !== undefined ? { thread } : {}),
+        ...(editSketch !== undefined ? { editSketch } : {}),
+      },
       originOf(payload),
     );
   });
@@ -1994,6 +2051,32 @@ export function registerStoreTailActions(): void {
   });
   registerAction("search_dockets_err", (payload) => {
     console.warn("search_dockets_err", payload.message);
+  });
+
+  // resolve_ideas_ok / search_ideas_ok: the answers behind an idea chip and a
+  // composer's `@` idea search, on the docket verbs' terms.
+  registerAction("resolve_ideas_ok", (payload) => {
+    const decoded = decodeIdeaVerbOk(payload);
+    if (decoded === null || decoded.verb !== "resolve_ideas") {
+      console.warn("resolve_ideas_ok: undecodable payload", payload);
+      return;
+    }
+    ideaCitationStore.applyResolved(decoded);
+  });
+  registerAction("resolve_ideas_err", (payload) => {
+    console.warn("resolve_ideas_err", payload.message);
+    ideaCitationStore.applyFailed();
+  });
+  registerAction("search_ideas_ok", (payload) => {
+    const decoded = decodeIdeaVerbOk(payload);
+    if (decoded === null || decoded.verb !== "search_ideas") {
+      console.warn("search_ideas_ok: undecodable payload", payload);
+      return;
+    }
+    deliverIdeaSearchAnswer(decoded);
+  });
+  registerAction("search_ideas_err", (payload) => {
+    console.warn("search_ideas_err", payload.message);
   });
 
   // search_sessions_ok / _err: the answer to a composer's `@` session search.
