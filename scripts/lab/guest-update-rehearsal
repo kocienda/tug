@@ -1,0 +1,239 @@
+#!/bin/bash
+# guest-update-rehearsal — the guest half of `just lab-update-rehearsal`. Runs
+# INSIDE a Tart lab guest, started by `scripts/lab/lab-update-rehearsal` over
+# `tart exec`; never on the host.
+#
+# The host shares one folder read-only, seen here as
+# /Volumes/My Shared Files/stage/: `v0.9.4.dmg` and `v0.9.5.dmg` (the published
+# releases) and `candidate.dmg` (the build under test, from build-app.sh).
+#
+# It plays two users through the real apps, each from an empty data root:
+#
+#   update   v0.9.4 → v0.9.5 → candidate. The user's setting, made on v0.9.4,
+#            is gone on v0.9.5 (the bug, reproduced); they set it again there;
+#            the candidate must show what they set on v0.9.5, and keep v0.9.4's
+#            data dir retired rather than deleted.
+#   fresh    v0.9.5 → candidate. There was never a `release-main`, so the
+#            candidate must retire nothing. A retired dir here would mean the
+#            candidate opened its data dir before adopting v0.9.5's.
+#
+# A setting is made the way the deck makes one, with a PUT to the running
+# tugcast's `/api/defaults`, and read back the same way. Each app is stopped
+# with its own bundled `tugtool host instance stop`, so its databases close
+# cleanly before the next app is installed over it, as an update does.
+#
+# Everything it writes is inside this throwaway guest.
+
+set -uo pipefail
+
+STAGE="/Volumes/My Shared Files/stage"
+APP="/Applications/Tug.app"
+ROOT="$HOME/Library/Application Support/Tug"
+REGISTRY="$(getconf DARWIN_USER_TEMP_DIR)tug-instances.json"
+RELEASE_ID="release-main"
+STRANDED_ID="release-detached-3937df43"
+STRANDED_BUNDLE="dev.tugapp.app.$STRANDED_ID"
+MOUNT="/tmp/tug-rehearsal-mount"
+
+PASS=0
+FAIL=0
+say() { echo "[rehearsal] $*"; }
+check() {
+    local label="$1" actual="$2" expected="$3"
+    if [ "$actual" = "$expected" ]; then
+        printf '  ok    %-52s = %s\n' "$label" "$actual"
+        PASS=$((PASS + 1))
+    else
+        printf '  FAIL  %-52s = %s (expected %s)\n' "$label" "$actual" "$expected"
+        FAIL=$((FAIL + 1))
+    fi
+}
+die() { echo "[rehearsal] error: $*" >&2; exit 1; }
+
+# ── the app ──────────────────────────────────────────────────────────────────
+
+install() {
+    local dmg="$STAGE/$1"
+    [ -f "$dmg" ] || die "missing $dmg"
+    rm -rf "$MOUNT"; mkdir -p "$MOUNT"
+    hdiutil attach -quiet -nobrowse -readonly -mountpoint "$MOUNT" "$dmg" || die "cannot mount $dmg"
+    rm -rf "$APP"
+    cp -R "$MOUNT/Tug.app" "$APP"
+    hdiutil detach -quiet "$MOUNT" || true
+    # Not a Gatekeeper rehearsal: a copy over a share is not a download.
+    xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
+    say "installed $1: $(plutil -extract CFBundleIdentifier raw "$APP/Contents/Info.plist")" \
+        "branch $(plutil -extract BuildBranch raw "$APP/Contents/Info.plist")"
+}
+
+# The port of the running tugcast for instance $1, from the registry it writes
+# once it is up; empty until then.
+port_of() {
+    [ -f "$REGISTRY" ] || return 0
+    local i id
+    for i in 0 1 2 3 4 5 6 7 8 9; do
+        id="$(plutil -extract "instances.$i.instance_id" raw -o - "$REGISTRY" 2>/dev/null)" || return 0
+        if [ "$id" = "$1" ]; then
+            plutil -extract "instances.$i.tugcast_port" raw -o - "$REGISTRY" 2>/dev/null
+            return 0
+        fi
+    done
+}
+
+PORT=""
+launch() {
+    local id="$1" waited=0
+    /usr/bin/open "$APP" || die "open $APP failed"
+    PORT=""
+    while [ -z "$PORT" ] || ! curl -fsS -o /dev/null "http://127.0.0.1:$PORT/api/defaults/dev.tugapp.app" 2>/dev/null; do
+        [ "$waited" -lt 120 ] || die "$id did not come up within 120 s"
+        sleep 2; waited=$((waited + 2))
+        PORT="$(port_of "$id")"
+    done
+    say "$id is up on port $PORT (${waited} s)"
+}
+
+quit() {
+    local id="$1" waited=0
+    "$APP/Contents/MacOS/tugtool" host instance stop "$id" --timeout 15 >/dev/null 2>&1 || true
+    while pgrep -f "$APP/Contents/MacOS/" >/dev/null 2>&1; do
+        [ "$waited" -lt 30 ] || die "$id did not quit within 30 s"
+        sleep 1; waited=$((waited + 1))
+    done
+    say "$id quit"
+}
+
+# ── settings, as the deck makes them ─────────────────────────────────────────
+
+put() { # domain key tagged-json
+    curl -fsS -o /dev/null -X PUT -H 'Content-Type: application/json' \
+        --data "$3" "http://127.0.0.1:$PORT/api/defaults/$1/$2" || die "PUT $1/$2 failed"
+}
+# The raw tagged value of domain/key, or `absent` for a 404.
+get() {
+    local body
+    if body="$(curl -fsS "http://127.0.0.1:$PORT/api/defaults/$1/$2" 2>/dev/null)"; then
+        printf '%s' "$body"
+    else
+        printf 'absent'
+    fi
+}
+editor() { # returnKeyAction fontSize
+    put dev.tugapp.editor settings "{\"kind\":\"json\",\"value\":{\"fontId\":\"plex-mono\",\"fontSize\":$2,\"lineWrap\":true,\"lineNumbers\":false,\"softTabs\":true,\"tabSize\":4,\"highlightActiveLineGutter\":false,\"returnKeyAction\":\"$1\",\"numpadEnterAction\":\"submit\"}}"
+}
+marker() { put dev.tugapp.lab marker "{\"kind\":\"string\",\"value\":\"$1\"}"; }
+field() { # tagged-json name → the field's value
+    printf '%s' "$1" | grep -o "\"$2\":\"\{0,1\}[a-z0-9.]*" | head -1 | sed "s/\"$2\":\"\{0,1\}//"
+}
+
+# ── the data root ────────────────────────────────────────────────────────────
+
+reset_user() {
+    rm -rf "$ROOT"
+    defaults delete dev.tugapp.app >/dev/null 2>&1 || true
+    defaults delete "$STRANDED_BUNDLE" >/dev/null 2>&1 || true
+}
+
+# What sits at instances/$1: dir, symlink:<target>, or absent.
+kind_of() {
+    local p="$ROOT/instances/$1"
+    if [ -L "$p" ]; then printf 'symlink:%s' "$(readlink "$p")"
+    elif [ -d "$p" ]; then printf 'dir'
+    else printf 'absent'; fi
+}
+retired_count() {
+    find "$ROOT/retired" -maxdepth 1 -name "$RELEASE_ID-*" 2>/dev/null | wc -l | tr -d ' '
+}
+# The value of dev.tugapp.lab/marker in a quit instance's tugbank, read from a copy.
+marker_in() {
+    local copy; copy="$(mktemp -d)"
+    cp "$1"/tugbank.db* "$copy"/ 2>/dev/null || { echo none; return; }
+    /usr/bin/sqlite3 -readonly "$copy/tugbank.db" \
+        "SELECT value_text FROM entries WHERE domain='dev.tugapp.lab' AND key='marker'" 2>/dev/null || echo none
+    rm -rf "$copy"
+}
+# All of the release instance's app log, oldest first.
+app_log() { cat "$ROOT/instances/$RELEASE_ID/Logs"/tugapp.log.* 2>/dev/null; }
+count_in_log() { app_log | grep -c "$1" || true; }
+# How many `TugbankClient.configure` laps the log holds before the adoption line.
+configures_before_adoption() {
+    app_log | awk '/adopted the stranded instance.s data/ { print n + 0; exit } /TugbankClient.configure/ { n++ }'
+}
+
+# ── the candidate's own identity ─────────────────────────────────────────────
+
+say "guest $(sw_vers -productVersion)"
+install candidate.dmg
+check "candidate BuildBranch" "$(plutil -extract BuildBranch raw "$APP/Contents/Info.plist")" "main"
+check "candidate CFBundleIdentifier" "$(plutil -extract CFBundleIdentifier raw "$APP/Contents/Info.plist")" "dev.tugapp.app"
+
+# ── update: v0.9.4 → v0.9.5 → candidate ──────────────────────────────────────
+
+say "── update: v0.9.4 → v0.9.5 → candidate"
+reset_user
+
+install v0.9.4.dmg
+launch "$RELEASE_ID"
+editor submit 13
+marker v0.9.4
+quit "$RELEASE_ID"
+
+install v0.9.5.dmg
+launch "$STRANDED_ID"
+check "v0.9.5 shows the v0.9.4 setting (the bug)" "$(get dev.tugapp.editor settings)" "absent"
+editor submit 15
+marker v0.9.5
+quit "$STRANDED_ID"
+defaults write "$STRANDED_BUNDLE" TugLabMarker -string v0.9.5
+
+install candidate.dmg
+launch "$RELEASE_ID"
+settings="$(get dev.tugapp.editor settings)"
+check "candidate returnKeyAction" "$(field "$settings" returnKeyAction)" "submit"
+check "candidate fontSize (set on v0.9.5)" "$(field "$settings" fontSize)" "15"
+check "candidate marker" "$(field "$(get dev.tugapp.lab marker)" value)" "v0.9.5"
+check "candidate preferences carried" "$(defaults read dev.tugapp.app TugLabMarker 2>/dev/null || echo none)" "v0.9.5"
+quit "$RELEASE_ID"
+check "instances/$RELEASE_ID" "$(kind_of "$RELEASE_ID")" "dir"
+check "instances/$STRANDED_ID" "$(kind_of "$STRANDED_ID")" "symlink:$RELEASE_ID"
+check "v0.9.4's dir retired, once" "$(retired_count)" "1"
+retired="$(find "$ROOT/retired" -maxdepth 1 -name "$RELEASE_ID-*" | head -1)"
+check "retired dir holds v0.9.4's data" "$(marker_in "$retired")" "v0.9.4"
+check "adoptions logged" "$(count_in_log 'adopted the stranded instance.s data')" "1"
+
+# Every launch after the first adopts nothing.
+launch "$RELEASE_ID"
+check "second launch marker" "$(field "$(get dev.tugapp.lab marker)" value)" "v0.9.5"
+quit "$RELEASE_ID"
+check "second launch retires nothing" "$(retired_count)" "1"
+check "second launch adopts nothing" "$(count_in_log 'adopted the stranded instance.s data')" "1"
+
+# ── fresh: v0.9.5 → candidate ────────────────────────────────────────────────
+
+say "── fresh: v0.9.5 → candidate"
+reset_user
+
+install v0.9.5.dmg
+launch "$STRANDED_ID"
+editor submit 15
+marker v0.9.5
+quit "$STRANDED_ID"
+
+install candidate.dmg
+launch "$RELEASE_ID"
+settings="$(get dev.tugapp.editor settings)"
+check "candidate returnKeyAction" "$(field "$settings" returnKeyAction)" "submit"
+check "candidate marker" "$(field "$(get dev.tugapp.lab marker)" value)" "v0.9.5"
+quit "$RELEASE_ID"
+check "instances/$STRANDED_ID" "$(kind_of "$STRANDED_ID")" "symlink:$RELEASE_ID"
+# The ordering, read two ways. Had the candidate opened its data dir before
+# adopting, it would have made a release-main the adoption then retired; and
+# its own TugbankClient.configure lap would sit before the adoption line,
+# beside the one v0.9.5 wrote.
+check "nothing retired (adopted before anything opened)" "$(retired_count)" "0"
+check "tugbank opens before the adoption: v0.9.5's only" "$(configures_before_adoption)" "1"
+check "tugbank opens in all" "$(count_in_log 'TugbankClient.configure')" "2"
+
+echo
+echo "[rehearsal] passed: $PASS  failed: $FAIL"
+[ "$FAIL" -eq 0 ]

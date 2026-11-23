@@ -1747,6 +1747,23 @@ lab-wipe *ARGS:
 lab-app-test *ARGS:
     scripts/lab/lab-app-test {{ARGS}}
 
+# Rehearse the next release's update over v0.9.5 in a fresh lab guest: install
+# the published v0.9.4 and v0.9.5, make settings on each, install the candidate
+# over them, and check the user keeps what they had. The candidate is a release
+# run's build (`--run <run-id>`, before publish), a published release
+# (`--release <version>`), a dmg on disk (`--candidate <dmg>`), or with none of
+# those, the local `products/Tug.dmg`. What it checks is in
+# scripts/lab/guest-update-rehearsal.
+#
+#   just lab-update-rehearsal tahoe --run 44622108231
+#   just lab-update-rehearsal tahoe --release 0.9.6
+#   just lab-update-rehearsal sequoia --keep
+#
+# Rehearse an update over v0.9.5 in a fresh lab guest (lab-update-rehearsal <os> [--keep] [--run <id> | --release <v> | --candidate <dmg>]).
+[group('lab')]
+lab-update-rehearsal *ARGS:
+    scripts/lab/lab-update-rehearsal {{ARGS}}
+
 # The one reliable inner loop ([P02]): stage a Tug.dmg on the lab share, wipe
 # any prior run for this OS, clone a fresh factory-fresh guest, and boot it
 # with the share mounted — in one command. There is deliberately NO

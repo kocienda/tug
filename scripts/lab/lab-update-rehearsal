@@ -1,0 +1,157 @@
+#!/bin/bash
+# lab-update-rehearsal — rehearse the next release's update over v0.9.5 in a
+# fresh Tart lab guest.
+#
+#   lab-update-rehearsal <base> [--keep] [--run <run-id> | --release <version> | --candidate <Tug.dmg>]
+#
+# v0.9.5 ran under its own instance and bundle id, and the next release adopts
+# that data on its first launch (tugapp/Sources/InstanceAdoption.swift). This
+# installs the published v0.9.4 and v0.9.5, makes settings on each through the
+# running tugcast, installs the candidate over them the way an update does, and
+# reads back what the user would see. What it checks, and why each check proves
+# what it says, is in scripts/lab/guest-update-rehearsal.
+#
+# The candidate is one of:
+#
+#   --run <run-id>      the Tug.dmg a release.yml run built, from its
+#                       `release-products` artifact. That job finishes before
+#                       `publish` can, so this is the release itself, rehearsed
+#                       while the full lane is still running. The run id is the
+#                       number in the run's URL, or `gh run list --workflow
+#                       release.yml`. The artifact is kept 7 days.
+#   --release <version> the Tug.dmg of a published release (`0.9.6` or `v0.9.6`).
+#   --candidate <dmg>   any Tug.dmg on disk.
+#   (none)              `products/Tug.dmg`, from a local
+#                       `tugrust/scripts/build-app.sh --skip-sign --skip-notarize`.
+#                       A local build is minutes of its own and belongs in its
+#                       own call, so it is never built here.
+#
+# The guest is not rehearsing Gatekeeper, so an unsigned candidate is enough.
+#
+# <base> is a golden base key (sequoia | tahoe | golden-gate). Every run clones
+# a fresh `run-rehearsal-<base>` and deletes it afterwards (`--keep` leaves it
+# stopped). The golden bases are never booted or written.
+#
+# LAB_ROOT (default /Volumes/Lab-A) is the lab disk; TART_HOME defaults to
+# $LAB_ROOT/tart. Its four phases report through tugrust/scripts/report-phase.sh.
+
+set -euo pipefail
+LAB_ROOT="${LAB_ROOT:-/Volumes/Lab-A}"
+export TART_HOME="${TART_HOME:-$LAB_ROOT/tart}"
+
+usage() { echo "usage: lab-update-rehearsal <base> [--keep] [--run <run-id> | --release <version> | --candidate <Tug.dmg>]" >&2; exit 2; }
+[ $# -ge 1 ] || usage
+BASE="$1"; shift
+KEEP=0
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+CANDIDATE=""
+RUN_ID=""
+RELEASE=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --keep) KEEP=1 ;;
+        --candidate) [ $# -ge 2 ] || usage; CANDIDATE="$2"; shift ;;
+        --run) [ $# -ge 2 ] || usage; RUN_ID="$2"; shift ;;
+        --release) [ $# -ge 2 ] || usage; RELEASE="v${2#v}"; shift ;;
+        *) usage ;;
+    esac
+    shift
+done
+chosen=0
+for c in "$CANDIDATE" "$RUN_ID" "$RELEASE"; do [ -z "$c" ] || chosen=$((chosen + 1)); done
+[ "$chosen" -le 1 ] || { echo "error: name one candidate: --run, --release or --candidate" >&2; exit 2; }
+if [ "$chosen" -eq 0 ]; then
+    CANDIDATE="$REPO_ROOT/products/Tug.dmg"
+    [ -f "$CANDIDATE" ] || {
+        echo "error: no local build at $CANDIDATE." >&2
+        echo "       name a release run (--run <run-id>), a published release (--release <version>)," >&2
+        echo "       or build one: tugrust/scripts/build-app.sh --skip-sign --skip-notarize" >&2
+        exit 1
+    }
+fi
+if [ -n "$CANDIDATE" ] && [ ! -f "$CANDIDATE" ]; then
+    echo "error: no Tug.dmg at $CANDIDATE" >&2
+    exit 1
+fi
+
+[ -d "$LAB_ROOT" ] || { echo "error: VM-lab disk not mounted (missing $LAB_ROOT)" >&2; exit 1; }
+command -v tart >/dev/null 2>&1 || { echo "error: tart is not installed (see scripts/lab/base-prep.md)" >&2; exit 1; }
+command -v gh >/dev/null 2>&1 || { echo "error: gh is not installed — it is how a release is fetched" >&2; exit 1; }
+
+cd "$REPO_ROOT"
+REPORT="$REPO_ROOT/tugrust/scripts/report-phase.sh"
+bash "$REPORT" lab-update-rehearsal 0 "stage" --of "stage" "clone" "boot" "guest run"
+
+RUN="rehearsal-$BASE"
+VM="run-$RUN"
+STAGE="$(mktemp -d -t tug-lab-rehearsal)"
+for v in 0.9.4 0.9.5; do
+    echo "==> downloading Tug.dmg from v$v"
+    mkdir -p "$STAGE/dl-$v"
+    gh release download "v$v" --pattern Tug.dmg --dir "$STAGE/dl-$v"
+    mv "$STAGE/dl-$v/Tug.dmg" "$STAGE/v$v.dmg"
+    rmdir "$STAGE/dl-$v"
+done
+if [ -n "$RUN_ID" ]; then
+    echo "==> downloading Tug.dmg from release run $RUN_ID"
+    gh run download "$RUN_ID" --name release-products --dir "$STAGE/dl-run" \
+        || { echo "error: run $RUN_ID has no release-products artifact (not a release.yml run, its build has not finished, or it is past 7 days)" >&2; exit 1; }
+    [ -f "$STAGE/dl-run/Tug.dmg" ] || { echo "error: run $RUN_ID's release-products holds no Tug.dmg" >&2; exit 1; }
+    mv "$STAGE/dl-run/Tug.dmg" "$STAGE/candidate.dmg"
+    rm -rf "$STAGE/dl-run"
+elif [ -n "$RELEASE" ]; then
+    echo "==> downloading Tug.dmg from $RELEASE"
+    gh release download "$RELEASE" --pattern Tug.dmg --dir "$STAGE/dl-release" \
+        || { echo "error: no Tug.dmg published for $RELEASE" >&2; exit 1; }
+    mv "$STAGE/dl-release/Tug.dmg" "$STAGE/candidate.dmg"
+    rm -rf "$STAGE/dl-release"
+else
+    echo "==> candidate: $CANDIDATE"
+    cp -p "$CANDIDATE" "$STAGE/candidate.dmg"
+fi
+cp -p scripts/lab/guest-update-rehearsal "$STAGE/guest-update-rehearsal"
+
+TART_PID=""
+# shellcheck disable=SC2317,SC2329  # invoked by the trap below
+cleanup() {
+    if [ -n "$TART_PID" ]; then
+        tart stop "$VM" >/dev/null 2>&1 || true
+        wait "$TART_PID" 2>/dev/null || true
+    fi
+    if [ "$KEEP" -eq 1 ]; then
+        echo "==> kept $VM (stopped); wipe it with: just lab-wipe $RUN"
+    else
+        scripts/lab/lab-wipe "$RUN" >/dev/null 2>&1 || true
+    fi
+    rm -rf "$STAGE" "$STAGE.boot.log"
+    bash "$REPORT" lab-update-rehearsal 4
+}
+trap cleanup EXIT INT TERM
+
+bash "$REPORT" lab-update-rehearsal 1 "clone"
+echo "==> fresh $VM from base-$BASE"
+scripts/lab/lab-wipe "$RUN" >/dev/null 2>&1 || true
+scripts/lab/lab-new "$BASE" "$RUN" >/dev/null
+
+bash "$REPORT" lab-update-rehearsal 2 "boot"
+echo "==> booting $VM headless"
+tart run "$VM" --no-graphics --dir=stage:"$STAGE":ro > "$STAGE.boot.log" 2>&1 &
+TART_PID=$!
+waited=0
+until tart exec "$VM" true >/dev/null 2>&1; do
+    if ! kill -0 "$TART_PID" 2>/dev/null; then
+        echo "error: $VM exited while booting:" >&2
+        cat "$STAGE.boot.log" >&2
+        exit 1
+    fi
+    if [ "$waited" -ge 240 ]; then
+        echo "error: $VM's guest agent did not answer within 240 s" >&2
+        exit 1
+    fi
+    sleep 5
+    waited=$((waited + 5))
+done
+echo "==> $VM is up (${waited} s); running the guest half"
+
+bash "$REPORT" lab-update-rehearsal 3 "guest run"
+tart exec "$VM" /bin/bash "/Volumes/My Shared Files/stage/guest-update-rehearsal"
