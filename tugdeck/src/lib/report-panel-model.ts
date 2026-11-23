@@ -89,6 +89,15 @@ export interface ReportPanelModel {
   /** One cell per unit, or a band. */
   track: "cells" | "band" | "none";
   /**
+   * The band's segments, as fractions of the total: the passes, then the
+   * reds, with the rest left as track. A band paints outcome, never bare
+   * progress, so a run of one pass and one fail is half green and half red,
+   * not a done bar full of green. `marks` says whether each red is also
+   * ticked at its place in run order — only on a density band, where a run
+   * is too long for its segments to say where the reds fell.
+   */
+  band: { pass: number; red: number; marks: boolean };
+  /**
    * What the masthead says of the count, when a fraction and a tally would say
    * nothing true: `3 errors` for a run whose units are only reds, `no errors`
    * or `no tests` for a finished run that counted none. Null when the
@@ -317,6 +326,14 @@ export function reportPanelModel(
   const track: ReportPanelModel["track"] =
     total === undefined || total === 0 ? "none" : full && total <= CELLS_UP_TO ? "cells" : "band";
 
+  const bandOf = (n: number): number => (total ? Math.min(1, Math.max(0, n / total)) : 0);
+  const bandRed = bandOf(red);
+  const band = {
+    red: bandRed,
+    pass: Math.min(bandOf(pass), 1 - bandRed),
+    marks: total !== undefined && total > CELLS_UP_TO,
+  };
+
   const lanes: RunLane[] =
     state === "running"
       ? units
@@ -391,6 +408,7 @@ export function reportPanelModel(
       unreported,
     },
     track,
+    band,
     countWords: countWordsFor(p.unit ?? "unit", state, red, p.done ?? 0, total, units.length),
     listed: full,
     lanes,

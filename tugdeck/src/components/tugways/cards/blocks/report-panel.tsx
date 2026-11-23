@@ -180,8 +180,9 @@ function Tally({ m }: { m: ReportPanelModel }) {
 
 /**
  * The track: a cell per unit, or a band. A cell's `data-status` is what the
- * stylesheet paints; the band's fill is the done fraction and each red a mark
- * at its place in run order.
+ * stylesheet paints; the band is a pass segment then a red segment, each its
+ * share of the total, and on a density band each red is also a mark at its
+ * place in run order.
  *
  * The cells are one row at every count: each is 16px wide while the row has
  * room and shrinks toward 3px as the count grows, with the gap tightening past
@@ -221,8 +222,14 @@ export function ReportTrack({ m }: { m: ReportPanelModel }): React.ReactElement 
       role="img"
       aria-label={`${m.done} of ${total} ${unitWord(m.unit, total)} done, ${m.counts.red} red`}
     >
-      <span className="tug-report-panel-band-fill" style={{ width: `${Math.min(1, m.done / total) * 100}%` }} />
-      {m.reds.map((u) => (
+      <span className="tug-report-panel-band-fill" style={{ width: `${m.band.pass * 100}%` }} />
+      {m.band.red > 0 && (
+        <span
+          className="tug-report-panel-band-red"
+          style={{ left: `${m.band.pass * 100}%`, width: `${m.band.red * 100}%` }}
+        />
+      )}
+      {m.band.marks && m.reds.map((u) => (
         <span
           key={`${u.index ?? 0}-${u.name}`}
           className="tug-report-panel-band-mark"

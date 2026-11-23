@@ -139,6 +139,26 @@ describe("reportPanelModel", () => {
     expect(m.counts.red).toBe(3);
     expect(m.counts.pass).toBe(809);
     expect(m.projectionSecs).toBeNull();
+    expect(m.band.pass).toBeCloseTo(809 / 1412);
+    expect(m.band.red).toBeCloseTo(3 / 1412);
+    expect(m.band.marks).toBe(true);
+  });
+
+  test("a band paints outcome, not progress: one pass and one fail is half green, half red", () => {
+    const swift: Run = {
+      runId: "r",
+      label: "swift test",
+      done: 2,
+      total: 2,
+      failures: 1,
+      finished: true,
+      unit: "test",
+      units: [{ name: "ExtentTests testFramesDrawnAtOnce", status: "fail", index: 0 }],
+    };
+    const m = reportPanelModel(swift, "finished", NOW, { callFailed: true });
+    expect(m.track).toBe("band");
+    expect(m.verdict).toBe("red");
+    expect(m.band).toEqual({ pass: 0.5, red: 0.5, marks: false });
   });
 
   test("a whole batch past the cell limit is a band too; an unknown total is no track", () => {

@@ -259,6 +259,13 @@ body {
   background-color: var(--tugx-report-pass-fill);
 }
 
+.tug-report-panel-band-red {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background-color: var(--tugx-report-red-fill);
+}
+
 .tug-report-panel-band-mark {
   position: absolute;
   top: 0;
