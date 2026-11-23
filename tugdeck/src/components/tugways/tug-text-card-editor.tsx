@@ -190,6 +190,7 @@ import type { TextSelectionAdapter } from "./text-selection-adapter";
 import { undoMenuStatePlugin } from "./tug-text-editor/undo-menu-state-plugin";
 import { tugTextCardEditorTheme } from "./tug-text-card-editor/theme";
 import { tugPaintedCaret } from "./tug-text-editor/caret-layer";
+import { dictationSpanExtension } from "./tug-text-editor/dictation-span";
 import { emptyLineSelection } from "./tug-text-card-editor/empty-line-selection";
 import {
   createEditorFindEngine,
@@ -1116,6 +1117,10 @@ export const TugTextCardEditor = React.forwardRef<
         // The painted caret — the composer's, so carets read the same in
         // every editing surface. See `tug-text-editor/caret-layer.ts`.
         tugPaintedCaret,
+        // The region a live dictation session owns and its dimmed, unsettled
+        // tail — the composer's own span, so the status strip's mic writes
+        // here exactly as the Session mic writes into a draft.
+        dictationSpanExtension,
         // A primary press inside a ranged selection collapses it now rather
         // than on release — otherwise the whole range stays painted for as
         // long as the button is held. See `press-collapses-selection.ts`.

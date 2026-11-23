@@ -161,6 +161,12 @@
   margin-left: auto;
 }
 
+/* The mic stands apart from the settable cluster: the cluster's own gap plus
+ * a little more, so it reads as its own control rather than a fourth popup. */
+.text-card-status-group--dictation {
+  margin-left: var(--tug-space-sm);
+}
+
 /* The Preview toggle reads in the strip's own voice: the popups beside it
  * are sentence-case labels, and a push button's uppercase tracking would
  * shout between them and the counts. */

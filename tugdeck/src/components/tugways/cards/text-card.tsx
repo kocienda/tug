@@ -124,6 +124,13 @@ import { openAttachmentPath } from "@/lib/open-attachment";
 import { previewImageUrl, readPreviewHref } from "@/lib/markdown-preview-links";
 import { helpAnchorSlug } from "@/lib/help-docs";
 import { requestMenuStateRefresh } from "@/lib/host-menu-state";
+import { isDictationAvailable } from "@/lib/dictation-bridge";
+import {
+  dictationStore,
+  useDictationFace,
+  useDictationFocusRelease,
+} from "@/lib/dictation-store";
+import { dictationHandleFor } from "../tug-text-editor/dictation-span";
 
 // ---------------------------------------------------------------------------
 // Keyboard-focus cycle ([P09]/[P10])
@@ -1276,6 +1283,28 @@ export function TextCardContent({ cardId }: { cardId: string }) {
   // ([L27]).
   useLayoutEffect(() => () => paneTitleBarItemsStore.set(cardId, null), [cardId]);
 
+  // ---- Dictation: the status strip's mic, and ⌘D ----
+  //
+  // The editor is the surface the composer's own dictation span writes into,
+  // so the claim, the face and the releases are the composer's, keyed on this
+  // card's id. The handle reads the view per call: the editor remounts, and a
+  // handle that held one would write into a detached view.
+  const dictationTarget = useMemo(
+    () => ({ dictation: dictationHandleFor(() => editorRef.current?.view() ?? null) }),
+    [],
+  );
+  const dictationFace = useDictationFace(cardId);
+  const dictationOwned =
+    dictationFace.mode !== "idle" && dictationFace.mode !== "refused";
+  // Focus leaving the card finishes the session, as it does a composer's.
+  useDictationFocusRelease(cardId, dictationOwned, cardRootRef);
+  // A preview takes no edits, so raising one keeps what was heard and stops.
+  useLayoutEffect(() => {
+    if (previewing) dictationStore.endIfOwnedBy(cardId, "dismissed");
+  }, [previewing, cardId]);
+  // The mic goes with the card.
+  useLayoutEffect(() => () => dictationStore.endIfOwnedBy(cardId, "dismissed"), [cardId]);
+
   // The two title-bar verbs the chain has to deliver. They are KEY-CARD
   // routed and land here, on the card's own content responder, rather than
   // on the editor's: both mean "this card", and pressing a title-bar button
@@ -1367,6 +1396,17 @@ export function TextCardContent({ cardId }: { cardId: string }) {
       [TUG_ACTIONS.CYCLE_FOCUS_MODE]: () => {
         cycle.toggle();
       },
+      // ⌘D — the strip's mic on a key. Present only where the host can
+      // dictate, so a dev browser leaves the chord unclaimed; dimmed by
+      // `validateAction` while the document cannot take text.
+      ...(isDictationAvailable()
+        ? {
+            [TUG_ACTIONS.TOGGLE_DICTATION]: () => {
+              const handle = dictationTarget.dictation;
+              dictationStore.toggle(cardId, cardId, handle);
+            },
+          }
+        : {}),
       // The save verbs, for when the editor is not on the walk. The editor
       // answers them itself on the way up from its caret; under the Markdown
       // preview the first responder is the rendered document, a sibling of
@@ -1413,6 +1453,9 @@ export function TextCardContent({ cardId }: { cardId: string }) {
         return !snapshot.readOnly && !previewingRef.current;
       }
       if (action === TUG_ACTIONS.SAVE) return !snapshot.readOnly;
+      if (action === TUG_ACTIONS.TOGGLE_DICTATION) {
+        return dictationOwned || (!snapshot.readOnly && !previewingRef.current);
+      }
       if (action === TUG_ACTIONS.FIND_SELECTION) return previewingRef.current;
       if (action === TUG_ACTIONS.TOGGLE_MARKDOWN_PREVIEW) return previewAvailable;
       if (
@@ -1701,6 +1744,7 @@ export function TextCardContent({ cardId }: { cardId: string }) {
             previewTarget={`${cardId}-card-content`}
             focusGroup={TEXT_CARD_CYCLE_GROUP}
             focusOrder={TEXT_CARD_CYCLE_ORDER_PREVIEW}
+            dictation={{ id: cardId, target: dictationTarget }}
           />
         </cycle.CycleScope>
         {renderSheet()}

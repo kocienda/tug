@@ -57,10 +57,22 @@ export interface DictationButtonProps {
   composerId: string;
   /** The card the claim belongs to, for the modal-hold release (Table T03). */
   cardId: string;
-  /** The composer, as the thing dictation writes into. */
-  target: PromptInsertTarget;
-  /** `lg` in the Session entry, `sm` in the Overview — their Submit sizes. */
-  size: "sm" | "lg";
+  /**
+   * The surface dictation writes into: a composer, or a Text card's editor.
+   * Only its `dictation` handle is read.
+   */
+  target: Pick<PromptInsertTarget, "dictation">;
+  /**
+   * `lg` in the Session entry, `sm` in the Overview — their Submit sizes —
+   * and `xs` in a Text card's status strip, beside its popups.
+   */
+  size: "xs" | "sm" | "lg";
+  /**
+   * The surface cannot take text right now (a Text card showing its Markdown
+   * preview). Truly disabled, unlike a refusal: there is nothing a retry
+   * could change until the surface is editable again.
+   */
+  disabled?: boolean;
   focusGroup?: string;
   focusOrder?: number;
 }
@@ -79,6 +91,7 @@ export function DictationButton({
   cardId,
   target,
   size,
+  disabled,
   focusGroup,
   focusOrder,
 }: DictationButtonProps): React.ReactElement | null {
@@ -127,10 +140,11 @@ export function DictationButton({
         aria-pressed={live || finishing}
         // Not `disabled`: a refused mic must still be pressable ([L31], [P07]).
         aria-disabled={refused || undefined}
+        disabled={disabled}
         onClick={() => {
           dictationStore.toggle(composerId, cardId, handle);
         }}
-        icon={<Mic size={size === "lg" ? 16 : 14} strokeWidth={2.5} />}
+        icon={<Mic size={size === "lg" ? 16 : size === "sm" ? 14 : 13} strokeWidth={2.5} />}
         // `busy` for every live-ish phase — starting, preparing, live and
         // finishing — because the button says "the system is listening, getting
         // ready to, or settling what it heard" with one glyph. A phase edge

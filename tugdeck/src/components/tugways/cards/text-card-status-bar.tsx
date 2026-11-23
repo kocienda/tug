@@ -9,7 +9,10 @@
  * popups. The toggle is there only while the file type is Markdown, and it
  * sits beside the file type because that popup decides whether it exists;
  * the cluster is anchored to the trailing edge, so the toggle coming or
- * going moves nothing else. The numbers change at keystroke rate, so they
+ * going moves nothing else. Past the cluster, set off by a wider gap, the
+ * mic stands alone at the far right: dictation into the document, the same
+ * control and the same ⌘D as the Session composer's. The numbers change at
+ * keystroke rate, so they
  * hold the leading edge and grow
  * into the open space between the clusters; nothing in the strip moves
  * when they do. The save state rides the card's document masthead, where
@@ -36,6 +39,8 @@ import { TugPopupButton, type TugPopupButtonItem } from "../tug-popup-button";
 import { TugPushButton } from "../tug-push-button";
 import { useResponderForm } from "../use-responder-form";
 import { TUG_ACTIONS } from "../action-vocabulary";
+import { DictationButton } from "./dictation-button";
+import type { PromptInsertTarget } from "../prompt-insert-target";
 import type { EditorStatsStore } from "@/lib/editor-stats-store";
 import type { LineEnding } from "@/lib/text-card-store";
 import {
@@ -95,9 +100,15 @@ export interface TextCardStatusBarProps {
   focusGroup?: string;
   /**
    * Order of the Preview toggle; the file-type and line-ending popups take
-   * the next two slots, the order the cluster reads in.
+   * the next two slots, the order the cluster reads in, and the mic the one
+   * after them.
    */
   focusOrder?: number;
+  /**
+   * The mic. Absent, the strip has none. `id` keys the dictation claim and
+   * names the card for its releases; `target` is the editor it writes into.
+   */
+  dictation?: { id: string; target: Pick<PromptInsertTarget, "dictation"> };
 }
 
 export function TextCardStatusBar({
@@ -110,6 +121,7 @@ export function TextCardStatusBar({
   previewTarget,
   focusGroup,
   focusOrder = 0,
+  dictation,
 }: TextCardStatusBarProps) {
   const stats = useSyncExternalStore(statsStore.subscribe, statsStore.getSnapshot);
 
@@ -192,6 +204,23 @@ export function TextCardStatusBar({
             focusOrder={focusOrder + 2}
           />
         </div>
+
+        {/* The mic, alone on the trailing edge. A preview takes no edits, so it
+            disables there rather than vanishing: the popups beside it hold
+            their places either way. */}
+        {dictation !== undefined ? (
+          <div className="text-card-status-group text-card-status-group--dictation">
+            <DictationButton
+              composerId={dictation.id}
+              cardId={dictation.id}
+              target={dictation.target}
+              size="xs"
+              disabled={previewing}
+              focusGroup={focusGroup}
+              focusOrder={focusOrder + 3}
+            />
+          </div>
+        ) : null}
       </div>
     </ResponderScope>
   );
