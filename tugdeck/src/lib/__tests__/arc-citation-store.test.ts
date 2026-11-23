@@ -127,6 +127,21 @@ describe("arc citation store", () => {
     });
   });
 
+  test("a found arc carries the canonical project key its verdict compares", () => {
+    const { store } = storeWithWire();
+    store.applyResolved({
+      projectDir: "/u/src/tug",
+      projectKey: "/Users/k/src/tug",
+      found: [{ name: "open", fate: "live" }],
+      missing: [],
+    });
+    expect(store.getAnswer("/u/src/tug", "open")).toEqual({
+      status: "found",
+      fate: "live",
+      projectKey: "/Users/k/src/tug",
+    });
+  });
+
   test("a joined row with no sha is dropped by the decoder", () => {
     expect(
       decodeResolveArcsOk({

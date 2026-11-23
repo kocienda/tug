@@ -129,6 +129,10 @@ fn resolve_arcs_body(
     serde_json::json!({
         "action": "resolve_arcs_ok",
         "project_dir": project_dir,
+        // [L29]: the asked checkout through the gateway, which is the form a
+        // card's workspace key takes, so the deck tells `here` from
+        // `elsewhere` canonical to canonical rather than by raw spelling.
+        "project_key": crate::path_resolver::CanonicalPath::from_raw(repo_root).as_str(),
         "found": found,
         "missing": missing,
     })
@@ -1114,5 +1118,10 @@ mod tests {
             );
         }
         assert_eq!(body["missing"], serde_json::json!(["bare"]));
+        assert_eq!(
+            body["project_key"],
+            crate::path_resolver::CanonicalPath::from_raw(&repo).as_str(),
+            "the asked checkout through the gateway"
+        );
     }
 }

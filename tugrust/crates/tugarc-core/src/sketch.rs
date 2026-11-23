@@ -255,9 +255,14 @@ fn mint_id(paths: &Paths) -> String {
 }
 
 fn project_dir_of(repo: &Path) -> String {
-    let root = main_repo_root(repo);
-    fs::canonicalize(&root)
-        .unwrap_or(root)
+    // [L29]: a persisted and compared path goes through the gateway, never a
+    // bare `canonicalize`, whose firmlink-expanded `/System/Volumes/Data/…`
+    // form matches no workspace key the deck holds.
+    canonical_dir(&main_repo_root(repo))
+}
+
+fn canonical_dir(dir: &Path) -> String {
+    tugcore::pathform::resolve_to_claude_form(dir)
         .to_string_lossy()
         .into_owned()
 }
@@ -266,6 +271,9 @@ fn read_record(dir: &Path) -> Option<SketchRecord> {
     let text = fs::read_to_string(dir.join(SKETCH_JSON)).ok()?;
     let mut record: SketchRecord = serde_json::from_str(&text).ok()?;
     record.dir = dir.to_path_buf();
+    // A record written under another spelling of its checkout reads back in
+    // the gateway's, so every comparison against it is canonical to canonical.
+    record.project_dir = canonical_dir(Path::new(&record.project_dir));
     Some(record)
 }
 
@@ -468,7 +476,7 @@ mod tests {
         assert_eq!(found.len(), 1);
         assert_eq!(
             PathBuf::from(&found[0].1.project_dir),
-            fs::canonicalize(&repo).unwrap(),
+            tugcore::pathform::resolve_to_claude_form(&repo),
             "the hyphenated checkout path, read from the record"
         );
         assert!(

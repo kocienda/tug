@@ -268,21 +268,19 @@ function sessionAtomVerdict(atom: AtomSegment): {
   return { verdict: answer.status === "unknown" ? "absent" : "unverified" };
 }
 
-/** Two directory spellings name one directory, trailing slashes aside. */
-function sameDir(a: string, b: string): boolean {
-  return a.replace(/\/+$/, "") === b.replace(/\/+$/, "");
-}
-
 /**
  * What the client knows about one arc atom, for the arc reference block.
  *
  * The server answers existence under the atom's own checkout; whether that
  * checkout is this composer's project is a comparison the client makes, so
- * `here` and `elsewhere` are decided here.
+ * `here` and `elsewhere` are decided here — between two canonical forms, the
+ * server's gateway answer for the atom's checkout and the card's workspace
+ * key, never between raw spellings ([L29]). With either missing, a found arc
+ * is `elsewhere`, which still names the command that reads it.
  */
 function arcAtomVerdict(
   atom: AtomSegment,
-  composerDir: string | undefined,
+  composerKey: string | undefined,
 ): {
   verdict: ArcRefVerdict;
   created?: string;
@@ -295,7 +293,7 @@ function arcAtomVerdict(
   if (answer.status === "pending") return { verdict: "unverified" };
   return {
     verdict:
-      composerDir !== undefined && sameDir(atom.arc.projectDir, composerDir)
+      composerKey !== undefined && answer.projectKey === composerKey
         ? "here"
         : "elsewhere",
     fate: answer.fate,
@@ -304,10 +302,14 @@ function arcAtomVerdict(
   };
 }
 
-/** What the client knows about one sketch atom, for the sketch reference block. */
+/**
+ * What the client knows about one sketch atom, for the sketch reference block.
+ * The server's `projectDir` is the gateway's canonical form of the checkout
+ * that holds the sketch, compared with the card's workspace key ([L29]).
+ */
 function sketchAtomVerdict(
   atom: AtomSegment,
-  composerDir: string | undefined,
+  composerKey: string | undefined,
 ): {
   verdict: SketchRefVerdict;
   projectDir?: string;
@@ -319,7 +321,7 @@ function sketchAtomVerdict(
   if (answer.status === "pending") return { verdict: "unverified" };
   return {
     verdict:
-      composerDir !== undefined && sameDir(answer.projectDir, composerDir)
+      composerKey !== undefined && answer.projectDir === composerKey
         ? "here"
         : "elsewhere",
     projectDir: answer.projectDir,
@@ -374,11 +376,12 @@ export interface CodeSessionStoreOptions {
    */
   offWire?: boolean;
   /**
-   * The card's project directory — what an arc or sketch reference is
-   * compared against to say `here` or `elsewhere`. Absent, every found one
-   * is `elsewhere`.
+   * The card's workspace key — the canonical form of its project directory,
+   * which an arc or sketch reference's canonical checkout is compared against
+   * to say `here` or `elsewhere` ([L29]). Absent, every found one is
+   * `elsewhere`.
    */
-  projectDir?: string;
+  projectKey?: string;
   /**
    * The per-card queue of shell / `/btw` interactions staged to ride the next
    * code-route submission as attributed `<tug-context>` context. Consulted at
@@ -430,7 +433,7 @@ export class CodeSessionStore extends Subscribable {
 
   private readonly conn: TugConnection;
   private readonly offWire: boolean;
-  private readonly projectDir: string | undefined;
+  private readonly projectKey: string | undefined;
   private readonly lifecycle: ConnectionLifecycle;
   readonly tugSessionId: string;
   private readonly displayLabel: string;
@@ -587,7 +590,7 @@ export class CodeSessionStore extends Subscribable {
     super();
     this.conn = options.conn;
     this.offWire = options.offWire === true;
-    this.projectDir = options.projectDir;
+    this.projectKey = options.projectKey;
     this.lifecycle = options.lifecycle;
     this.tugSessionId = options.tugSessionId;
     this.displayLabel = options.displayLabel ?? options.tugSessionId.slice(0, 8);
@@ -1049,8 +1052,8 @@ export class CodeSessionStore extends Subscribable {
     // content blocks and never touches the bytes-store.
     const wire = buildWirePayload(effText, atoms, this.atomBytesStore, {
       sessionVerdict: sessionAtomVerdict,
-      arcVerdict: (atom) => arcAtomVerdict(atom, this.projectDir),
-      sketchVerdict: (atom) => sketchAtomVerdict(atom, this.projectDir),
+      arcVerdict: (atom) => arcAtomVerdict(atom, this.projectKey),
+      sketchVerdict: (atom) => sketchAtomVerdict(atom, this.projectKey),
     });
     // A leading command atom is sent as a clean `/name` for claude to
     // expand (no `@`-mention marker), so `wire.content` can't round-trip the
@@ -1657,8 +1660,8 @@ export class CodeSessionStore extends Subscribable {
   private sendWhen(text: string, condition: SendCondition): void {
     const wire = buildWirePayload(text, [], this.atomBytesStore, {
       sessionVerdict: sessionAtomVerdict,
-      arcVerdict: (atom) => arcAtomVerdict(atom, this.projectDir),
-      sketchVerdict: (atom) => sketchAtomVerdict(atom, this.projectDir),
+      arcVerdict: (atom) => arcAtomVerdict(atom, this.projectKey),
+      sketchVerdict: (atom) => sketchAtomVerdict(atom, this.projectKey),
     });
     const synth = synthesizeUserMessageFromBlocks(wire.content, this.atomBytesStore, {
       atomIdAt: wire.atomIdAt,

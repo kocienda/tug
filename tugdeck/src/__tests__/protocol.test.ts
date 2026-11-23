@@ -780,6 +780,18 @@ describe("arc and sketch record CONTROL decoders", () => {
     });
   });
 
+  test("decodeResolveArcsOk keeps the server's canonical project key", () => {
+    const decoded = decodeResolveArcsOk({
+      action: "resolve_arcs_ok",
+      project_dir: "/u/src/tug",
+      project_key: "/Users/k/src/tug",
+      found: [],
+      missing: [],
+    });
+    expect(decoded?.projectDir).toBe("/u/src/tug");
+    expect(decoded?.projectKey).toBe("/Users/k/src/tug");
+  });
+
   test("decodeSearchArcsOk reads the rows and drops one it cannot name", () => {
     const decoded = decodeSearchArcsOk({
       action: "search_arcs_ok",

@@ -233,9 +233,9 @@ pub(super) fn resolve_sketches_body(
     project_dir: &str,
     ids: &[String],
 ) -> serde_json::Value {
-    let here = std::fs::canonicalize(project_dir)
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| project_dir.to_owned());
+    // [L29]: compared through the gateway, the form a sketch record stores.
+    let here = crate::path_resolver::CanonicalPath::from_raw(Path::new(project_dir));
+    let here = here.as_str();
     let mut found = Vec::new();
     let mut missing = Vec::new();
     for id in ids {

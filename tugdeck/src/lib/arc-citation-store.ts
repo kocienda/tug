@@ -45,12 +45,15 @@ export type CitedArcAnswer =
    * The arc can be read back. `joinSha` is set exactly when the arc was
    * joined; a `discarded` arc is one whose archive or kept documents remain.
    * `created` is its newest generation's start, when the server knows it.
+   * `projectKey` is the asked checkout's canonical form, from the server's
+   * path gateway, which is what `here` versus `elsewhere` compares ([L29]).
    */
   | {
       status: "found";
       fate: "live" | "joined" | "discarded";
       joinSha?: string;
       created?: string;
+      projectKey?: string;
     }
   /** Nothing on this machine can read it back. */
   | { status: "missing" };
@@ -143,7 +146,10 @@ export class ArcCitationStore {
     const changed: VerdictKey[] = [];
     for (const arc of response.found) {
       const key = keyFor(root, arc.name);
-      const created = arc.created !== undefined ? { created: arc.created } : {};
+      const created = {
+        ...(arc.created !== undefined ? { created: arc.created } : {}),
+        ...(response.projectKey !== undefined ? { projectKey: response.projectKey } : {}),
+      };
       this.answers.set(
         key,
         arc.fate === "joined" && arc.joinSha !== undefined

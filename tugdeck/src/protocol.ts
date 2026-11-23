@@ -790,7 +790,7 @@ export function encodeResolveSessions(ids: readonly string[]): Frame {
  *
  * An arc's existence is recorded only in the project's arc log, which the deck
  * cannot read, so an `arc:` reference asks here. The response broadcasts
- * `resolve_arcs_ok { project_dir, found: [{ name, fate, created?, join_sha? }],
+ * `resolve_arcs_ok { project_dir, project_key, found: [{ name, fate, created?, join_sha? }],
  * missing: string[] }`, every asked name in exactly one of the two lists. A
  * discarded arc is found as `discarded` while an archive entry or its kept
  * documents can still be read back, and is `missing` once nothing of it is.
@@ -1744,6 +1744,12 @@ export interface ResolvedArc {
 /** The decoded `resolve_arcs_ok` CONTROL response. */
 export interface ResolveArcsOk {
   projectDir: string;
+  /**
+   * The asked checkout through the server's path gateway — the form a card's
+   * workspace key takes — so `here` versus `elsewhere` is decided canonical to
+   * canonical, never by raw spelling ([L29]). Absent from an older server.
+   */
+  projectKey?: string;
   found: readonly ResolvedArc[];
   /** The asked names nothing on this machine can read back. */
   missing: readonly string[];
@@ -1793,7 +1799,11 @@ export function decodeResolveArcsOk(payload: unknown): ResolveArcsOk | null {
         (name): name is string => typeof name === "string" && name.length > 0,
       )
     : [];
-  return { projectDir: obj.project_dir, found, missing };
+  const projectKey =
+    typeof obj.project_key === "string" && obj.project_key.length > 0
+      ? { projectKey: obj.project_key }
+      : {};
+  return { projectDir: obj.project_dir, ...projectKey, found, missing };
 }
 
 /** One arc generation a `search_arcs` request found. */
