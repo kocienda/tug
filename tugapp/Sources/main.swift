@@ -96,10 +96,10 @@ func adoptStrandedInstance() {
     let outcome = InstanceAdoption.adopt(
         dataRoot: InstanceConfig.baseDataDir,
         instanceId: InstanceConfig.instanceId,
-        isLive: { id in
-            guard let registry,
-                  let entry = LaunchHandoff.entry(in: registry, instanceId: id) else { return false }
-            return entry.hostPid != getpid() && LaunchHandoff.processIsAlive(entry.hostPid)
+        isLive: {
+            InstanceAdoption.isLive(
+                $0, registry: registry, ownPid: getpid(), isAlive: LaunchHandoff.processIsAlive
+            )
         }
     )
     switch outcome {

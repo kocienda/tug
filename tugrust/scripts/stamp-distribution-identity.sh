@@ -5,6 +5,7 @@ set -euo pipefail
 #
 # Usage:
 #   stamp-distribution-identity.sh <Info.plist> <bundle-id>
+#   stamp-distribution-identity.sh --check <Info.plist> <bundle-id>
 #
 # capture-build-info.sh and assign-bundle-id.sh derive a bundle's identity
 # from the git ref it was built on: BuildBranch is the branch (or
@@ -25,9 +26,20 @@ set -euo pipefail
 # this after the Xcode build and before signing. The identity it stamps is
 # constant: BuildBranch `main` (instance id `release-main`) and the bundle id
 # it is handed. It refuses a plist that is not a release build.
+#
+# `--check` writes nothing: it reads the identity back and exits 1 unless it
+# is the pinned one. build-app.sh runs it on the signed bundle, the one that
+# goes into the disk image, so a later step that moved the identity, or this
+# stamp being dropped from the script, fails the build instead of shipping.
+
+CHECK=false
+if [ "${1:-}" = "--check" ]; then
+    CHECK=true
+    shift
+fi
 
 if [ "$#" -ne 2 ]; then
-    echo "usage: $0 <Info.plist> <bundle-id>" >&2
+    echo "usage: $0 [--check] <Info.plist> <bundle-id>" >&2
     exit 1
 fi
 
@@ -48,6 +60,18 @@ fi
 
 WAS_BRANCH="$(plutil -extract BuildBranch raw -o - "$PLIST" 2>/dev/null || true)"
 WAS_ID="$(plutil -extract CFBundleIdentifier raw -o - "$PLIST" 2>/dev/null || true)"
+
+if [ "$CHECK" = true ]; then
+    if [ "$WAS_BRANCH" != "main" ] || [ "$WAS_ID" != "$BUNDLE_ID" ]; then
+        echo "error: $PLIST would ship as instance 'release-${WAS_BRANCH:-<missing>}'," \
+             "bundle id '${WAS_ID:-<missing>}'" >&2
+        echo "       a distributed bundle is instance 'release-main', bundle id '$BUNDLE_ID'." >&2
+        echo "       any other identity gives every user an empty data dir on update." >&2
+        exit 1
+    fi
+    echo "==> stamp-distribution-identity: verified instance release-main, bundle id $BUNDLE_ID"
+    exit 0
+fi
 
 plutil -replace BuildBranch -string "main" "$PLIST"
 plutil -replace CFBundleIdentifier -string "$BUNDLE_ID" "$PLIST"

@@ -38,6 +38,7 @@ audit() {
     check dev-setup "bun test $guard scripts/__tests__/dev-setup.test.ts"
     check shellcheck "just shellcheck"
     check app-test-foreground-check "just app-test-foreground-check"
+    check build-identity "bash tests/build-info/test-distribution-identity.sh && bash tests/build-info/test-bundle-id-mapping.sh && bash tests/build-info/test-apptest-profile.sh"
     check audit-visibility "cd tugdeck && bun run audit:visibility"
     check audit-motion "cd tugdeck && bun run audit:motion"
     check audit-type-alignment "cd tugdeck && bun run audit:type-alignment"

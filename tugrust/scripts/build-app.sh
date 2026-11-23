@@ -248,6 +248,10 @@ else
     bash "$SCRIPT_DIR/sign-bundle.sh" "$STAGING_APP" -
 fi
 
+# The identity of the bundle as signed is the identity that ships. Read it
+# back, so nothing between the stamp and here can have moved it.
+bash "$SCRIPT_DIR/stamp-distribution-identity.sh" --check "$PLIST" "$BUNDLE_ID"
+
 # Step 9: Notarization
 #
 # Delegates to notarize.sh, which uses the keychain profile

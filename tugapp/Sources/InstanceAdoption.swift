@@ -112,12 +112,36 @@ enum InstanceAdoption {
     /// Lay the stranded bundle's preferences over this bundle's. Only the
     /// released bundle identifier takes them; a nightly or a developer's
     /// build shares the data dir and keeps its own preferences.
-    static func adoptDefaults(bundleId: String, defaults: UserDefaults = .standard) {
-        guard bundleId == releaseBundleId,
-              let stranded = defaults.persistentDomain(forName: strandedBundleId),
+    ///
+    /// `released` and `stranded` are the two bundle identifiers; a test
+    /// names scratch domains so it never touches the real ones.
+    static func adoptDefaults(
+        bundleId: String,
+        released: String = releaseBundleId,
+        stranded strandedDomain: String = strandedBundleId,
+        defaults: UserDefaults = .standard
+    ) {
+        guard bundleId == released,
+              let stranded = defaults.persistentDomain(forName: strandedDomain),
               !stranded.isEmpty else { return }
         let own = defaults.persistentDomain(forName: bundleId) ?? [:]
         defaults.setPersistentDomain(mergedDefaults(own: own, stranded: stranded), forName: bundleId)
+    }
+
+    /// Whether a running Tug other than this process holds `instanceId`,
+    /// by the registry each tugcast writes: an entry whose host process is
+    /// alive and is not this one. No registry, no entry, and an entry
+    /// written before `host_pid` existed all read as not running.
+    static func isLive(
+        _ instanceId: String,
+        registry: Data?,
+        ownPid: Int32,
+        isAlive: (Int32) -> Bool
+    ) -> Bool {
+        guard let registry,
+              let entry = LaunchHandoff.entry(in: registry, instanceId: instanceId),
+              entry.hostPid > 0, entry.hostPid != ownPid else { return false }
+        return isAlive(entry.hostPid)
     }
 
     /// True for a directory that is there in its own right; false for a

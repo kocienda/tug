@@ -1184,20 +1184,7 @@ impl SessionLedger {
         // v0.9.5 ran as its own instance, and the app renames that data dir
         // to this one's at launch. The index rows it wrote follow here,
         // before the repair below reads them.
-        if tugcore::instance::instance_id().as_deref() == Some(tugcore::instance::RELEASE_INSTANCE)
-            && let Some(index) = ledger.session_index.as_ref()
-        {
-            match index.adopt_instance(
-                tugcore::instance::STRANDED_RELEASE_INSTANCE,
-                tugcore::instance::RELEASE_INSTANCE,
-            ) {
-                Ok(0) => {}
-                Ok(moved) => {
-                    tracing::info!(moved, "session index rows adopted from v0.9.5's instance")
-                }
-                Err(err) => tracing::warn!(error = %err, "session index adoption failed"),
-            }
-        }
+        ledger.adopt_stranded_release_rows(tugcore::instance::instance_id().as_deref());
         // The index outlives any one ledger, so a ledger that disagrees with
         // it about which line a session is on — a ledger rebuilt from
         // transcripts, whose scan minted fresh callsigns over the user's —
@@ -4698,6 +4685,35 @@ impl SessionLedger {
         )?;
         tx.commit()?;
         Ok(Some(line_id))
+    }
+
+    /// Refile the index rows v0.9.5 wrote under its own instance as this
+    /// one's, when this one is the released instance. Any other instance —
+    /// a developer's, an app-test's, none — leaves them alone: the data dir
+    /// those rows describe is renamed only to `release-main`
+    /// ([`tugcore::instance::STRANDED_RELEASE_INSTANCE`]). Returns the rows
+    /// moved; a failure is logged and moves none.
+    fn adopt_stranded_release_rows(&self, instance: Option<&str>) -> usize {
+        if instance != Some(tugcore::instance::RELEASE_INSTANCE) {
+            return 0;
+        }
+        let Some(index) = self.session_index.as_ref() else {
+            return 0;
+        };
+        match index.adopt_instance(
+            tugcore::instance::STRANDED_RELEASE_INSTANCE,
+            tugcore::instance::RELEASE_INSTANCE,
+        ) {
+            Ok(0) => 0,
+            Ok(moved) => {
+                tracing::info!(moved, "session index rows adopted from v0.9.5's instance");
+                moved
+            }
+            Err(err) => {
+                tracing::warn!(error = %err, "session index adoption failed");
+                0
+            }
+        }
     }
 
     /// What the machine-wide session index remembers of `session_id`: the
@@ -19639,6 +19655,45 @@ mod tests {
                 updated_at_ms: 2,
             })
             .expect("index upsert");
+    }
+
+    /// A session v0.9.5 recorded is this instance's own once the released
+    /// instance opens its ledger, and stays a stranger's to every other
+    /// instance. "Own" is what the scoped demote asks of the index, so that
+    /// is the reading taken.
+    #[test]
+    fn the_released_instance_adopts_the_rows_v0_9_5_recorded() {
+        let (_dir, l, path) = indexed();
+        let stranded = tugcore::instance::STRANDED_RELEASE_INSTANCE;
+        tugcore::session_index::SessionIndex::open(&path)
+            .expect("open index")
+            .upsert(&tugcore::session_index::IndexEntry {
+                session_id: "seg-1".to_owned(),
+                line_id: "line-warm".to_owned(),
+                callsign: Some("warm-alder".to_owned()),
+                project_dir: "/u/src/tug".to_owned(),
+                project_leaf: String::new(),
+                instance: stranded.to_owned(),
+                title: None,
+                created_at_ms: 1,
+                updated_at_ms: 2,
+            })
+            .expect("index upsert");
+        assert!(!scoped_demote_allows(&path, "seg-1", "release-main"));
+
+        for other in [Some("debug-main"), Some("apptest-main-1234"), None] {
+            assert_eq!(l.adopt_stranded_release_rows(other), 0, "{other:?}");
+        }
+        assert_eq!(index_row(&path, "seg-1").unwrap().instance, stranded);
+
+        assert_eq!(l.adopt_stranded_release_rows(Some("release-main")), 1);
+        let row = index_row(&path, "seg-1").unwrap();
+        assert_eq!(row.instance, "release-main");
+        assert_eq!(row.line_id, "line-warm");
+        assert_eq!(row.callsign.as_deref(), Some("warm-alder"));
+        assert!(scoped_demote_allows(&path, "seg-1", "release-main"));
+
+        assert_eq!(l.adopt_stranded_release_rows(Some("release-main")), 0);
     }
 
     /// A ledger meeting a transcript for the first time revives the line the

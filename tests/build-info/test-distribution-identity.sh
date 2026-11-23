@@ -77,13 +77,47 @@ else
 fi
 check "CFBundleIdentifier (debug)" "$(read_key CFBundleIdentifier)" "dev.tugapp.app.debug"
 
-echo "==> build-app.sh stamps before it signs"
+echo "==> --check passes the pinned identity and refuses any other, writing nothing"
+built_on release main
+bash "$STAMP" "$PLIST" dev.tugapp.app >/dev/null
+if bash "$STAMP" --check "$PLIST" dev.tugapp.app >/dev/null 2>&1; then
+    check "pinned identity verified" "verified" "verified"
+else
+    check "pinned identity verified" "refused" "verified"
+fi
+# The v0.9.5 shape: built on a detached HEAD and never stamped.
+built_on release detached-3937df43
+if bash "$STAMP" --check "$PLIST" dev.tugapp.app >/dev/null 2>&1; then
+    check "v0.9.5 identity refused" "verified" "refused"
+else
+    check "v0.9.5 identity refused" "refused" "refused"
+fi
+check "BuildBranch (check wrote nothing)" "$(read_key BuildBranch)" "detached-3937df43"
+check "CFBundleIdentifier (check wrote nothing)" "$(read_key CFBundleIdentifier)" \
+    "dev.tugapp.app.release-detached-3937df43"
+# Right instance, wrong bundle id.
+built_on release main
+bash "$STAMP" "$PLIST" dev.tugapp.nightly >/dev/null
+if bash "$STAMP" --check "$PLIST" dev.tugapp.app >/dev/null 2>&1; then
+    check "wrong bundle id refused" "verified" "refused"
+else
+    check "wrong bundle id refused" "refused" "refused"
+fi
+
+echo "==> build-app.sh stamps before it signs, and checks after"
 STAMP_LINE="$(grep -n 'stamp-distribution-identity.sh" "\$PLIST" "\$BUNDLE_ID"' "$BUILD_APP" | head -1 | cut -d: -f1)"
 SIGN_LINE="$(grep -n '^ *bash "\$SCRIPT_DIR/sign-bundle.sh"' "$BUILD_APP" | head -1 | cut -d: -f1)"
 if [ -n "$STAMP_LINE" ] && [ -n "$SIGN_LINE" ] && [ "$STAMP_LINE" -lt "$SIGN_LINE" ]; then
     check "stamp precedes sign" "yes" "yes"
 else
     check "stamp precedes sign" "no (stamp:${STAMP_LINE:-none} sign:${SIGN_LINE:-none})" "yes"
+fi
+LAST_SIGN_LINE="$(grep -n '^ *bash "\$SCRIPT_DIR/sign-bundle.sh"' "$BUILD_APP" | tail -1 | cut -d: -f1)"
+CHECK_LINE="$(grep -n 'stamp-distribution-identity.sh" --check "\$PLIST" "\$BUNDLE_ID"' "$BUILD_APP" | head -1 | cut -d: -f1)"
+if [ -n "$CHECK_LINE" ] && [ -n "$LAST_SIGN_LINE" ] && [ "$CHECK_LINE" -gt "$LAST_SIGN_LINE" ]; then
+    check "check follows sign" "yes" "yes"
+else
+    check "check follows sign" "no (check:${CHECK_LINE:-none} sign:${LAST_SIGN_LINE:-none})" "yes"
 fi
 
 echo
