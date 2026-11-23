@@ -46,9 +46,10 @@
  * user committed, pushed, joined or discarded since its last turn — is
  * stripped on the same terms and contributes nothing at all.
  *
- * The `tug:arc-refs` and `tug:sketch-refs` blocks are stripped the same way,
- * and each puts its identity back: an arc atom takes its checkout and pinned
- * generation, a sketch atom its owning checkout.
+ * The `tug:arc-refs`, `tug:sketch-refs` and `tug:docket-refs` blocks are
+ * stripped the same way, and each puts its identity back: an arc atom takes
+ * its checkout and pinned generation, a sketch atom its owning checkout, and a
+ * docket atom its owning checkout and its name.
  *
  * The bytes-store side-effect is the documented seam: for each image
  * block, the synthesizer ensures the bytes-store has an entry at the
@@ -98,7 +99,9 @@ import { bakeThumbnail } from "./image-downsample";
 import { parseAtomMentionSegments, type MarkerAtomType } from "./atom-mention-marker";
 import {
   arcAtomName,
+  docketAtomLabel,
   isArcAtomType,
+  isDocketAtomType,
   isSketchAtomType,
   sketchAtomLabel,
 } from "./record-atom-shape";
@@ -118,6 +121,11 @@ import {
   parseSketchRefBlock,
   type ParsedSketchRef,
 } from "./sketch-ref-block";
+import {
+  isDocketRefBlock,
+  parseDocketRefBlock,
+  type ParsedDocketRef,
+} from "./docket-ref-block";
 import { commitAtomLabel } from "./commit-format";
 import { isCommitSha } from "./annotator/detect-commit-sha";
 import { isLandingsBlock } from "./landings-block";
@@ -234,6 +242,8 @@ function mentionAtomLabel(type: string, value: string): string {
   // An arc labels itself by its bare name, a sketch as `sketch:<id>`.
   if (isArcAtomType(type)) return arcAtomName(value);
   if (isSketchAtomType(type)) return sketchAtomLabel(value);
+  // A docket's name rides the block, not the marker; the block puts it back.
+  if (isDocketAtomType(type)) return docketAtomLabel(value);
   return value;
 }
 
@@ -369,6 +379,7 @@ export function synthesizeUserMessageFromBlocks(
   const refs = new Map<string, ParsedSessionRef>();
   const arcRefs = new Map<string, ParsedArcRef>();
   const sketchRefs = new Map<string, ParsedSketchRef>();
+  const docketRefs = new Map<string, ParsedDocketRef>();
   const bodyBlocks: ContentBlock[] = [];
   for (const block of blocks) {
     if (block.type === "text" && isSessionRefBlock(block.text)) {
@@ -386,6 +397,12 @@ export function synthesizeUserMessageFromBlocks(
     if (block.type === "text" && isSketchRefBlock(block.text)) {
       for (const ref of parseSketchRefBlock(block.text)) {
         if (!sketchRefs.has(ref.value)) sketchRefs.set(ref.value, ref);
+      }
+      continue;
+    }
+    if (block.type === "text" && isDocketRefBlock(block.text)) {
+      for (const ref of parseDocketRefBlock(block.text)) {
+        if (!docketRefs.has(ref.value)) docketRefs.set(ref.value, ref);
       }
       continue;
     }
@@ -417,6 +434,15 @@ export function synthesizeUserMessageFromBlocks(
       const sketchRef = sketchRefs.get(atom.value);
       if (sketchRef === undefined) return atom;
       return { ...atom, sketch: { projectDir: sketchRef.projectDir } };
+    }
+    if (isDocketAtomType(atom.type)) {
+      const docketRef = docketRefs.get(atom.value);
+      if (docketRef === undefined) return atom;
+      return {
+        ...atom,
+        label: docketAtomLabel(atom.value, docketRef.name),
+        docket: { projectDir: docketRef.projectDir },
+      };
     }
     const ref = refs.get(atom.value);
     if (atom.type !== "session" || ref === undefined) return atom;

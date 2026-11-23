@@ -111,3 +111,4 @@ import "../components/tugways/tug-list-view.css";
 import "../components/tugways/arc-lifecycle-block.css";
 import "../components/tugways/arc-lifecycle-line.css";
 import "../components/tugways/tug-arc-atom.css";
+import "../lib/tug-atom-chip.css";

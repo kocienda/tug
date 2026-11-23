@@ -74,6 +74,7 @@ import { attachDigestStore } from "../lib/digest-store";
 import { attachOverviewStore } from "../lib/overview-store";
 import { attachSessionActivityStore } from "../lib/session-activity-store";
 import { attachChangesetAllStore, getChangesetAllStore } from "../lib/changeset-all-store";
+import { attachDocketStore } from "../lib/docket-store";
 import { attachChangesetVerbStore } from "../lib/changeset-verb-store";
 import { attachChangesetDraftStore } from "../lib/changeset-draft-store";
 import { attachChangesetJoinStore } from "../lib/changeset-join-store";
@@ -1100,6 +1101,7 @@ async function bindBody(bind: BodyBind): Promise<void> {
   attachOverviewStore(connection);
   attachSessionActivityStore(connection);
   attachChangesetAllStore(connection);
+  attachDocketStore(connection);
   attachChangesetVerbStore(connection);
   attachChangesetDraftStore(connection);
   const joinStore = attachChangesetJoinStore(connection);

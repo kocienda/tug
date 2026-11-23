@@ -374,6 +374,7 @@ export const AtomMarkdownBody = React.forwardRef<
               value={atom.value}
               {...(atom.id !== undefined ? { id: atom.id } : {})}
               {...(atom.sketch !== undefined ? { sketch: atom.sketch } : {})}
+              {...(atom.docket !== undefined ? { docket: atom.docket } : {})}
             />
           ),
           host,

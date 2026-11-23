@@ -20,6 +20,7 @@ import type { AnnotationPayload } from "./payloads";
 import { formatAtomLabel, type AtomSegment } from "@/lib/tug-atom-img";
 import { COMMIT_ATOM_TYPE } from "@/lib/command-atom";
 import { arcAtomSegment } from "@/lib/arc-atom";
+import { docketAtomSegment } from "@/lib/docket-atom";
 import { projectLeafOf } from "@/lib/record-atom-shape";
 import { atomPlainText } from "@/lib/atom-plain-text";
 import { commitAtomLabel } from "@/lib/commit-format";
@@ -121,6 +122,11 @@ export function atomSegmentFor(payload: AnnotationPayload): AtomSegment | null {
       projectDir: payload.root,
       name: payload.name,
     });
+  }
+  if (payload.kind === "docket") {
+    // The id is the value and the name the label, so the round trip through
+    // `payloadForAtom` is the identity function on `{ id, name, root }`.
+    return docketAtomSegment({ id: payload.id, name: payload.name, projectDir: payload.root });
   }
   return null;
 }

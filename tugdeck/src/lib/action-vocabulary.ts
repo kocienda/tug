@@ -1339,6 +1339,15 @@ export const TUG_ACTIONS = {
   //                         handler in `action-dispatch.ts`, which calls
   //                         `openCommitInCard`.
   OPEN_COMMIT:            "open-commit",
+  // OPEN_DOCKET:            payload — `{ projectDir: string, docketId: string }`,
+  //                         plus an optional `thread` (a thread key to scroll
+  //                         to and mark) and an optional `originCardId`. Open
+  //                         the docket in a Docket card: a card already on the
+  //                         same `(projectDir, docketId)` is activated and
+  //                         re-pointed; otherwise a new Docket card is created
+  //                         seeded with it. Registry handler in
+  //                         `action-dispatch.ts`, which calls `openDocketInCard`.
+  OPEN_DOCKET:            "open-docket",
   // OPEN_HELP:              payload — `{ doc: "features" | "getting-started" | "recipes" | "glossary" | "release-notes" }`,
   //                         plus an optional `anchor` (a heading or a
   //                         glossary term to scroll to) and an optional
@@ -1454,6 +1463,38 @@ export const TUG_ACTIONS = {
   UNBIND_ARC:            "unbind-arc",
   REQUEST_DISCARD_ARC:   "request-discard-arc",
   REQUEST_REPLAY_ARC:     "request-replay-arc",
+
+  // ---- Docket card verbs ----
+  //
+  // Each means "the docket this card shows" or "the thread this row is",
+  // which no chord and no menu-bar item can name. The card's responder
+  // implements every one; the menus that offer them are the card's own.
+  //
+  // SELECT_DOCKET_PROJECT:  payload — `value`: the project dir to show.
+  // SELECT_DOCKET:          payload — `value`: the docket id to show.
+  // NEW_DOCKET:             payload — none. Ask for a name, then create.
+  // RENAME_DOCKET:          payload — none. Ask for a name, then rename.
+  // REQUEST_RETIRE_DOCKET:  payload — none. "Request": arms the card's
+  //                         confirm, which names what retiring does.
+  // RESTORE_DOCKET:         payload — none. Return a retired docket.
+  // TOGGLE_RETIRED_DOCKETS: payload — none. Show or hide retired dockets
+  //                         in the chooser.
+  // MOVE_THREAD_TO_DOCKET:  payload — `value`: `{ thread, docketId }`. File
+  //                         the thread's filed items on the target docket.
+  // REMOVE_THREAD_FROM_DOCKET: payload — `value`: the thread key. Remove the
+  //                         thread's filed items from this docket.
+  // COPY_DOCKET_ATOM:       payload — none. Copy the docket this card shows
+  //                         as its atom, with the sidecar a paste re-mints.
+  SELECT_DOCKET_PROJECT:  "select-docket-project",
+  SELECT_DOCKET:          "select-docket",
+  NEW_DOCKET:             "new-docket",
+  RENAME_DOCKET:          "rename-docket",
+  REQUEST_RETIRE_DOCKET:  "request-retire-docket",
+  RESTORE_DOCKET:         "restore-docket",
+  TOGGLE_RETIRED_DOCKETS: "toggle-retired-dockets",
+  MOVE_THREAD_TO_DOCKET:  "move-thread-to-docket",
+  REMOVE_THREAD_FROM_DOCKET: "remove-thread-from-docket",
+  COPY_DOCKET_ATOM:       "copy-docket-atom",
 
   // ---- Meta ----
   //

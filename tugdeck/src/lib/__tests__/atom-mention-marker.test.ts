@@ -26,6 +26,7 @@ import {
   wrapAtomMention,
   wrapSessionMention,
   wrapSketchMention,
+  wrapDocketMention,
   type AtomMentionSegment,
 } from "../atom-mention-marker";
 
@@ -297,5 +298,19 @@ describe("the typed `@arc:` and `@sketch:` markers", () => {
   test("a backtick in the value falls back to the bare value", () => {
     expect(wrapArcMention("tug/a`b")).toBe("tug/a`b");
     expect(wrapSketchMention("a`b")).toBe("a`b");
+  });
+});
+
+describe("the typed `@docket:` marker", () => {
+  test("wraps with its own prefix and parses back to its type", () => {
+    expect(wrapDocketMention("3f9a1c2e")).toBe("`@docket:3f9a1c2e`");
+    expect(parseAtomMentionSegments("on `@docket:3f9a1c2e`")).toEqual<AtomMentionSegment[]>([
+      { kind: "text", text: "on " },
+      { kind: "mention", value: "3f9a1c2e", atomType: "docket" },
+    ]);
+  });
+
+  test("a backtick in the value falls back to the bare value", () => {
+    expect(wrapDocketMention("a`b")).toBe("a`b");
   });
 });

@@ -29,6 +29,7 @@ import { registerTextCard } from "./components/tugways/cards/text-card-registrat
 import { registerFileViewCard } from "./components/tugways/cards/file-view-card-registration";
 import { registerDiffCard } from "./components/tugways/cards/diff-card";
 import { registerCommitCard } from "./components/tugways/cards/commit-card";
+import { registerDocketCard } from "./components/docket/docket-card-registration";
 import { registerHelpCard } from "./components/tugways/cards/help-card";
 
 /** The maker kinds' registrations, loaded only where maker tooling is. */
@@ -106,6 +107,7 @@ export function registerCardKinds(options: { maker: MakerTooling | null }): void
   registerFileViewCard();
   registerDiffCard();
   registerCommitCard();
+  registerDocketCard();
   registerHelpCard();
   options.maker?.registerGalleryCards();
   options.maker?.registerSpikeCards();

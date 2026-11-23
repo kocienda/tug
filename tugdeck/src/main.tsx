@@ -61,6 +61,7 @@ import {
   attachChangesetAllStore,
   getChangesetAllStore,
 } from "./lib/changeset-all-store";
+import { attachDocketStore } from "./lib/docket-store";
 import { attachChangesetVerbStore } from "./lib/changeset-verb-store";
 import { attachChangesetDraftStore } from "./lib/changeset-draft-store";
 import { attachChangesetJoinStore } from "./lib/changeset-join-store";
@@ -858,6 +859,9 @@ async function loadTestSurface(
   // feed (every open project in one frame). The changeset card reads it via
   // `useChangesetAll` — no workspace filter, unlike the per-card feeds.
   attachChangesetAllStore(connection);
+  // Wire the account-global docket store: the DOCKETS feed (every open
+  // project's dockets and their threads in one frame), read via `useDockets`.
+  attachDocketStore(connection);
 
   // Wire the changeset CONTROL-verb round-trip store (M02A: changeset_git_init
   // for the non-repo "Initialize git" affordance). The card reads it via

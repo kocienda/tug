@@ -82,6 +82,9 @@ impl FeedId {
     /// Commit-files request — the changed files of one commit sha over the
     /// followed card's project dir (tugdeck → tugcast)
     pub const GIT_COMMIT_FILES_QUERY: Self = Self(0x29);
+    /// Dockets — account-global snapshot of every open project's dockets and
+    /// the threads derived from them (tugcast → tugdeck)
+    pub const DOCKETS: Self = Self(0x2A);
 
     // -- Stats (retired) --
     /// Retired: the aggregate stats snapshot feed was removed along with the
@@ -231,6 +234,7 @@ impl FeedId {
             Self::GIT_HEAD => Some("GitHead"),
             Self::GIT_COMMIT_FILES => Some("GitCommitFiles"),
             Self::GIT_COMMIT_FILES_QUERY => Some("GitCommitFilesQuery"),
+            Self::DOCKETS => Some("Dockets"),
             Self::STATS => Some("Stats"),
             Self::STATS_PROCESS_INFO => Some("StatsProcessInfo"),
             Self::STATS_TOKEN_USAGE => Some("StatsTokenUsage"),
@@ -542,6 +546,8 @@ mod tests {
             FeedId::GIT_COMMIT_FILES_QUERY.name(),
             Some("GitCommitFilesQuery")
         );
+        assert_eq!(FeedId::DOCKETS.as_byte(), 0x2A);
+        assert_eq!(FeedId::DOCKETS.name(), Some("Dockets"));
         assert_eq!(FeedId::STATS.as_byte(), 0x30);
         assert_eq!(FeedId::STATS_PROCESS_INFO.as_byte(), 0x31);
         assert_eq!(FeedId::STATS_TOKEN_USAGE.as_byte(), 0x32);
@@ -593,7 +599,7 @@ mod tests {
 
     /// The size both tables must agree on, so a scanner that silently matches
     /// nothing cannot pass vacuously.
-    const FEED_TABLE_LEN: usize = 43;
+    const FEED_TABLE_LEN: usize = 44;
 
     /// A screaming-snake identifier, and nothing else.
     fn is_feed_constant_name(name: &str) -> bool {

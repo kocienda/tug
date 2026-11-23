@@ -34,6 +34,7 @@ export type AnnotationKind =
   | "commit-sha"
   | "session"
   | "arc"
+  | "docket"
   | "help";
 
 /**

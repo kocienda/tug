@@ -52,7 +52,11 @@ import "./tug-atom-chip.css";
 
 import * as React from "react";
 
-import { atomIdentityAttrs, type AtomSketchRef } from "@/lib/atom-identity-attrs";
+import {
+  atomIdentityAttrs,
+  type AtomDocketRef,
+  type AtomSketchRef,
+} from "@/lib/atom-identity-attrs";
 
 import {
   computeAtomChipGeometry,
@@ -111,6 +115,8 @@ export interface TugAtomChipProps {
    * attributes so a copy across a transcript row keeps it.
    */
   sketch?: AtomSketchRef;
+  /** A docket atom's owning checkout, on the sketch's terms. */
+  docket?: AtomDocketRef;
   /** Optional max width in px — labels longer than this truncate with `…`. */
   maxLabelWidth?: number;
   className?: string;
@@ -130,6 +136,7 @@ export const TugAtomChip = React.forwardRef<SVGSVGElement, TugAtomChipProps>(
       value,
       id,
       sketch,
+      docket,
       maxLabelWidth,
       className,
       "data-slot": dataSlot,
@@ -186,6 +193,7 @@ export const TugAtomChip = React.forwardRef<SVGSVGElement, TugAtomChipProps>(
           value,
           ...(id !== undefined ? { id } : {}),
           ...(sketch !== undefined ? { sketch } : {}),
+          ...(docket !== undefined ? { docket } : {}),
         })}
         aria-label={displayLabel}
         role="img"

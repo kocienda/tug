@@ -327,7 +327,7 @@ export function parseClipboardSidecar(
       ) {
         segment.session = { id: sess.id, projectDir: sess.projectDir };
       }
-      // An arc's or a sketch's directory, on the same terms: a malformed one
+      // An arc's, a sketch's or a docket's directory, on the same terms: a malformed one
       // is dropped and the atom still parses.
       const arc = seg.arc as Record<string, unknown> | undefined;
       if (
@@ -351,6 +351,15 @@ export function parseClipboardSidecar(
         && sketch.projectDir !== ""
       ) {
         segment.sketch = { projectDir: sketch.projectDir };
+      }
+      const docket = seg.docket as Record<string, unknown> | undefined;
+      if (
+        typeof docket === "object"
+        && docket !== null
+        && typeof docket.projectDir === "string"
+        && docket.projectDir !== ""
+      ) {
+        segment.docket = { projectDir: docket.projectDir };
       }
       const out_entry: TugAtomsClipboardEntry = {
         position: entry.position,

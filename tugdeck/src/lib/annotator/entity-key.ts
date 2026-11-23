@@ -39,6 +39,8 @@ export function entityKey(payload: AnnotationPayload): string | null {
       return `session:${payload.target}`;
     case "arc":
       return `arc:${payload.root}:${payload.name}`;
+    case "docket":
+      return `docket:${payload.id}`;
     case "url":
       return `url:${payload.url}`;
     case "slash-command":

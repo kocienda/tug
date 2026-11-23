@@ -77,6 +77,15 @@ control_actions! {
     ResolveSketches => "resolve_sketches",
     SearchSketches => "search_sketches",
 
+    // Supervisor: dockets.
+    DocketCreate => "docket_create",
+    DocketRename => "docket_rename",
+    DocketRetire => "docket_retire",
+    DocketFile => "docket_file",
+    DocketRemove => "docket_remove",
+    ResolveDockets => "resolve_dockets",
+    SearchDockets => "search_dockets",
+
     // Supervisor: changesets, landings and joins.
     ChangesetGitInit => "changeset_git_init",
     ChangesetCommit => "changeset_commit",

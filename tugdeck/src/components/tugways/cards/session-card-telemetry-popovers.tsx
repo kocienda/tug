@@ -164,6 +164,10 @@ import {
 import { composeJobsCellSummary } from "@/lib/code-session-store/select-work";
 import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
 import type { ArcSessionFact } from "@/lib/arc-session-index";
+import { docketForArc, useDockets } from "@/lib/docket-store";
+import { TugAtomChip } from "@/lib/tug-atom-chip";
+import { dispatchCommand } from "@/command-dispatch";
+import { TUG_ACTIONS } from "@/lib/action-vocabulary";
 import { reauditViewFromWire } from "@/lib/reaudit-row";
 import { ReauditRows } from "@/components/tugways/reaudit-rows";
 import {
@@ -2212,6 +2216,47 @@ function ArcPopoverHead({ fact }: { fact: ArcSessionFact }): React.ReactElement 
 }
 
 /**
+ * The arc's docket, when its thread is on one: "On docket" and the docket's
+ * atom, whose press opens the Docket card at this arc's thread. An arc on no
+ * docket draws nothing, so the panel is exactly what it was. The lookup runs
+ * on the canonical `workspace_key` both feeds carry, never a raw directory.
+ */
+function ArcPopoverDocket({ fact }: { fact: ArcSessionFact }): React.ReactElement | null {
+  const dockets = useDockets();
+  const hit = docketForArc(dockets, fact.workspaceKey, fact.name);
+  if (hit === null) return null;
+  const projectDir = hit.project.project_dir;
+  const { docket, threadKey } = hit;
+  return (
+    <div className="session-arc-popover-docket" data-slot="session-arc-popover-docket">
+      <span className="session-arc-popover-docket-label">On docket</span>
+      <button
+        type="button"
+        className="session-arc-popover-docket-open"
+        data-slot="session-arc-popover-docket-open"
+        data-tug-focus="refuse"
+        aria-label={`Open the docket ${docket.name} at this arc's thread`}
+        onClick={() => {
+          dispatchCommand(TUG_ACTIONS.OPEN_DOCKET, {
+            projectDir,
+            docketId: docket.id,
+            thread: threadKey,
+          });
+        }}
+      >
+        <TugAtomChip
+          type="docket"
+          label={docket.name}
+          value={docket.id}
+          docket={{ projectDir }}
+          maxLabelWidth={220}
+        />
+      </button>
+    </div>
+  );
+}
+
+/**
  * `ARC` popup — opened from the status row's fourth cell while the session is
  * driving an arc.
  *
@@ -2316,6 +2361,7 @@ export function ArcPopoverContent({
             worker over the track. The steps below are the plan's rows; this
             is the arc. */}
         <ArcPopoverHead fact={fact} />
+        <ArcPopoverDocket fact={fact} />
         {reaudit !== null ? (
           <div
             className="session-arc-popover-reaudit"

@@ -76,6 +76,10 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Discard.** End an arc without landing it. The worktree's uncommitted work is returned to the base first, the branch and worktree are removed, and the arc's documents are kept so you can come back to the decisions. Click **Discard** on the arc's row in the Arcs sidebar, or in the Changes tab of the card that holds it. A discard can be undone.
 
+**Docket.** A named list you keep to gather one line of work: the *arcs*, *sketches*, *briefs*, sessions and commits that belong together, each set into a *thread*. Each item lives on at most one docket in its checkout. A docket is placed in a prompt as an atom labelled with its name, and the model reads it with `tugtool docket show <id>`. Retiring a docket takes it out of the everyday lists without deleting it.
+
+**Docket card.** The card that shows one *docket*: a chooser for the docket, its atom in the header, a field to file on it, and its *threads* below, each a row of the atoms it gathers. Copy as Atom in the chooser's menu copies the docket for a prompt.
+
 **Door.** The one skill that opens the arc lane, `/arc`. It sharpens the conversation into a *brief* (or takes one you hand it), decides the arc's *kind* from the work, says which shape it chose and why, hands the brief to the *wheel*, and ends the turn. The door creates no worktree, commits nothing and joins nothing. *New Arc* opens it without typing.
 
 **Dot.** See *pulsing dot*.
@@ -85,6 +89,8 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 **Explainer.** The answer `/tugplug:explain` gives: one to four sections on how a piece of code works, each a heading that states a finding, a *diagram*, a sentence on how to read it, a short lead and the *keyed table*. It lives in the transcript, and is written to a file under `explainers/` only when the request says to keep it.
 
 **Figure.** A *chart* or a *diagram*: anything the card draws in a transcript from a short description the model writes. A figure follows the *theme*, can be searched with *Find*, and is drawn the same way in a share.
+
+**Filing.** Putting an item on a *docket*: paste or drop its atom into the *Docket card*'s field and press Return. An item already on another docket in the same checkout moves, and the card says so.
 
 **Find.** Search the document in front of you: a session's transcript, a *Text card*'s file, or a help card. Command-F opens the find bar at the bottom of the card, and the matches highlight as you type, with the count beside the field and Case, Word and Grep toggles that are one setting across the deck. Command-G and Shift-Command-G step to the next and previous match, Command-E searches for the selected text, and Escape closes the bar.
 
@@ -217,6 +223,8 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 **Theme.** One of ten colorings, five dark (Ironclad, Caravel, Barque, Galleon, Collier) and five light (Sloop, Ketch, Skiff, Kayak, Pinnace), each a single tint hue laid over a shared tone skeleton. A *workspace* wears its own theme. Shift-Command-T steps to the next.
 
 **Thinking wave.** Three bars that appear beside a session while the model is mid-turn and disappear when the turn ends.
+
+**Thread.** One line on a *docket*: an *arc* with the sketch, brief, sessions and commits that belong to it, or a session or item filed on its own. Threads are worked out from the records each time the docket is read, so a running arc's thread moves as the arc does.
 
 **Tug-Arc trailer.** The line a *join*'s commit carries naming the arc branch and base it landed from.
 

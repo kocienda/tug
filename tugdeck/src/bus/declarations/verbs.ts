@@ -255,6 +255,27 @@ export const helpScrollTo = defineAction({
   codec: obj({ anchor: str }),
 });
 
+/**
+ * An open of the docket a Docket card holds, naming a thread: the card in its
+ * own page is re-pointed there and the thread is marked.
+ */
+export const docketMarkThread = defineAction({
+  id: "docket.markThread",
+  owner: "card",
+  codec: obj({ projectDir: str, docketId: str, thread: str }),
+});
+
+/**
+ * The docket the sending body's Docket card shows, or none as two empty
+ * strings. The shell keeps it to find a card already on a docket, since a
+ * body card's bag is its own page's and the shell's copy is its seed.
+ */
+export const docketShown = defineAction({
+  id: "docket.shown",
+  owner: "shell",
+  codec: obj({ projectDir: str, docketId: str }),
+});
+
 /** A section the Settings card is to show. Validated against the sections where it is shown. */
 export const settingsReveal = defineAction({
   id: "settings.reveal",

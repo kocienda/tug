@@ -37,6 +37,7 @@ const ALL_KINDS: ReadonlyArray<AnnotationKind> = [
   "image",
   "commit-sha",
   "arc",
+  "docket",
   "help",
 ];
 
@@ -65,6 +66,7 @@ const SAMPLE: Record<AnnotationKind, unknown> = {
     root: "/repo",
     joinSha: "302d43b5d1",
   },
+  docket: { kind: "docket", id: "3f9a1c2e", name: "GPU wedge", root: "/repo" },
   help: { kind: "help", doc: "recipes", anchor: "create-an-arc" },
 };
 

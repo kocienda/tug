@@ -9,6 +9,7 @@ mod chart;
 mod cli;
 mod commands;
 mod deck;
+mod docket;
 mod draft;
 mod host;
 mod output;
@@ -183,6 +184,9 @@ fn main() -> ExitCode {
 
         // A sketch's record: keep a version, or read one back by id.
         Some(Commands::Sketch(cmd)) => sketch::dispatch(cmd, json),
+
+        // A docket's record and its threads, read.
+        Some(Commands::Docket(cmd)) => docket::dispatch(cmd, json),
 
         // The plugin's hooks, answered from the binary.
         Some(Commands::Hook(cmd)) => {

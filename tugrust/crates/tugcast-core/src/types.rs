@@ -1367,6 +1367,42 @@ pub struct WorkspacesChangesetSnapshot {
     pub ledger_degraded: bool,
 }
 
+/// The account-global dockets snapshot, delivered process-level on the
+/// DOCKETS feed (0x2A) — one frame carrying every open project's dockets.
+///
+/// Projects come in `WorkspaceRegistry::project_dirs()` order, each carrying
+/// the same `(project_dir, workspace_key)` pair CHANGESET_ALL's sections
+/// carry, so the deck joins the two feeds on `workspace_key` by equality.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct DocketsSnapshot {
+    /// One entry per open project, in registry-enumeration order.
+    pub projects: Vec<ProjectDockets>,
+}
+
+/// One open project's dockets, retired ones included.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ProjectDockets {
+    pub project_dir: String,
+    pub workspace_key: String,
+    /// Newest first, as the store lists them.
+    pub dockets: Vec<DocketEntry>,
+}
+
+/// One docket and the threads derived from what is filed on it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DocketEntry {
+    pub id: String,
+    pub name: String,
+    pub created: String,
+    /// A retired docket is still sent; the card hides it unless asked.
+    pub retired: bool,
+    /// Each element is a `tugarc_core::docket_threads::Thread` as it
+    /// serializes. This crate is the wire vocabulary and links no record
+    /// library, so the thread shape is owned where it is derived and carried
+    /// here as the JSON it already is.
+    pub threads: Vec<serde_json::Value>,
+}
+
 /// A single-shot subscription-usage payload, delivered on the USAGE feed
 /// (0x90) in response to a USAGE_QUERY (0x91).
 ///

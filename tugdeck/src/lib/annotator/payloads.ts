@@ -31,7 +31,13 @@ import { isHelpDocName } from "@/lib/help-docs";
 import type { HelpCardSeed } from "@/lib/open-help-in-card";
 import { resolveAtomFilePath, type AtomPathRoots } from "@/lib/atom-file-path";
 import { COMMIT_ATOM_TYPE } from "@/lib/command-atom";
-import { ARC_ATOM_TYPE, arcAtomName } from "@/lib/record-atom-shape";
+import {
+  ARC_ATOM_TYPE,
+  DOCKET_ATOM_TYPE,
+  arcAtomName,
+  docketAtomLabel,
+  docketPlainText,
+} from "@/lib/record-atom-shape";
 
 /** A URL in transcript ink. */
 export interface UrlPayload {
@@ -139,6 +145,17 @@ export interface ArcPayload {
   joinSha?: string;
 }
 
+/** A docket in a checkout's docket store, named by its machine-unique id. */
+export interface DocketPayload {
+  kind: "docket";
+  /** The docket's eight-hex id. */
+  id: string;
+  /** The docket's name, as the chip wears it. */
+  name: string;
+  /** The checkout whose store holds it. */
+  root: string;
+}
+
 /** A passage of the bundled help — a document, and where in it. */
 export interface HelpPayload extends HelpCardSeed {
   kind: "help";
@@ -156,6 +173,7 @@ export type AnnotationPayload =
   | CommitShaPayload
   | SessionPayload
   | ArcPayload
+  | DocketPayload
   | HelpPayload;
 
 /** The fields of an atom this needs to decide what it is. */
@@ -166,6 +184,8 @@ export interface AtomLike {
   id?: string;
   /** An arc atom's checkout: the root its payload names. */
   arc?: { projectDir: string };
+  /** A docket atom's checkout, on the arc's terms. */
+  docket?: { projectDir: string };
 }
 
 /**
@@ -260,6 +280,22 @@ export function payloadForAtom(
   if (type === ARC_ATOM_TYPE && value !== "" && atom.arc !== undefined && atom.arc.projectDir !== "") {
     return { kind: "arc", name: arcAtomName(value), root: atom.arc.projectDir };
   }
+  // A docket atom opens its docket in the checkout it recorded, on the same
+  // terms; the name is the chip's label, unless that is only the id.
+  if (
+    type === DOCKET_ATOM_TYPE &&
+    value !== "" &&
+    atom.docket !== undefined &&
+    atom.docket.projectDir !== ""
+  ) {
+    const label = atom.label ?? "";
+    return {
+      kind: "docket",
+      id: value,
+      name: label === docketAtomLabel(value) ? "" : label,
+      root: atom.docket.projectDir,
+    };
+  }
   return null;
 }
 
@@ -279,6 +315,7 @@ export function annotationOpensSurface(kind: AnnotationKind): boolean {
     kind === "image" ||
     kind === "commit-sha" ||
     kind === "arc" ||
+    kind === "docket" ||
     kind === "help"
   );
 }
@@ -314,6 +351,9 @@ export const ANNOTATION_DATASET_KEYS = [
   "arcName",
   "arcRoot",
   "arcJoinSha",
+  "docketId",
+  "docketName",
+  "docketRoot",
   "helpDoc",
   "helpAnchor",
 ] as const;
@@ -364,6 +404,8 @@ export function datasetForPayload(payload: AnnotationPayload): AnnotationDataset
             arcRoot: payload.root,
             arcJoinSha: payload.joinSha,
           };
+    case "docket":
+      return { docketId: payload.id, docketName: payload.name, docketRoot: payload.root };
     case "help":
       return payload.anchor === undefined
         ? { helpDoc: payload.doc }
@@ -488,6 +530,13 @@ export function payloadFromDataset(
         ? { kind, name, root }
         : { kind, name, root, joinSha };
     }
+    case "docket": {
+      const id = record.docketId;
+      const root = record.docketRoot;
+      if (id === undefined || id === "") return null;
+      if (root === undefined || root === "") return null;
+      return { kind, id, name: record.docketName ?? "", root };
+    }
     case "help": {
       const doc = record.helpDoc;
       if (!isHelpDocName(doc)) return null;
@@ -544,6 +593,9 @@ export function annotationValue(payload: AnnotationPayload): string {
       // The spelling an arc is written in prose and in a chart's refs, which
       // is what a paste of this can be read back from.
       return `arc:${payload.name}`;
+    case "docket":
+      // The id, which is unique where the name is not.
+      return docketPlainText(payload.id);
     case "help":
       // The spelling a post's help ref is written in, which is what a paste
       // of this can be read back from.

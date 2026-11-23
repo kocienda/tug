@@ -814,6 +814,21 @@ pub(crate) async fn supervisor(
         cancel.clone(),
     );
 
+    // Account-global dockets feed (DOCKETS, 0x2A), delivered the same way:
+    // every open project's dockets and their derived threads, recomposed on
+    // its own watch of the project state dirs, on the GIT_HEAD broadcast and
+    // on the registry's open-set signal.
+    let (dockets_tx, dockets_rx) = tokio::sync::watch::channel(Frame::new(FeedId::DOCKETS, vec![]));
+    tugcast_core::spawn_snapshot_feed(
+        Box::new(feeds::dockets::DocketsFeed::new(
+            Arc::clone(&registry),
+            tugcore::instance::Paths::from_env(),
+            gh_response_tx.subscribe(),
+        )),
+        dockets_tx,
+        cancel.clone(),
+    );
+
     // The base-motion engine: replay an arc onto its base the moment the base
     // moves and it is safe to. It subscribes to the same GIT_HEAD broadcast the
     // router fans out, so no new watcher exists; the other two wakes are a
@@ -957,7 +972,7 @@ pub(crate) async fn supervisor(
     let (jots_rx, jots_nudge) = feeds::jots::jots_feed(jots_file_path.clone());
     let jots_state = Some(jots::JotsState::new(jots_file_path, jots_nudge));
 
-    let mut snapshot_watches = vec![bootstrap.ft_watch_rx.clone(), changeset_all_rx];
+    let mut snapshot_watches = vec![bootstrap.ft_watch_rx.clone(), changeset_all_rx, dockets_rx];
     if let Some(rx) = defaults_rx {
         snapshot_watches.push(rx);
     }

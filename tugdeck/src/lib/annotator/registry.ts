@@ -839,6 +839,35 @@ registerAnnotationKind("arc", {
   suppressStandardItems: false,
 });
 
+registerAnnotationKind("docket", {
+  // The click opens the docket in its Docket card, as the menu's first row
+  // does: a card already on it is raised rather than a second opened.
+  primaryClick: (payload) => {
+    if (payload.kind !== "docket") return;
+    dispatchCommand(TUG_ACTIONS.OPEN_DOCKET, {
+      projectDir: payload.root,
+      docketId: payload.id,
+    });
+  },
+  menuEntries: (payload) =>
+    buildEntityMenu(payload, {
+      goTo: [
+        payload.kind === "docket"
+          ? {
+              action: TUG_ACTIONS.OPEN_DOCKET,
+              label: "Open Docket",
+              value: { projectDir: payload.root, docketId: payload.id },
+            }
+          : { action: TUG_ACTIONS.OPEN_DOCKET, label: "Open Docket" },
+      ],
+      copy: [
+        { action: TUG_ACTIONS.COPY_ANNOTATION_VALUE, label: "Copy Docket Reference" },
+      ],
+      send: [insertEntry(payload)],
+    }),
+  suppressStandardItems: false,
+});
+
 registerAnnotationKind("image", {
   // A pasted image is bytes under an id, with no file to open — the strip
   // that holds those bytes owns the only full-size view of it.

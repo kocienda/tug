@@ -722,7 +722,7 @@ pub fn read_arc(paths: &Paths, repo_root: &Path, arc: &str) -> Option<ArcRecord>
 }
 
 /// Read an `arc-stage` note: `<stage> <claude session id> <model or "->"`.
-fn read_stage_line(note: &str, timestamp: &str) -> Option<ArcStageLine> {
+pub(crate) fn read_stage_line(note: &str, timestamp: &str) -> Option<ArcStageLine> {
     let mut fields = note.split_whitespace();
     let stage = ArcStage::parse(fields.next()?)?;
     let session_id = fields.next()?.to_owned();

@@ -1,7 +1,7 @@
 /**
  * mention-kinds.ts — the words that narrow an `@` mention to one kind.
  *
- * `@session:`, `@arc:`, `@sketch:` and `@commit:` are typed the way a submitted atom is
+ * `@session:`, `@arc:`, `@sketch:`, `@docket:` and `@commit:` are typed the way a submitted atom is
  * spelled on the wire, so the form a user types and the form they read back
  * are one. Two places need the words and neither may own them: the completion
  * substrate, which has to leave the colon on the query for the narrowing to
@@ -11,7 +11,7 @@
  */
 
 /** The kinds an `@` mention can be narrowed to. */
-export const MENTION_KINDS = ["session", "arc", "sketch", "commit"] as const;
+export const MENTION_KINDS = ["session", "arc", "sketch", "docket", "commit"] as const;
 
 export type MentionKind = (typeof MENTION_KINDS)[number];
 

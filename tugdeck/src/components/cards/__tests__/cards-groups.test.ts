@@ -38,6 +38,7 @@ import { registerLayoutCard } from "@/components/layout/layout-card-registration
 import { registerTextCard } from "@/components/tugways/cards/text-card-registration";
 import { registerFileViewCard } from "@/components/tugways/cards/file-view-card-registration";
 import { registerDiffCard } from "@/components/tugways/cards/diff-card";
+import { registerDocketCard } from "@/components/docket/docket-card-registration";
 import { registerGalleryCards } from "@/components/tugways/cards/gallery-registrations";
 import { registerSpikeCards } from "@/spikes/spike-registry";
 import { registerFixtureCards } from "@/fixtures/fixture-registrations";
@@ -66,6 +67,7 @@ beforeAll(() => {
   registerTextCard();
   registerFileViewCard();
   registerDiffCard();
+  registerDocketCard();
   registerGalleryCards();
   registerSpikeCards();
   registerFixtureCards();
@@ -81,6 +83,7 @@ const PINS: ReadonlyArray<{
   { componentId: "text", group: "files", via: "explicit cardsGroup" },
   { componentId: "file-view", group: "files", via: "explicit cardsGroup" },
   { componentId: "diff", group: "files", via: "category.label" },
+  { componentId: "docket", group: "files", via: "category.label" },
   { componentId: "settings", group: "tools", via: "fallback" },
   { componentId: "keyboard", group: "tools", via: "fallback" },
   { componentId: "about", group: "tools", via: "fallback" },

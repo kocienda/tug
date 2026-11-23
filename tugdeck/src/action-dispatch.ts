@@ -39,6 +39,7 @@ import { requestSettingsReveal } from "./lib/settings-reveal";
 import { SETTINGS_SECTION_IDS, type SettingsSectionId } from "./lib/settings-sections-pref";
 import { openDiffInCard } from "@/lib/open-diff-in-card";
 import { openCommitInCard } from "@/lib/open-commit-in-card";
+import { openDocketInCard } from "@/lib/open-docket-in-card";
 import { openHelpInCard } from "@/lib/open-help-in-card";
 import { isHelpDocName } from "@/lib/help-docs";
 import {
@@ -90,6 +91,8 @@ import { deliverSessionSearchAnswer } from "./lib/session-search-answers";
 import { deliverArcSearchAnswer } from "./lib/arc-search-answers";
 import { deliverSketchSearchAnswer } from "./lib/sketch-search-answers";
 import { sketchCitationStore } from "./lib/sketch-citation-store";
+import { deliverDocketSearchAnswer } from "./lib/docket-search-answers";
+import { docketCitationStore } from "./lib/docket-citation-store";
 import { deliverScrubShareAnswer } from "./lib/share-scrub";
 import {
   applyAuthResultPayload,
@@ -124,6 +127,7 @@ import {
   decodeResolveSessionsOk,
   decodeResolveArcsOk,
   decodeResolveSketchesOk,
+  decodeDocketVerbOk,
   decodeScrubShareTextErr,
   decodeScrubShareTextOk,
   decodeSearchArcsOk,
@@ -1435,6 +1439,30 @@ function wireActionDispatch(
     openCommitInCard(deckManager, { root, sha }, seeded, originOf(payload));
   });
 
+  // open-docket: raise a docket in its Docket card, marking a thread when one
+  // is named. Keyed on `(projectDir, docketId)`: a card already on that
+  // docket is activated and re-pointed. Dispatched by a docket atom's plain
+  // click and by the arc shade's docket line.
+  registerAction(TUG_ACTIONS.OPEN_DOCKET, (payload) => {
+    const projectDir = payload.projectDir;
+    const docketId = payload.docketId;
+    if (
+      typeof projectDir !== "string" ||
+      projectDir.length === 0 ||
+      typeof docketId !== "string" ||
+      docketId.length === 0
+    ) {
+      console.warn("open-docket: missing or invalid projectDir/docketId", payload);
+      return;
+    }
+    const thread = typeof payload.thread === "string" ? payload.thread : undefined;
+    openDocketInCard(
+      deckManager,
+      { projectDir, docketId, ...(thread !== undefined ? { thread } : {}) },
+      originOf(payload),
+    );
+  });
+
   // open-help: raise a help document in its card, at an anchor when one is
   // named. Dispatched by a link between the documents and by an Overview
   // help ref; the Help menu reaches the same opener through show-card.
@@ -1938,6 +1966,34 @@ export function registerStoreTailActions(): void {
   registerAction("resolve_sketches_err", (payload) => {
     console.warn("resolve_sketches_err", payload.message);
     sketchCitationStore.applyFailed();
+  });
+
+  // resolve_dockets_ok / search_dockets_ok: the answers behind a docket chip
+  // and a composer's `@` docket search, on the sketch verbs' terms. The
+  // Docket card's own sender hears its replies by request id beside these;
+  // the store only gains from hearing them too.
+  registerAction("resolve_dockets_ok", (payload) => {
+    const decoded = decodeDocketVerbOk(payload);
+    if (decoded === null || decoded.verb !== "resolve_dockets") {
+      console.warn("resolve_dockets_ok: undecodable payload", payload);
+      return;
+    }
+    docketCitationStore.applyResolved(decoded);
+  });
+  registerAction("resolve_dockets_err", (payload) => {
+    console.warn("resolve_dockets_err", payload.message);
+    docketCitationStore.applyFailed();
+  });
+  registerAction("search_dockets_ok", (payload) => {
+    const decoded = decodeDocketVerbOk(payload);
+    if (decoded === null || decoded.verb !== "search_dockets") {
+      console.warn("search_dockets_ok: undecodable payload", payload);
+      return;
+    }
+    deliverDocketSearchAnswer(decoded);
+  });
+  registerAction("search_dockets_err", (payload) => {
+    console.warn("search_dockets_err", payload.message);
   });
 
   // search_sessions_ok / _err: the answer to a composer's `@` session search.

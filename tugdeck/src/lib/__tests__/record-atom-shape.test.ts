@@ -1,5 +1,6 @@
 /**
- * The arc and sketch atom shapes: how a value's two halves are read apart.
+ * The arc, sketch and docket atom shapes: how a value's two halves are read
+ * apart, and what each is labelled and copied as.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -7,7 +8,10 @@ import { describe, expect, test } from "bun:test";
 import {
   arcAtomName,
   arcAtomProject,
+  docketAtomLabel,
+  docketPlainText,
   isArcAtomType,
+  isDocketAtomType,
   isSketchAtomType,
   projectLeafOf,
   sketchAtomLabel,
@@ -29,6 +33,15 @@ describe("record atom shape", () => {
     expect(isArcAtomType("session")).toBe(false);
     expect(isSketchAtomType("sketch")).toBe(true);
     expect(sketchAtomLabel("0a1b2c3d")).toBe("sketch:0a1b2c3d");
+  });
+
+  test("a docket is labelled by its name and copied as its id", () => {
+    expect(isDocketAtomType("docket")).toBe(true);
+    expect(isDocketAtomType("sketch")).toBe(false);
+    expect(docketAtomLabel("3f9a1c2e", "GPU wedge")).toBe("GPU wedge");
+    expect(docketAtomLabel("3f9a1c2e")).toBe("docket:3f9a1c2e");
+    expect(docketAtomLabel("3f9a1c2e", "")).toBe("docket:3f9a1c2e");
+    expect(docketPlainText("3f9a1c2e")).toBe("docket:3f9a1c2e");
   });
 
   test("a directory's leaf ignores a trailing slash", () => {
