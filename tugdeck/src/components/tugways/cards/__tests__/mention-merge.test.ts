@@ -40,16 +40,26 @@ function source(type: string, count: number) {
   };
 }
 
-function merged(counts = { files: 4, sessions: 5, commits: 5 }) {
+function merged(
+  counts: { files: number; sessions: number; commits: number; arcs?: number; sketches?: number } = {
+    files: 4,
+    sessions: 5,
+    commits: 5,
+  },
+) {
   const files = source("file", counts.files);
   const sessions = source("session", counts.sessions);
+  const arcs = source("arc", counts.arcs ?? 0);
+  const sketches = source("sketch", counts.sketches ?? 0);
   const commits = source("commit", counts.commits);
   const provider = mergeMentionProviders({
     files: files.provider,
     sessions: sessions.provider,
+    arcs: arcs.provider,
+    sketches: sketches.provider,
     commits: commits.provider,
   });
-  return { provider, files, sessions, commits };
+  return { provider, files, sessions, arcs, sketches, commits };
 }
 
 const types = (items: CompletionItem[]) => items.map((i) => i.atom.type);
@@ -166,6 +176,8 @@ describe("subscribe", () => {
     const provider = mergeMentionProviders({
       files: () => [item("a.ts", "file")],
       sessions: sessions.provider,
+      arcs: () => [],
+      sketches: () => [],
       commits: commits.provider,
     });
     let heard = 0;
@@ -175,5 +187,26 @@ describe("subscribe", () => {
     commits.notify();
     expect(heard).toBe(1);
     expect(types(provider(""))).toEqual(["file", "session", "commit"]);
+  });
+});
+
+describe("arcs and sketches", () => {
+  test("follow sessions as capped groups, before commits", () => {
+    const { provider } = merged({ files: 1, sessions: 1, arcs: 5, sketches: 5, commits: 1 });
+    expect(types(provider(""))).toEqual([
+      "file",
+      "session",
+      ...Array<string>(MENTION_GROUP_CAP).fill("arc"),
+      ...Array<string>(MENTION_GROUP_CAP).fill("sketch"),
+      "commit",
+    ]);
+  });
+
+  test("`arc:` and `sketch:` narrow to one kind, uncapped", () => {
+    const { provider, arcs, sketches } = merged({ files: 1, sessions: 1, arcs: 5, sketches: 5, commits: 1 });
+    expect(types(provider("arc:par"))).toEqual(Array<string>(5).fill("arc"));
+    expect(arcs.queries[arcs.queries.length - 1]).toBe("par");
+    expect(types(provider("sketch:"))).toEqual(Array<string>(5).fill("sketch"));
+    expect(sketches.queries[sketches.queries.length - 1]).toBe("");
   });
 });

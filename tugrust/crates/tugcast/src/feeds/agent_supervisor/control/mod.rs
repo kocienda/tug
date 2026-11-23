@@ -5,6 +5,7 @@
 mod arc;
 mod changeset;
 mod deck;
+mod records;
 mod rows;
 mod session;
 mod share;

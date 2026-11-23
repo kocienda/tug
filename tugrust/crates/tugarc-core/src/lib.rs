@@ -10,6 +10,12 @@
 /// visibility log, and the stdin round-metadata shape.
 pub mod log;
 
+/// The per-checkout archive of ended arcs' documents.
+pub mod archive;
+
+/// The sketch record: a sketch's own id and every version of its text.
+pub mod sketch;
+
 /// The arc record — the server-driven arc's stages, document, and plan, kept
 /// as arc log lines keyed by name so the record exists before a branch does.
 pub mod arc;
@@ -70,9 +76,10 @@ pub use arc::{
 pub use doctor::{ArcDiagnosis, ArcFinding, ArcRepair, DoctorOutcome, diagnose, doctor};
 pub use error::ArcError;
 pub use log::{
-    ArcDeclaration, ArcDeclarations, ArcRoundMeta, MarkStage, StepPhase, append_arc_log,
-    arc_has_ended, detect_default_branch, is_terminal, read_declarations, split_log_line,
-    validate_arc_name,
+    ArcDeclaration, ArcDeclarations, ArcGeneration, ArcRoundMeta, GenerationEnd, MarkStage,
+    StepPhase, append_arc_log, arc_generations, arc_has_ended, detect_default_branch,
+    generation_sketch_id, generation_start, generation_started_at, is_terminal, read_declarations,
+    split_log_line, validate_arc_name,
 };
 pub use oplog::{
     JoinPhase, JoinProgress, OpAfter, OpBefore, OpConfig, OpPayload, OpVerb, RedoOutcome,
@@ -81,12 +88,12 @@ pub use oplog::{
 pub use ops::{
     ArcDetail, ArcDetailFile, ArcDocuments, ArcDraftKey, ArcListItem, ArcStatus, BaseDirtPath,
     CommitOutcome, CreateOutcome, DeleteDocumentsOutcome, DiscardOutcome, DocumentArgument,
-    JoinBlocker, JoinOptions, JoinOutcome, JoinStrategy, MarkOutcome, OpenOutcome, RoundItem,
-    ShowOutcome, StepOutcome, arc_detail_entries_in, arc_draft_key, brief_file, commit_in,
-    create_in, delete_documents_in, derive_stage, discard_in, document_arcs, documents_dir,
-    ensure_tug_excluded, join_in, join_in_flight, join_in_with_progress, join_preflight_in,
-    ledger_file, list_in, mark_in, open_arc, plan_file, show_in, sketch_file, status_in,
-    step_done_in, step_start_in, tasks_file, worktree_path,
+    JoinBlocker, JoinOptions, JoinOutcome, JoinStrategy, MarkOutcome, OpenOutcome, RecordDocument,
+    RecordShowOutcome, RoundItem, ShowOutcome, StepOutcome, arc_detail_entries_in, arc_draft_key,
+    brief_file, commit_in, create_in, delete_documents_in, derive_stage, discard_in, document_arcs,
+    documents_dir, ensure_tug_excluded, join_in, join_in_flight, join_in_with_progress,
+    join_preflight_in, ledger_file, list_in, mark_in, open_arc, plan_file, show_in, show_record_in,
+    sketch_file, status_in, step_done_in, step_start_in, tasks_file, worktree_path,
 };
 pub use replay::{REPLAY_PHASES, ReplayOutcome, ReplayedRounds, replay_onto, replay_watched};
 pub use residue::{forget_join_residue, sweep_join_residue};

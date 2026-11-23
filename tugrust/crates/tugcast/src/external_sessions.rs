@@ -522,6 +522,10 @@ pub(crate) fn user_submission_opens_turn(
 /// plumbing and is dropped beside it.
 const SESSION_REFS_MARKER: &str = "<!-- tug:session-refs -->";
 
+/// The arc and sketch reference blocks, written beside the session block on
+/// the same terms and dropped for the same reason.
+const RECORD_REFS_MARKERS: [&str; 2] = ["<!-- tug:arc-refs -->", "<!-- tug:sketch-refs -->"];
+
 /// Extract the submission's display text: string content verbatim, or
 /// the concatenated `text` fields of array content.
 pub(crate) fn submission_text(content: &serde_json::Value) -> String {
@@ -540,6 +544,7 @@ pub(crate) fn submission_text(content: &serde_json::Value) -> String {
                         // wrote.
                         .filter(|t| {
                             !t.starts_with(SESSION_REFS_MARKER)
+                                && !RECORD_REFS_MARKERS.iter().any(|m| t.starts_with(m))
                                 && !t.starts_with(tugcore::session_transcript::LANDINGS_MARKER)
                         })
                 } else {
@@ -1811,6 +1816,18 @@ mod tests {
             { "type": "text", "text": "hi" },
             { "type": "text",
               "text": "<!-- tug:session-refs -->\nSession references in this message:\n- @session:tug/odd-kiln — verdict: absent — this session is not on this machine" },
+        ]);
+        assert_eq!(submission_text(&content), "hi");
+    }
+
+    #[test]
+    fn submission_text_drops_the_arc_and_sketch_reference_blocks() {
+        let content = serde_json::json!([
+            { "type": "text", "text": "hi" },
+            { "type": "text",
+              "text": "<!-- tug:arc-refs -->\nArc references in this message:\n- @arc:tug/nope — verdict: absent — no arc of this name is recorded for that project" },
+            { "type": "text",
+              "text": "<!-- tug:sketch-refs -->\nSketch references in this message:\n- @sketch:00ff00ff — verdict: absent — this sketch is not on this machine" },
         ]);
         assert_eq!(submission_text(&content), "hi");
     }

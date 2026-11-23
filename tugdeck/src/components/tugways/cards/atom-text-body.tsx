@@ -47,6 +47,9 @@ import { TugAtomChip } from "@/lib/tug-atom-chip";
 import { SessionCitation } from "@/components/tugways/cards/session-identity";
 import { TugCommitAtom } from "@/components/tugways/tug-commit-atom";
 import { COMMIT_ATOM_TYPE } from "@/lib/command-atom";
+import { TugArcAtom } from "@/components/tugways/tug-arc-atom";
+import { arcAtomName, isArcAtomType } from "@/lib/record-atom-shape";
+import { atomIdentityAttrs } from "@/lib/atom-identity-attrs";
 import {
   isSessionAtomType,
   sessionAtomCallsign,
@@ -209,6 +212,15 @@ export const AtomTextBody = React.forwardRef<
               sha={seg.atom.value}
               interactive={payload !== null}
             />
+          ) : isArcAtomType(seg.atom.type) ? (
+            // An arc atom is the arc's own pill, the one the Arcs card and
+            // the lifecycle block draw, carrying the atom's identity so a
+            // selection across it reads the atom back.
+            <TugArcAtom
+              key={`a-${i}`}
+              name={arcAtomName(seg.atom.value)}
+              {...atomIdentityAttrs(seg.atom)}
+            />
           ) : (
             <TugAtomChip
               key={`a-${i}`}
@@ -217,6 +229,7 @@ export const AtomTextBody = React.forwardRef<
               label={displayLabel}
               value={seg.atom.value}
               {...(seg.atom.id !== undefined ? { id: seg.atom.id } : {})}
+              {...(seg.atom.sketch !== undefined ? { sketch: seg.atom.sketch } : {})}
             />
           );
         if (payload === null) return chip;

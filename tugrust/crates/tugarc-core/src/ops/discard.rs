@@ -39,14 +39,21 @@ pub struct DeleteDocumentsOutcome {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub removed: Option<String>,
     /// The file names the directory held, read before the removal so the
-    /// receipt can say what was destroyed. Unrecoverable afterwards: `.tug/`
-    /// is excluded from git, so nothing on disk or in history holds a copy.
+    /// receipt can say what went. `.tug/` is excluded from git, so the copy
+    /// the archive kept is the only one: `tugtool arc show <name> --document
+    /// <kind>` reads it back.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<String>,
+    /// The archive entry the documents were kept as, before the directory
+    /// was removed. Absent exactly when `removed` is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived: Option<String>,
 }
 
 /// Delete an arc's documents directory — `.tug/arcs/<name>/` — and nothing
-/// else. No branch, no worktree, no arc-log teardown ([B05]).
+/// else. No branch, no worktree, no arc-log teardown ([B05]). The documents
+/// are archived first ([`crate::archive`]), so the working directory goes and
+/// the record stays; an archive that fails is an error and removes nothing.
 ///
 /// **This is not a discard, and must never route through one.** `discard` is
 /// about a branch and a worktree, keeps the documents on purpose ([P11]), and
@@ -61,6 +68,7 @@ pub struct DeleteDocumentsOutcome {
 /// out from under a running arc would strand it. A directory that is not there
 /// reports `removed: None` and succeeds, so a double press is quiet.
 pub fn delete_documents_in(
+    paths: &Paths,
     repo_root: &Path,
     name: &str,
 ) -> Result<DeleteDocumentsOutcome, ArcError> {
@@ -84,6 +92,7 @@ pub fn delete_documents_in(
             name: name.to_string(),
             removed: None,
             files: Vec::new(),
+            archived: None,
         });
     }
 
@@ -94,6 +103,10 @@ pub fn delete_documents_in(
         .collect();
     files.sort();
 
+    let (fate, join_sha) = documents_fate(paths, repo_root, name);
+    let entry =
+        crate::archive::archive_documents(paths, repo_root, name, fate, join_sha.as_deref(), None)?;
+
     std::fs::remove_dir_all(&dir)
         .map_err(|e| ArcError::io(format!("cannot delete {}", dir.display()), &dir, e))?;
 
@@ -101,7 +114,33 @@ pub fn delete_documents_in(
         name: name.to_string(),
         removed: Some(dir.display().to_string()),
         files,
+        archived: Some(entry.dir.display().to_string()),
     })
+}
+
+/// How the arc whose paperwork is being deleted ended, as its newest
+/// generation in the arc log records it: `discarded` when that generation
+/// ended in a discard (or its historical spelling, `released`), `joined` with
+/// the squash's sha when it ended in a join whose archive did not take the
+/// documents, and `abandoned` otherwise — a door that never cut a branch, or a
+/// name the log never heard of. The walk is [`crate::log::arc_fates`]'s, which
+/// omits exactly the names whose newest generation was discarded.
+fn documents_fate(
+    paths: &Paths,
+    repo_root: &Path,
+    name: &str,
+) -> (crate::archive::ArchiveFate, Option<String>) {
+    use crate::archive::ArchiveFate;
+    let path = tugtool_core::paths::arc_log_path_at(paths, repo_root);
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    match crate::log::arc_fates(&text).remove(name) {
+        Some(crate::log::ArcFate::Joined { sha }) => (ArchiveFate::Joined, Some(sha)),
+        Some(crate::log::ArcFate::Live) => (ArchiveFate::Abandoned, None),
+        None if crate::log::generation_started_at(&text, name).is_some() => {
+            (ArchiveFate::Discarded, None)
+        }
+        None => (ArchiveFate::Abandoned, None),
+    }
 }
 
 /// Release an arc in `repo_root`: tear down its worktree + branch without
@@ -381,19 +420,19 @@ mod tests {
 
     // ── The documents home ───────────────────────────────────────────────────
 
-    /// The delete destroys the directory and names what was in it — the
-    /// receipt's only chance, since `.tug/` is excluded from git and nothing
-    /// gives the brief back.
+    /// The delete removes the directory and names what was in it, and the
+    /// archive keeps the copy git never had.
     #[test]
     fn deleting_documents_removes_the_directory_and_names_its_files() {
         let temp = TempDir::new().unwrap();
+        let (_home, paths) = scratch_paths();
         let root = temp.path();
         write_arc_document(root, "ghost", "brief.md");
         write_arc_document(root, "ghost", "tasks.md");
         // A neighbour, so this is a delete of one arc rather than of `.tug/`.
         write_arc_document(root, "keeper", "brief.md");
 
-        let outcome = delete_documents_in(root, "ghost").unwrap();
+        let outcome = delete_documents_in(&paths, root, "ghost").unwrap();
         assert_eq!(outcome.name, "ghost");
         assert!(outcome.removed.is_some());
         assert_eq!(outcome.files, vec!["brief.md", "tasks.md"]);
@@ -402,6 +441,9 @@ mod tests {
             brief_file(root, "keeper").is_file(),
             "the neighbouring arc's brief is untouched"
         );
+        let entry = crate::archive::entry(&paths, root, "ghost", None).unwrap();
+        assert_eq!(outcome.archived, Some(entry.dir.display().to_string()));
+        assert_eq!(entry.files, vec!["brief.md", "tasks.md"]);
     }
 
     /// A delete of documents that are already gone is a state, not an error:
@@ -409,9 +451,12 @@ mod tests {
     #[test]
     fn deleting_absent_documents_succeeds_quietly() {
         let temp = TempDir::new().unwrap();
-        let outcome = delete_documents_in(temp.path(), "never-was").unwrap();
+        let (_home, paths) = scratch_paths();
+        let outcome = delete_documents_in(&paths, temp.path(), "never-was").unwrap();
         assert_eq!(outcome.removed, None);
         assert!(outcome.files.is_empty());
+        assert_eq!(outcome.archived, None);
+        assert!(crate::archive::all_entries(&paths, temp.path()).is_empty());
     }
 
     /// **An arc that still has a branch is refused by name.** Deleting the
@@ -423,7 +468,7 @@ mod tests {
         create_in(&paths, &root, "live-arc", None, false, None).unwrap();
         write_arc_document(&root, "live-arc", "brief.md");
 
-        let err = delete_documents_in(&root, "live-arc")
+        let err = delete_documents_in(&paths, &root, "live-arc")
             .expect_err("refused")
             .to_string();
         assert!(err.contains("tugarc/live-arc"), "{err}");
@@ -439,7 +484,75 @@ mod tests {
     #[test]
     fn deleting_documents_validates_the_arc_name() {
         let temp = TempDir::new().unwrap();
-        assert!(delete_documents_in(temp.path(), "../escape").is_err());
+        let (_home, paths) = scratch_paths();
+        assert!(delete_documents_in(&paths, temp.path(), "../escape").is_err());
+    }
+
+    /// A discarded arc's kept paperwork, deleted later, is archived as
+    /// discarded: the two endings agree that the working directory goes and
+    /// the record stays.
+    #[test]
+    fn deleting_a_discarded_arcs_documents_archives_them_as_discarded() {
+        let (_temp, root, paths) = repo_for_create();
+        create_in(&paths, &root, "dropped", None, false, None).unwrap();
+        write_arc_document(&root, "dropped", "brief.md");
+        discard_in(&paths, &root, "dropped", Some("cli")).unwrap();
+        assert!(
+            documents_dir(&root, "dropped").is_dir(),
+            "discard keeps them"
+        );
+
+        let outcome = delete_documents_in(&paths, &root, "dropped").unwrap();
+
+        assert!(!documents_dir(&root, "dropped").exists());
+        let entry = crate::archive::entry(&paths, &root, "dropped", None).unwrap();
+        assert_eq!(entry.fate, crate::archive::ArchiveFate::Discarded);
+        assert_eq!(entry.join_sha, None);
+        assert_eq!(outcome.archived, Some(entry.dir.display().to_string()));
+        assert_eq!(
+            fs::read_to_string(entry.dir.join("brief.md")).unwrap(),
+            "# Fixture\n"
+        );
+    }
+
+    /// Paperwork the log never recorded — a door abandoned before it wrote a
+    /// line — is abandoned, and dates from its own files.
+    #[test]
+    fn deleting_unlogged_documents_archives_them_as_abandoned() {
+        let temp = TempDir::new().unwrap();
+        let (_home, paths) = scratch_paths();
+        let root = temp.path();
+        write_arc_document(root, "stray", "brief.md");
+        let mtime = fs::metadata(brief_file(root, "stray"))
+            .unwrap()
+            .modified()
+            .unwrap();
+
+        delete_documents_in(&paths, root, "stray").unwrap();
+
+        let entry = crate::archive::entry(&paths, root, "stray", None).unwrap();
+        assert_eq!(entry.fate, crate::archive::ArchiveFate::Abandoned);
+        assert_eq!(
+            entry.created,
+            chrono::DateTime::<chrono::Utc>::from(mtime)
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+        );
+    }
+
+    /// **An archive that fails deletes nothing.** The documents are the only
+    /// copy, and a delete is the user's own gesture, so it fails loudly.
+    #[test]
+    fn deleting_documents_whose_archive_fails_removes_nothing() {
+        let temp = TempDir::new().unwrap();
+        let (_home, paths) = scratch_paths();
+        let root = temp.path();
+        write_arc_document(root, "stuck", "brief.md");
+        let archive = crate::archive::archive_root(&paths, root);
+        fs::create_dir_all(archive.parent().unwrap()).unwrap();
+        fs::write(&archive, "not a directory").unwrap();
+
+        assert!(delete_documents_in(&paths, root, "stuck").is_err());
+        assert!(brief_file(root, "stuck").is_file(), "the documents stay");
     }
 
     #[test]

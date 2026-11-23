@@ -18,14 +18,15 @@ import { arcVerdictKey, noteVerdictKey } from "./verdict-keys";
  * What the arc log says about one name.
  *
  *  - `pending` — not asked yet, or the ask is in flight. Nothing is marked.
- *  - `confirmed` — the log holds the arc. `joinSha` is the squash commit when
- *    the arc was joined.
- *  - `refuted` — the log never held it, or its newest generation was
- *    discarded. The text stays plain.
+ *  - `confirmed` — the arc can be read back. `joinSha` is the squash commit
+ *    when the arc was joined; a `discarded` arc has none, since nothing of it
+ *    landed.
+ *  - `refuted` — nothing on this machine can read it back. The text stays
+ *    plain.
  */
 export type ArcVerdict =
   | { state: "pending" }
-  | { state: "confirmed"; fate: "live" | "joined"; joinSha?: string }
+  | { state: "confirmed"; fate: "live" | "joined" | "discarded"; joinSha?: string }
   | { state: "refuted" };
 
 const PENDING: ArcVerdict = Object.freeze({ state: "pending" });
@@ -45,7 +46,7 @@ export function resolveArcRef(root: string, name: string): ArcVerdict {
     return PENDING;
   }
   if (answer.status === "missing") return REFUTED_ARC;
-  return answer.joinSha === undefined
+  return answer.joinSha === undefined || answer.fate !== "joined"
     ? { state: "confirmed", fate: answer.fate }
     : { state: "confirmed", fate: answer.fate, joinSha: answer.joinSha };
 }

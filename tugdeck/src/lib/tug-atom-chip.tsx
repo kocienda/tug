@@ -52,7 +52,7 @@ import "./tug-atom-chip.css";
 
 import * as React from "react";
 
-import { atomIdentityAttrs } from "@/lib/atom-identity-attrs";
+import { atomIdentityAttrs, type AtomSketchRef } from "@/lib/atom-identity-attrs";
 
 import {
   computeAtomChipGeometry,
@@ -106,6 +106,11 @@ export interface TugAtomChipProps {
    * One row, two doors, two results.
    */
   id?: string;
+  /**
+   * A sketch atom's owning checkout, written to the chip's identity
+   * attributes so a copy across a transcript row keeps it.
+   */
+  sketch?: AtomSketchRef;
   /** Optional max width in px — labels longer than this truncate with `…`. */
   maxLabelWidth?: number;
   className?: string;
@@ -124,6 +129,7 @@ export const TugAtomChip = React.forwardRef<SVGSVGElement, TugAtomChipProps>(
       label,
       value,
       id,
+      sketch,
       maxLabelWidth,
       className,
       "data-slot": dataSlot,
@@ -169,12 +175,18 @@ export const TugAtomChip = React.forwardRef<SVGSVGElement, TugAtomChipProps>(
         // into Tug gets the chip rather than the label it drew ([L06] —
         // attributes, not state).
         //
-        // The list is four fields and carries no `session` pair, which is
+        // The list carries no `session` pair, which is
         // deliberate rather than an omission: both transcript bodies route a
         // session atom to `SessionCitation` before this arm is reached, so
         // no session atom is ever drawn here. A session atom that did arrive
         // would be a routing bug, and widening this list would hide it.
-        {...atomIdentityAttrs({ type, label, value, ...(id !== undefined ? { id } : {}) })}
+        {...atomIdentityAttrs({
+          type,
+          label,
+          value,
+          ...(id !== undefined ? { id } : {}),
+          ...(sketch !== undefined ? { sketch } : {}),
+        })}
         aria-label={displayLabel}
         role="img"
       >

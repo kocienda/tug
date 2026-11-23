@@ -4,6 +4,7 @@
 //! envelope) or a plain human read-out.
 
 use std::io::{self, IsTerminal, Read};
+use std::path::Path;
 use std::process::ExitCode;
 use tugcore::instance::Paths;
 
@@ -94,10 +95,25 @@ pub fn dispatch(cmd: ArcCommands, json: bool, quiet: bool) -> ExitCode {
             return run_redo(paths, name.as_deref(), list, json, quiet);
         }
         ArcCommands::Discard { name, .. } => run_discard(paths, &name, json, quiet),
-        ArcCommands::DeleteDocuments { name } => run_delete_documents(&name, json, quiet),
+        ArcCommands::DeleteDocuments { name } => run_delete_documents(paths, &name, json, quiet),
         ArcCommands::Config => run_config(json, quiet),
         ArcCommands::List => run_list(paths, json, quiet),
-        ArcCommands::Show { name } => run_show(paths, &name, json, quiet),
+        ArcCommands::Show {
+            name,
+            created,
+            document,
+            project,
+        } => run_show(
+            paths,
+            &ShowArgs {
+                name: &name,
+                created: created.as_deref(),
+                document: document.as_deref(),
+                project: project.as_deref(),
+            },
+            json,
+            quiet,
+        ),
         ArcCommands::Status { name } => run_status(paths, &name, json, quiet),
         ArcCommands::Doctor { name, repair } => run_doctor(paths, &name, repair, json, quiet),
         ArcCommands::Step { name, action } => run_step(paths, &name, action, json, quiet),
@@ -614,14 +630,20 @@ fn run_discard(paths: &Paths, name: &str, json: bool, quiet: bool) -> Result<(),
     Ok(())
 }
 
-/// `arc delete-documents <name>` — remove the paperwork and say what went.
+/// `arc delete-documents <name>` — archive the paperwork, remove it, and say
+/// where it was kept.
 ///
 /// No `broadcast_arc_gone`: nothing about the arc's git state or its record
 /// changed, and a row that was drawn off the documents stops being drawn
 /// because the documents stopped existing. The scan recomputes on its own.
-fn run_delete_documents(name: &str, json: bool, quiet: bool) -> Result<(), AppError> {
+fn run_delete_documents(
+    paths: &Paths,
+    name: &str,
+    json: bool,
+    quiet: bool,
+) -> Result<(), AppError> {
     let repo = arc_repo_root()?;
-    let data = ops::delete_documents_in(&repo, name)?;
+    let data = ops::delete_documents_in(paths, &repo, name)?;
     if json {
         print_ok("arc delete-documents", &data);
     } else if !quiet {
@@ -629,9 +651,15 @@ fn run_delete_documents(name: &str, json: bool, quiet: bool) -> Result<(), AppEr
             Some(dir) => {
                 println!("Deleted the documents for arc '{}' at {dir}", data.name);
                 if !data.files.is_empty() {
-                    println!("  Destroyed: {}", data.files.join(", "));
+                    println!("  Removed: {}", data.files.join(", "));
                 }
-                println!("  Untracked, so git will not give them back.");
+                if let Some(archive) = data.archived.as_deref() {
+                    println!("  archived to {archive}");
+                }
+                println!(
+                    "  `tugtool arc show {} --document <kind>` reads them back.",
+                    data.name
+                );
             }
             None => println!("Arc '{}' has no documents directory", data.name),
         }
@@ -2782,9 +2810,53 @@ fn document_words(item: &ops::ArcListItem) -> String {
     words.join(", ")
 }
 
-fn run_show(paths: &Paths, name: &str, json: bool, quiet: bool) -> Result<(), AppError> {
-    let repo = arc_repo_root()?;
-    let data = ops::show_in(paths, &repo, name)?;
+/// What `tugtool arc show` was asked.
+struct ShowArgs<'a> {
+    name: &'a str,
+    created: Option<&'a str>,
+    document: Option<&'a str>,
+    project: Option<&'a Path>,
+}
+
+/// `arc show`: a live branch answers through [`ops::show_in`]; anything else,
+/// or any ask pinned to a generation with `--created`, answers from the
+/// arc's record through [`tugarc_core::show_record_in`].
+fn run_show(paths: &Paths, args: &ShowArgs, json: bool, quiet: bool) -> Result<(), AppError> {
+    let repo = match args.project {
+        Some(dir) => tugtool_core::worktree::find_repo_root_from(dir)
+            .map_err(|e| ArcError::Refused(e.to_string()))?,
+        None => arc_repo_root()?,
+    };
+    let name = args.name;
+    let live = match args.created {
+        Some(_) => None,
+        None => match ops::show_in(paths, &repo, name) {
+            Ok(live) => Some(live),
+            Err(ArcError::NotFound { .. }) => None,
+            Err(e) => return Err(e.into()),
+        },
+    };
+
+    let Some(data) = live else {
+        let record = tugarc_core::show_record_in(paths, &repo, name, args.created)?;
+        if let Some(kind) = args.document {
+            let doc = record
+                .document(kind)
+                .ok_or_else(|| no_document(name, kind))?;
+            return print_document(Path::new(&doc.path), name, kind);
+        }
+        if json {
+            print_ok("arc show", &record);
+        } else if !quiet {
+            print_record(&record);
+        }
+        return Ok(());
+    };
+
+    if let Some(kind) = args.document {
+        let path = ops::documents_dir(&repo, name).join(format!("{kind}.md"));
+        return print_document(&path, name, kind);
+    }
     if json {
         print_ok("arc show", &data);
     } else if !quiet {
@@ -2796,6 +2868,11 @@ fn run_show(paths: &Paths, name: &str, json: bool, quiet: bool) -> Result<(), Ap
         println!("Branch: {}", data.branch);
         println!("Worktree: {}", data.worktree);
         println!("Base: {}", data.base_branch);
+        let log = std::fs::read_to_string(tugtool_core::paths::arc_log_path_at(paths, &repo))
+            .unwrap_or_default();
+        if let Some(sketch) = tugarc_core::generation_sketch_id(&log, name) {
+            println!("Sketch: {sketch}");
+        }
         if let Some(has_changes) = data.uncommitted_changes {
             println!(
                 "Uncommitted changes: {}",
@@ -2811,6 +2888,51 @@ fn run_show(paths: &Paths, name: &str, json: bool, quiet: bool) -> Result<(), Ap
         }
     }
     Ok(())
+}
+
+/// `arc '<name>' has no <kind>`, shaped as an arc that is not there.
+fn no_document(name: &str, kind: &str) -> AppError {
+    AppError::Exit2("arc_not_found", format!("arc '{name}' has no {kind}"))
+}
+
+/// Write a document's bytes to stdout, unmodified.
+fn print_document(path: &Path, name: &str, kind: &str) -> Result<(), AppError> {
+    use std::io::Write;
+    let bytes = std::fs::read(path).map_err(|_| no_document(name, kind))?;
+    let mut out = std::io::stdout().lock();
+    out.write_all(&bytes)
+        .and_then(|()| out.flush())
+        .map_err(|e| AppError::Exit1("io_failed", e.to_string()))
+}
+
+/// The text form of an arc answered from its record.
+fn print_record(record: &tugarc_core::RecordShowOutcome) {
+    println!("Arc: {}", record.name);
+    println!("Status: {}", record.status);
+    if let Some(created) = &record.created {
+        println!("Created: {created}");
+    }
+    if let Some(ended) = &record.ended_at {
+        println!("Ended: {ended}");
+    }
+    if let Some(sha) = &record.join_sha {
+        println!("Join commit: {sha}");
+    }
+    if let Some(sketch) = &record.sketch_id {
+        println!("Sketch: {sketch}");
+    }
+    if !record.documents_kept {
+        if record.status == "joined" {
+            println!("Documents: none kept (joined before documents were archived)");
+        } else {
+            println!("Documents: none kept");
+        }
+        return;
+    }
+    println!("Documents:");
+    for doc in &record.documents {
+        println!("  {}  {}", doc.kind, doc.path);
+    }
 }
 
 #[cfg(test)]

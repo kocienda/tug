@@ -113,6 +113,20 @@ describe("arc citation store", () => {
     expect(store.getAnswer("/repo", "x")).toEqual({ status: "pending" });
   });
 
+  test("a discarded arc is found with its start, and offers no join commit", () => {
+    const { store } = storeWithWire();
+    store.applyResolved({
+      projectDir: "/repo",
+      found: [{ name: "thrown", fate: "discarded", created: "2026-10-02T00:00:00Z" }],
+      missing: [],
+    });
+    expect(store.getAnswer("/repo", "thrown")).toEqual({
+      status: "found",
+      fate: "discarded",
+      created: "2026-10-02T00:00:00Z",
+    });
+  });
+
   test("a joined row with no sha is dropped by the decoder", () => {
     expect(
       decodeResolveArcsOk({

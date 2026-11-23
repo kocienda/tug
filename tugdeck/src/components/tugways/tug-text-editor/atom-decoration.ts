@@ -61,6 +61,11 @@ import {
 } from "@/lib/session-dot-overlay";
 import { sessionCitationStore } from "@/lib/session-citation-store";
 import { sessionChipVerdict } from "@/lib/session-chip-verdict";
+import { arcCitationStore } from "@/lib/arc-citation-store";
+import { sketchCitationStore } from "@/lib/sketch-citation-store";
+import { arcChipVerdict, requestArcChipVerdict } from "@/lib/arc-atom";
+import { requestSketchChipVerdict, sketchChipVerdict } from "@/lib/sketch-atom";
+import { isArcAtomType, isSketchAtomType } from "@/lib/record-atom-shape";
 import { padInsert } from "./smart-insert";
 
 // ---------------------------------------------------------------------------
@@ -179,6 +184,9 @@ export class AtomWidget extends WidgetType {
       && this.segment.session?.id === other.segment.session?.id
       && this.segment.session?.projectDir
         === other.segment.session?.projectDir
+      && this.segment.arc?.projectDir === other.segment.arc?.projectDir
+      && this.segment.arc?.created === other.segment.arc?.created
+      && this.segment.sketch?.projectDir === other.segment.sketch?.projectDir
     );
   }
 
@@ -208,6 +216,15 @@ export class AtomWidget extends WidgetType {
     if (isSession) {
       sessionCitationStore.request(sessionVerdictAskKey(this.segment));
     }
+    // An arc or a sketch chip asks its own store the same way, under the
+    // directory the atom recorded, and bakes `missing` when the answer is.
+    requestArcChipVerdict(this.segment);
+    requestSketchChipVerdict(this.segment);
+    const variant = isArcAtomType(this.segment.type)
+      ? arcChipVerdict(this.segment)
+      : isSketchAtomType(this.segment.type)
+        ? sketchChipVerdict(this.segment)
+        : sessionChipVerdict(this.segment);
     const img = createAtomImgElement(
       this.segment.type,
       this.segment.label,
@@ -220,7 +237,9 @@ export class AtomWidget extends WidgetType {
         id: this.segment.id,
         pending,
         session: this.segment.session,
-        variant: sessionChipVerdict(this.segment),
+        arc: this.segment.arc,
+        sketch: this.segment.sketch,
+        variant,
         // Only a session chip leaves its dot to the layer: it is the one mark
         // that changes while the chip sits there. A commit's ring is ink and a
         // file's mark is a glyph, and neither has a live reading to place over
@@ -911,7 +930,7 @@ class SessionVerdictRegenPlugin implements PluginValue {
   private destroyed = false;
 
   constructor(private readonly view: EditorView) {
-    this.unsubscribe = sessionCitationStore.subscribe(() => {
+    const regen = () => {
       if (this.queued || this.destroyed) return;
       this.queued = true;
       queueMicrotask(() => {
@@ -919,7 +938,17 @@ class SessionVerdictRegenPlugin implements PluginValue {
         if (this.destroyed) return;
         this.view.dispatch({ effects: regenerateAtomsEffect.of(null) });
       });
-    });
+    };
+    // Session, arc and sketch chips all bake their verdict, so an answer from
+    // any of the three stores is a reason to rebuild.
+    const offs = [
+      sessionCitationStore.subscribe(regen),
+      arcCitationStore.subscribe(regen),
+      sketchCitationStore.subscribe(regen),
+    ];
+    this.unsubscribe = () => {
+      for (const off of offs) off();
+    };
   }
 
   destroy(): void {

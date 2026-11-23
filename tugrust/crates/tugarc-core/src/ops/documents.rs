@@ -419,12 +419,17 @@ fn read_document(path: &Path) -> (Option<String>, Option<String>) {
         return (None, None);
     }
     let abs = path.to_string_lossy().to_string();
-    let title = std::fs::read_to_string(path).ok().and_then(|text| {
-        text.lines()
-            .find(|line| line.starts_with('#'))
-            .map(heading_text)
-    });
+    let title = std::fs::read_to_string(path)
+        .ok()
+        .and_then(|text| first_heading(&text));
     (Some(abs), title)
+}
+
+/// The readable text of a document's first markdown heading, if it has one.
+pub fn first_heading(text: &str) -> Option<String> {
+    text.lines()
+        .find(|line| line.starts_with('#'))
+        .map(heading_text)
 }
 
 /// A record's text, when the file is there and holds any: the leading
@@ -434,6 +439,18 @@ fn read_document(path: &Path) -> (Option<String>, Option<String>) {
 /// an ellipsis, since it rides every snapshot of the arc feed.
 fn read_record(path: &Path) -> Option<String> {
     let text = std::fs::read_to_string(path).ok()?;
+    let body = record_body(&text)?;
+    if body.chars().count() > RECORD_TEXT_LIMIT {
+        let cut: String = body.chars().take(RECORD_TEXT_LIMIT).collect();
+        return Some(format!("{}…", cut.trim_end()));
+    }
+    Some(body)
+}
+
+/// A record's body: the text with its leading heading (`# Idea`, `# Sketch`)
+/// and its trailing `Source:` line taken off, trimmed. `None` when nothing is
+/// left.
+pub fn record_body(text: &str) -> Option<String> {
     let mut lines: Vec<&str> = text.lines().collect();
     while lines.first().is_some_and(|l| l.trim().is_empty()) {
         lines.remove(0);
@@ -451,14 +468,7 @@ fn read_record(path: &Path) -> Option<String> {
         lines.pop();
     }
     let body = lines.join("\n").trim().to_string();
-    if body.is_empty() {
-        return None;
-    }
-    if body.chars().count() > RECORD_TEXT_LIMIT {
-        let cut: String = body.chars().take(RECORD_TEXT_LIMIT).collect();
-        return Some(format!("{}…", cut.trim_end()));
-    }
-    Some(body)
+    (!body.is_empty()).then_some(body)
 }
 
 /// The most of a record's text the feed carries: room for a long prompt,

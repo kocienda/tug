@@ -277,3 +277,23 @@ describe("the plain-text flavor beside the atom", () => {
     }
   });
 });
+
+describe("an arc", () => {
+  test("mints an arc atom whose round trip is the identity on { name, root }", () => {
+    const payload: AnnotationPayload = { kind: "arc", name: "parser", root: "/u/src/tug" };
+    const segment = atomSegmentFor(payload);
+    expect(segment).toEqual({
+      kind: "atom",
+      type: "arc",
+      label: "parser",
+      value: "tug/parser",
+      arc: { projectDir: "/u/src/tug" },
+    });
+    expect(payloadForAtom(segment!)).toEqual(payload);
+  });
+
+  test("copies as `arc:<name>`", () => {
+    const payload: AnnotationPayload = { kind: "arc", name: "parser", root: "/u/src/tug" };
+    expect(atomPlainTextFor(payload, atomSegmentFor(payload)!)).toBe("arc:parser");
+  });
+});

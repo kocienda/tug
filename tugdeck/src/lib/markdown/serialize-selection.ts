@@ -176,6 +176,9 @@ function atomOf(el: Element): AtomSegment | null {
   // renderer built by hand and is not trusted as a reference.
   const sessionId = el.getAttribute("data-atom-session-id");
   const sessionDir = el.getAttribute("data-atom-session-project-dir");
+  const arcDir = el.getAttribute("data-atom-arc-project-dir");
+  const arcCreated = el.getAttribute("data-atom-arc-created");
+  const sketchDir = el.getAttribute("data-atom-sketch-project-dir");
   return {
     kind: "atom",
     type,
@@ -185,6 +188,17 @@ function atomOf(el: Element): AtomSegment | null {
     ...(sessionId !== null && sessionId !== "" && sessionDir !== null
       && sessionDir !== ""
       ? { session: { id: sessionId, projectDir: sessionDir } }
+      : {}),
+    ...(arcDir !== null && arcDir !== ""
+      ? {
+          arc: {
+            projectDir: arcDir,
+            ...(arcCreated !== null && arcCreated !== "" ? { created: arcCreated } : {}),
+          },
+        }
+      : {}),
+    ...(sketchDir !== null && sketchDir !== ""
+      ? { sketch: { projectDir: sketchDir } }
       : {}),
   };
 }

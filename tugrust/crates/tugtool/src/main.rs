@@ -19,6 +19,7 @@ mod run_parsers;
 mod runners;
 mod session;
 mod session_identity;
+mod sketch;
 mod splash;
 mod test_ledger_cli;
 mod test_run;
@@ -179,6 +180,9 @@ fn main() -> ExitCode {
 
         // The wheel's door: rotate this card at the turn's end.
         Some(Commands::Session(cmd)) => session::dispatch(cmd, json),
+
+        // A sketch's record: keep a version, or read one back by id.
+        Some(Commands::Sketch(cmd)) => sketch::dispatch(cmd, json),
 
         // The plugin's hooks, answered from the binary.
         Some(Commands::Hook(cmd)) => {

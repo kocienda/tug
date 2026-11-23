@@ -57,15 +57,21 @@ pub struct Transcript {
 /// Markers whose text block is Tug's own machinery rather than the user's
 /// words, and is dropped from a rendered user turn.
 ///
-/// Both are blocks the deck writes and the deck's own synthesizer swallows
+/// Each is a block the deck writes and the deck's own synthesizer swallows
 /// on replay; a reader of the raw JSONL has to know them, which is why they
-/// are named here and in `tugplug/session-references.md`.
+/// are named here, in `tugplug/session-references.md` and in
+/// `tugplug/arc-references.md`.
 ///
 /// The `tug:landings` block ([`LANDINGS_MARKER`]) is deliberately absent:
 /// it records what the user landed between turns, which a session read by
 /// reference should show where it happened, so `show` renders it as
 /// `[landing]` lines rather than dropping it.
-const SWALLOWED_MARKERS: &[&str] = &["<!-- tug:session-refs -->", "<!-- tug:compact-seed -->"];
+const SWALLOWED_MARKERS: &[&str] = &[
+    "<!-- tug:session-refs -->",
+    "<!-- tug:arc-refs -->",
+    "<!-- tug:sketch-refs -->",
+    "<!-- tug:compact-seed -->",
+];
 
 /// Opens the `tug:landings` block tugcast appends to a user message when the
 /// line holds landings its model has not been told. The deck strips the
@@ -548,6 +554,8 @@ mod tests {
             user_blocks(serde_json::json!([
                 { "type": "text", "text": "what I actually asked" },
                 { "type": "text", "text": "<!-- tug:session-refs -->\nSession references in this message:\n- @session:tug/curly-apple" },
+                { "type": "text", "text": "<!-- tug:arc-refs -->\nArc references in this message:\n- @arc:tug/gpu-wedge — verdict: absent" },
+                { "type": "text", "text": "<!-- tug:sketch-refs -->\nSketch references in this message:\n- @sketch:3f9a1c2e — verdict: absent" },
             ])),
             serde_json::json!({
                 "type": "assistant",

@@ -2631,9 +2631,10 @@ impl AgentSupervisor {
 
         let dir_owned = dir.to_path_buf();
         let arc = request.arc.clone();
-        let result =
-            tokio::task::spawn_blocking(move || tugarc_core::delete_documents_in(&dir_owned, &arc))
-                .await;
+        let result = tokio::task::spawn_blocking(move || {
+            tugarc_core::delete_documents_in(&Paths::from_env(), &dir_owned, &arc)
+        })
+        .await;
 
         match result {
             Ok(Ok(outcome)) => {

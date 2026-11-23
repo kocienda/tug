@@ -65,6 +65,9 @@ import {
 } from "@/lib/tug-atom-img";
 import { atomRegisterVars } from "@/lib/atom-register";
 import { COMMIT_ATOM_TYPE, hasLeadingCommandAtom } from "@/lib/command-atom";
+import { TugArcAtom } from "@/components/tugways/tug-arc-atom";
+import { arcAtomName, isArcAtomType } from "@/lib/record-atom-shape";
+import { atomIdentityAttrs } from "@/lib/atom-identity-attrs";
 import { parseSlashCommandLine } from "@/lib/annotator/command-grammar";
 import { stampAnnotation } from "@/lib/annotator/annotation-element";
 import { payloadForAtom } from "@/lib/annotator/payloads";
@@ -358,6 +361,11 @@ export const AtomMarkdownBody = React.forwardRef<
               sha={atom.value}
               interactive={payloadForAtom(atom, atomPathRoots) !== null}
             />
+          ) : isArcAtomType(atom.type) ? (
+            // An arc atom portals the arc's own pill, for the commit arm's
+            // reason: the mark a reader saw in the composer is the mark they
+            // still see once the prompt is sent.
+            <TugArcAtom name={arcAtomName(atom.value)} {...atomIdentityAttrs(atom)} />
           ) : (
             <TugAtomChip
               className="tug-atom-chip"
@@ -365,6 +373,7 @@ export const AtomMarkdownBody = React.forwardRef<
               label={decorateChipLabel(atom, address)}
               value={atom.value}
               {...(atom.id !== undefined ? { id: atom.id } : {})}
+              {...(atom.sketch !== undefined ? { sketch: atom.sketch } : {})}
             />
           ),
           host,

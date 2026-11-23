@@ -7,6 +7,10 @@ import {
   MAX_PAYLOAD_SIZE,
   controlFrame,
   decodeFrame,
+  decodeResolveArcsOk,
+  decodeResolveSketchesOk,
+  decodeSearchArcsOk,
+  decodeSearchSketchesOk,
   encodeCloseSession,
   encodeCodeInput,
   encodeFrame,
@@ -749,5 +753,150 @@ describe("encodeOverviewInput", () => {
     );
     expect(payload.attachments).toHaveLength(1);
     expect(payload.refs).toHaveLength(1);
+  });
+});
+
+describe("arc and sketch record CONTROL decoders", () => {
+  test("decodeResolveArcsOk reads a discarded row and each row's start", () => {
+    const decoded = decodeResolveArcsOk({
+      action: "resolve_arcs_ok",
+      project_dir: "/p",
+      found: [
+        { name: "open", fate: "live", created: "2026-10-01T00:00:00Z" },
+        { name: "thrown", fate: "discarded", created: "2026-10-02T00:00:00Z" },
+        { name: "landed", fate: "joined", join_sha: "abc1234567" },
+        { name: "odd", fate: "abandoned" },
+      ],
+      missing: ["gone"],
+    });
+    expect(decoded).toEqual({
+      projectDir: "/p",
+      found: [
+        { name: "open", fate: "live", created: "2026-10-01T00:00:00Z" },
+        { name: "thrown", fate: "discarded", created: "2026-10-02T00:00:00Z" },
+        { name: "landed", fate: "joined", joinSha: "abc1234567" },
+      ],
+      missing: ["gone"],
+    });
+  });
+
+  test("decodeSearchArcsOk reads the rows and drops one it cannot name", () => {
+    const decoded = decodeSearchArcsOk({
+      action: "search_arcs_ok",
+      request_id: "q1",
+      project_dir: "/p",
+      arcs: [
+        {
+          name: "parser",
+          created: "2026-10-03T00:00:00Z",
+          fate: "joined",
+          join_sha: "abc1234567",
+          title: "Faster parsing",
+          sketch_id: "0a1b2c3d",
+        },
+        { name: "open", created: "2026-10-02T00:00:00Z", fate: "live" },
+        { name: "no-start", fate: "live" },
+        { name: "joined-no-sha", created: "2026-10-01T00:00:00Z", fate: "joined" },
+        { name: "bad-sketch", created: "2026-10-01T00:00:00Z", fate: "live", sketch_id: "nope" },
+      ],
+    });
+    expect(decoded).toEqual({
+      requestId: "q1",
+      projectDir: "/p",
+      arcs: [
+        {
+          name: "parser",
+          created: "2026-10-03T00:00:00Z",
+          fate: "joined",
+          joinSha: "abc1234567",
+          title: "Faster parsing",
+          sketchId: "0a1b2c3d",
+        },
+        { name: "open", created: "2026-10-02T00:00:00Z", fate: "live", title: null, sketchId: null },
+        { name: "bad-sketch", created: "2026-10-01T00:00:00Z", fate: "live", title: null, sketchId: null },
+      ],
+    });
+  });
+
+  test("decodeSearchArcsOk refuses a malformed frame", () => {
+    expect(decodeSearchArcsOk({ action: "search_sessions_ok", project_dir: "/p" })).toBeNull();
+    expect(decodeSearchArcsOk({ action: "search_arcs_ok", arcs: [] })).toBeNull();
+    expect(decodeSearchArcsOk("search_arcs_ok")).toBeNull();
+  });
+
+  test("decodeResolveSketchesOk reads where each id lives", () => {
+    const decoded = decodeResolveSketchesOk({
+      action: "resolve_sketches_ok",
+      project_dir: "/here",
+      found: [
+        {
+          id: "0a1b2c3d",
+          project_dir: "/elsewhere",
+          arc: { name: "drawn", created: "2026-10-01T00:00:00Z" },
+          versions: [{ n: 1, at: "2026-10-01T00:00:01Z" }, { n: "2", at: "x" }],
+        },
+        { id: "0a1b2c3e", project_dir: "/here" },
+        { id: "TOOLONG99", project_dir: "/here" },
+        { id: "0a1b2c3f" },
+      ],
+      missing: ["00ff00ff"],
+    });
+    expect(decoded).toEqual({
+      projectDir: "/here",
+      found: [
+        {
+          id: "0a1b2c3d",
+          projectDir: "/elsewhere",
+          arc: { name: "drawn", created: "2026-10-01T00:00:00Z" },
+          versions: [{ n: 1, at: "2026-10-01T00:00:01Z" }],
+        },
+        { id: "0a1b2c3e", projectDir: "/here", arc: null, versions: [] },
+      ],
+      missing: ["00ff00ff"],
+    });
+  });
+
+  test("decodeResolveSketchesOk refuses a malformed frame", () => {
+    expect(decodeResolveSketchesOk({ action: "resolve_arcs_ok", project_dir: "/p" })).toBeNull();
+    expect(decodeResolveSketchesOk({ action: "resolve_sketches_ok", found: [] })).toBeNull();
+    expect(decodeResolveSketchesOk(null)).toBeNull();
+  });
+
+  test("decodeSearchSketchesOk reads the rows and drops one it cannot open", () => {
+    const decoded = decodeSearchSketchesOk({
+      action: "search_sketches_ok",
+      request_id: "q2",
+      project_dir: "/p",
+      sketches: [
+        {
+          id: "0a1b2c3d",
+          arc: { name: "drawn" },
+          want: "Want the atoms.",
+          updated: "2026-10-01T00:00:01Z",
+        },
+        { id: "0a1b2c3e", updated: "2026-09-01T00:00:00Z" },
+        { id: "0a1b2c3f" },
+        { id: "bad", updated: "2026-09-01T00:00:00Z" },
+      ],
+    });
+    expect(decoded).toEqual({
+      requestId: "q2",
+      projectDir: "/p",
+      sketches: [
+        {
+          id: "0a1b2c3d",
+          arc: { name: "drawn", created: null },
+          want: "Want the atoms.",
+          updated: "2026-10-01T00:00:01Z",
+        },
+        { id: "0a1b2c3e", arc: null, want: null, updated: "2026-09-01T00:00:00Z" },
+      ],
+    });
+  });
+
+  test("decodeSearchSketchesOk refuses a malformed frame", () => {
+    expect(decodeSearchSketchesOk({ action: "search_arcs_ok", project_dir: "/p" })).toBeNull();
+    expect(decodeSearchSketchesOk({ action: "search_sketches_ok" })).toBeNull();
+    expect(decodeSearchSketchesOk(42)).toBeNull();
   });
 });

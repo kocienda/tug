@@ -799,9 +799,9 @@ function useArcRowVerbs(
  * Discard — the documents' delete ([B07]).
  *
  * Discard arms the card's one {@link TugConfirmPopover} rather than acting: the
- * delete destroys a brief permanently, and `.tug/` is excluded from git, so
- * there is nothing to undo it with. A branchless arc offers no Bind: Start is
- * what seats it on a card.
+ * delete removes the working documents, and `.tug/` is excluded from git, so
+ * the archive the engine copies them into first is the only way back to them.
+ * A branchless arc offers no Bind: Start is what seats it on a card.
  */
 function PlanVerbRow({ row }: { row: DocumentArcRow }): React.ReactElement {
   const verbs = React.useContext(ArcVerbsContext);

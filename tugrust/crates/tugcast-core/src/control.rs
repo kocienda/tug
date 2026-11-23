@@ -72,6 +72,11 @@ control_actions! {
     UnbindArc => "unbind_arc",
     ResolveArcs => "resolve_arcs",
 
+    // Supervisor: arc and sketch records.
+    SearchArcs => "search_arcs",
+    ResolveSketches => "resolve_sketches",
+    SearchSketches => "search_sketches",
+
     // Supervisor: changesets, landings and joins.
     ChangesetGitInit => "changeset_git_init",
     ChangesetCommit => "changeset_commit",

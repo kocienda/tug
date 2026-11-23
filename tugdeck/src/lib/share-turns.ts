@@ -298,6 +298,12 @@ function mapMessageStrings(m: Message, f: (s: string) => string): Message {
           ...(atom.session !== undefined
             ? { session: mapStrings(atom.session, f) as typeof atom.session }
             : {}),
+          ...(atom.arc !== undefined
+            ? { arc: mapStrings(atom.arc, f) as typeof atom.arc }
+            : {}),
+          ...(atom.sketch !== undefined
+            ? { sketch: mapStrings(atom.sketch, f) as typeof atom.sketch }
+            : {}),
         })),
       };
     case "assistant_text":

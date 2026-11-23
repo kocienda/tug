@@ -24,6 +24,8 @@
  *    surface already draws — so what the eye read and what the clipboard
  *    carries are one string. [D174] and `tuglaws/entity-presentation.md`.
  *  - **session** → its identity line. See the caveat below.
+ *  - **arc** → `arc:<name>`, the spelling the prose scanner reads; **sketch** →
+ *    `sketch:<id>`, its own label.
  *  - **command** → `/name`, the leading slash it is drawn with, so the text
  *    pasted back is the text that was submitted.
  *  - **file** and **directory** → `[name](<path>)`. The path is real
@@ -60,6 +62,7 @@
 import { chipDisplayLabel, COMMIT_ATOM_TYPE } from "./command-atom";
 import { commitAtomLabel } from "./commit-format";
 import { isSessionAtomType } from "./session-atom-shape";
+import { arcAtomName, isArcAtomType, isSketchAtomType } from "./record-atom-shape";
 
 /** The atom fields the spelling is decided from — `AtomSegment`'s own three. */
 export interface AtomPlainTextInput {
@@ -83,6 +86,9 @@ export function atomPlainText(atom: AtomPlainTextInput): string {
   // The identity line, which is all the segment holds. The citation belongs to
   // `atomPlainTextFor`, above the substrate, where the session id is.
   if (isSessionAtomType(type)) return value;
+  // An arc is the prose scanner's own `arc:<name>`; a sketch is `sketch:<id>`.
+  if (isArcAtomType(type)) return `arc:${arcAtomName(value)}`;
+  if (isSketchAtomType(type)) return `sketch:${value}`;
   // The leading `/` the chip is drawn with — `chipDisplayLabel`'s one special
   // case, folded in here as an arm rather than standing beside the table.
   if (type === "command") return chipDisplayLabel(type, label, value);

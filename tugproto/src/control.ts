@@ -39,6 +39,11 @@ export const CONTROL_ACTIONS = [
   "unbind_arc",
   "resolve_arcs",
 
+  // Supervisor: arc and sketch records.
+  "search_arcs",
+  "resolve_sketches",
+  "search_sketches",
+
   // Supervisor: changesets, landings and joins.
   "changeset_git_init",
   "changeset_commit",

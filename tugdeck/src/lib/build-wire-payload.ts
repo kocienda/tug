@@ -48,10 +48,12 @@
  *  - `image` (no id; defensive) → substituted text only.
  *  - `link` → substituted text (the URL).
  *  - `session` → a TYPED mention marker,
- *    `` `@session:<project>/<callsign>` ``. The one kind whose type rides
- *    the wire, because a session's value is spelled like a relative path
- *    and nothing in it tells a replay what it is. See
+ *    `` `@session:<project>/<callsign>` ``. A session's value is spelled like
+ *    a relative path and nothing in it tells a replay what it is. See
  *    {@link wrapSessionMention}.
+ *  - `arc` → `` `@arc:<project>/<name>` `` and `sketch` → `` `@sketch:<id>` ``,
+ *    typed for the same reason. See {@link wrapArcMention} and
+ *    {@link wrapSketchMention}.
  *  - `command` → a clean `/<name>` string (not the mention marker), so
  *    claude expands it as a user-invoked slash command. See
  *    {@link commandWireText}.
@@ -65,6 +67,11 @@
  * A message with no session atom gets no block and is byte-identical to what
  * it was before this existed. See `session-ref-block.ts`, and
  * `synthesize-user-message.ts` for the strip on the way back in.
+ *
+ * An arc atom earns a `tug:arc-refs` block and a sketch atom a
+ * `tug:sketch-refs` block, after the session block and in that order, on the
+ * same terms: written only when the message carries one. See
+ * `arc-ref-block.ts` and `sketch-ref-block.ts`.
  *
  * ## Returned `atomIdAt` resolver
  *
@@ -117,7 +124,13 @@ import type { ContentBlock } from "@/protocol";
 import type { AtomSegment } from "./tug-atom-img";
 import { TUG_ATOM_CHAR } from "./tug-atom-char";
 import type { AtomBytesStore } from "./atom-bytes-store";
-import { wrapAtomMention, wrapSessionMention } from "./atom-mention-marker";
+import {
+  wrapArcMention,
+  wrapAtomMention,
+  wrapSessionMention,
+  wrapSketchMention,
+} from "./atom-mention-marker";
+import { isArcAtomType, isSketchAtomType } from "./record-atom-shape";
 import { commandWireText } from "./command-atom";
 import { isSessionAtomType } from "./session-atom-shape";
 import {
@@ -125,6 +138,17 @@ import {
   type SessionRefEntry,
   type SessionRefVerdict,
 } from "./session-ref-block";
+import {
+  buildArcRefBlock,
+  type ArcRefEntry,
+  type ArcRefFate,
+  type ArcRefVerdict,
+} from "./arc-ref-block";
+import {
+  buildSketchRefBlock,
+  type SketchRefEntry,
+  type SketchRefVerdict,
+} from "./sketch-ref-block";
 
 // ---------------------------------------------------------------------------
 // Public type
@@ -162,6 +186,25 @@ export interface WirePayloadOptions {
     sessionId?: string;
     projectDir?: string;
   };
+  /**
+   * What the client knows about one arc atom. Omitted, every arc reference
+   * is `unverified`. `projectDir` and `created` fill only what the atom's own
+   * identity lacks.
+   */
+  arcVerdict?: (atom: AtomSegment) => {
+    verdict: ArcRefVerdict;
+    projectDir?: string;
+    created?: string;
+    fate?: ArcRefFate;
+    joinSha?: string;
+  };
+  /** What the client knows about one sketch atom; omitted, `unverified`. */
+  sketchVerdict?: (atom: AtomSegment) => {
+    verdict: SketchRefVerdict;
+    projectDir?: string;
+    arc?: string;
+    versions?: number;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -197,6 +240,10 @@ export function buildWirePayload(
   // rows. Keyed by `value`, which is the spelling the marker carries, so two
   // chips naming one session earn one line rather than two.
   const sessionAtoms = new Map<string, AtomSegment>();
+  // Distinct arc and sketch atoms, collected the same way, for their own
+  // reference blocks.
+  const arcAtoms = new Map<string, AtomSegment>();
+  const sketchAtoms = new Map<string, AtomSegment>();
 
   function flushText(): void {
     if (textBuf.length > 0) {
@@ -272,6 +319,19 @@ export function buildWirePayload(
       if (!sessionAtoms.has(atom.value)) sessionAtoms.set(atom.value, atom);
       continue;
     }
+    // An arc's `<project>/<name>` is spelled like a path and a sketch's id
+    // like a short sha, so both name their type on the wire for the same
+    // reason a session does.
+    if (isArcAtomType(atom.type)) {
+      textBuf += wrapArcMention(atom.value);
+      if (!arcAtoms.has(atom.value)) arcAtoms.set(atom.value, atom);
+      continue;
+    }
+    if (isSketchAtomType(atom.type)) {
+      textBuf += wrapSketchMention(atom.value);
+      if (!sketchAtoms.has(atom.value)) sketchAtoms.set(atom.value, atom);
+      continue;
+    }
     // Non-image, bytes-less, or otherwise not promoted to an image
     // block — substitute the atom's value into the current text run
     // wrapped as a backtick-`@` mention marker so the atom's position
@@ -303,6 +363,42 @@ export function buildWirePayload(
   }
   const refBlock = buildSessionRefBlock(refEntries);
   if (refBlock !== null) content.push({ type: "text", text: refBlock });
+
+  // The arc block, then the sketch block, each only when there is a
+  // reference of its kind, so a message with neither is byte-identical.
+  const arcEntries: ArcRefEntry[] = [];
+  for (const atom of arcAtoms.values()) {
+    const answer = options?.arcVerdict?.(atom);
+    const created = atom.arc?.created ?? answer?.created;
+    arcEntries.push({
+      value: atom.value,
+      verdict: answer?.verdict ?? "unverified",
+      ...((atom.arc?.projectDir ?? answer?.projectDir) !== undefined
+        ? { projectDir: atom.arc?.projectDir ?? answer?.projectDir }
+        : {}),
+      ...(created !== undefined ? { created } : {}),
+      ...(atom.arc?.created !== undefined ? { pinned: true } : {}),
+      ...(answer?.fate !== undefined ? { fate: answer.fate } : {}),
+      ...(answer?.joinSha !== undefined ? { joinSha: answer.joinSha } : {}),
+    });
+  }
+  const arcBlock = buildArcRefBlock(arcEntries);
+  if (arcBlock !== null) content.push({ type: "text", text: arcBlock });
+
+  const sketchEntries: SketchRefEntry[] = [];
+  for (const atom of sketchAtoms.values()) {
+    const answer = options?.sketchVerdict?.(atom);
+    const projectDir = answer?.projectDir ?? atom.sketch?.projectDir;
+    sketchEntries.push({
+      value: atom.value,
+      verdict: answer?.verdict ?? "unverified",
+      ...(projectDir !== undefined ? { projectDir } : {}),
+      ...(answer?.arc !== undefined ? { arc: answer.arc } : {}),
+      ...(answer?.versions !== undefined ? { versions: answer.versions } : {}),
+    });
+  }
+  const sketchBlock = buildSketchRefBlock(sketchEntries);
+  if (sketchBlock !== null) content.push({ type: "text", text: sketchBlock });
 
   return {
     content,

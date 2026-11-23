@@ -188,7 +188,8 @@ export interface ClaudeSpawnConfig {
  * then the three rules about what the Session card does with the model's
  * output — how its prose is rendered, what a tool call's exit status tells the
  * reader, and the shape a question must have to arrive — then what a session
- * reference in a prompt means and how to read the session it names, and what
+ * reference in a prompt means and how to read the session it names, what an
+ * arc or sketch reference means and how to read the record it names, and what
  * a landings block reports, then the working rules that hold on every project,
  * then the charts the card draws: when to chart, the fence and its forms,
  * and the verbs that emit one; then the diagrams it draws, their fence, forms
@@ -202,6 +203,7 @@ export const PLUGIN_PROMPT_FILES: readonly string[] = [
   "tool-calls.md",
   "ask-user-question.md",
   "session-references.md",
+  "arc-references.md",
   "landings.md",
   "working-rules.md",
   "graphics.md",

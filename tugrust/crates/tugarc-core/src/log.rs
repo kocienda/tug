@@ -609,6 +609,141 @@ pub fn arc_has_ended(paths: &Paths, repo_root: &Path, arc: &str) -> bool {
     ended
 }
 
+/// When this arc name's newest generation began: the timestamp of its first
+/// line.
+///
+/// The walk is [`arc_has_ended`]'s, with the same [`is_terminal`] spellings. A
+/// name's first line opens its first generation whatever its marker (older
+/// logs begin with `created` or a round), a terminal line ends it, and only an
+/// `arc-start` after a terminal line opens the next. A late note or a second
+/// teardown after a terminal line belongs to the generation that ended, so the
+/// start stays that generation's.
+///
+/// Answers for the newest generation whether it is open or ended — an ended
+/// one is exactly what the archive keys ([`crate::archive`]). `None` when the
+/// log never names `arc`.
+pub fn generation_started_at(log_text: &str, arc: &str) -> Option<String> {
+    let mut start: Option<&str> = None;
+    let mut ended = false;
+    for line in log_text.lines() {
+        let Some((timestamp, name, marker, note)) = split_log_line(line) else {
+            continue;
+        };
+        if name != arc {
+            continue;
+        }
+        if start.is_none() {
+            start = Some(timestamp);
+        }
+        if is_terminal(marker, note) {
+            ended = true;
+        } else if marker == "arc-start" && ended {
+            start = Some(timestamp);
+            ended = false;
+        }
+    }
+    start.map(str::to_owned)
+}
+
+/// The sketch id of this arc name's newest generation: the note of that
+/// generation's last `arc-sketch` line.
+///
+/// The walk is [`generation_started_at`]'s. A line after the generation's
+/// terminal line still belongs to it, and only an `arc-start` after a terminal
+/// line opens the next generation, which starts with no id. Never read this
+/// through [`read_declarations`]: that fold resets at every terminal line, so
+/// after a discard or an undone join it would hold no id at all.
+pub fn generation_sketch_id(log_text: &str, arc: &str) -> Option<String> {
+    let mut id: Option<&str> = None;
+    let mut ended = false;
+    for line in log_text.lines() {
+        let Some((_, name, marker, note)) = split_log_line(line) else {
+            continue;
+        };
+        if name != arc {
+            continue;
+        }
+        if is_terminal(marker, note) {
+            ended = true;
+        } else if marker == "arc-start" && ended {
+            id = None;
+            ended = false;
+        } else if marker == "arc-sketch" && !note.is_empty() {
+            id = Some(note);
+        }
+    }
+    id.map(str::to_owned)
+}
+
+/// [`generation_started_at`] over this checkout's arc log. A missing or
+/// unreadable log is `None`, as a name the log never mentions is.
+pub fn generation_start(paths: &Paths, repo_root: &Path, arc: &str) -> Option<String> {
+    let path = tugtool_core::paths::arc_log_path_at(paths, repo_root);
+    let text = fs::read_to_string(&path).ok()?;
+    generation_started_at(&text, arc)
+}
+
+/// How one generation of an arc name ended, as the log records it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GenerationEnd {
+    /// No terminal line yet: the generation is still open.
+    Open,
+    /// It ended in a join; `sha` is the join line's marker.
+    Joined { sha: String },
+    /// It ended in a discard (or, in the historical spelling, a release).
+    Discarded,
+}
+
+/// One generation of an arc name: when it started, when and how it ended.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ArcGeneration {
+    pub started_at: String,
+    /// The terminal line's timestamp; `None` while the generation is open.
+    pub ended_at: Option<String>,
+    pub end: GenerationEnd,
+}
+
+/// Every generation of `arc` the log records, oldest first.
+///
+/// The walk is [`generation_started_at`]'s: a name's first line opens its
+/// first generation, a terminal line ([`is_terminal`]) ends it, a second
+/// teardown belongs to the generation that ended, and only an `arc-start`
+/// after a terminal line opens the next.
+pub fn arc_generations(log_text: &str, arc: &str) -> Vec<ArcGeneration> {
+    let mut found: Vec<ArcGeneration> = Vec::new();
+    for line in log_text.lines() {
+        let Some((timestamp, name, marker, note)) = split_log_line(line) else {
+            continue;
+        };
+        if name != arc {
+            continue;
+        }
+        let ended = found.last().is_some_and(|g| g.end != GenerationEnd::Open);
+        if found.is_empty() || (ended && marker == "arc-start") {
+            found.push(ArcGeneration {
+                started_at: timestamp.to_owned(),
+                ended_at: None,
+                end: GenerationEnd::Open,
+            });
+            if !is_terminal(marker, note) {
+                continue;
+            }
+        }
+        let current = found.last_mut().expect("a generation was opened above");
+        if current.end == GenerationEnd::Open && is_terminal(marker, note) {
+            current.ended_at = Some(timestamp.to_owned());
+            current.end = if marker == "discarded" || marker == "released" {
+                GenerationEnd::Discarded
+            } else {
+                GenerationEnd::Joined {
+                    sha: marker.to_owned(),
+                }
+            };
+        }
+    }
+    found
+}
+
 /// What became of an arc name's newest generation, as the log records it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ArcFate {
@@ -1226,6 +1361,96 @@ mod tests {
             "a second teardown belongs to the generation that ended"
         );
         assert_eq!(fates.len(), 6);
+    }
+
+    #[test]
+    fn generation_started_at_answers_for_the_newest_generation() {
+        let log = "\
+2026-11-01T00:00:00Z  open  arc-start  arc/open-brief.md
+2026-11-01T00:01:00Z  open  abc1234  Step 1: something
+2026-11-01T00:02:00Z  open  arc-start  a resume re-start, not a new generation
+2026-11-02T00:00:00Z  reused  arc-start  arc/reused-brief.md
+2026-11-02T00:05:00Z  reused  302d43b5d1  joined
+2026-11-03T00:00:00Z  reused  arc-start  arc/reused-brief.md
+2026-11-04T00:00:00Z  legacy  created  worktree made
+2026-11-04T00:05:00Z  legacy  77aa88bb  joined
+2026-11-05T00:00:00Z  late  arc-start  arc/late-brief.md
+2026-11-05T00:05:00Z  late  discarded
+2026-11-05T00:06:00Z  late  arc-note  a late word after the discard
+";
+        assert_eq!(
+            generation_started_at(log, "open").as_deref(),
+            Some("2026-11-01T00:00:00Z"),
+            "an arc-start inside an open generation does not restart it"
+        );
+        assert_eq!(
+            generation_started_at(log, "reused").as_deref(),
+            Some("2026-11-03T00:00:00Z"),
+            "an arc-start after a join opens the newest generation"
+        );
+        assert_eq!(
+            generation_started_at(log, "legacy").as_deref(),
+            Some("2026-11-04T00:00:00Z"),
+            "a first line other than arc-start still opens a generation"
+        );
+        assert_eq!(
+            generation_started_at(log, "late").as_deref(),
+            Some("2026-11-05T00:00:00Z"),
+            "a late note belongs to the generation that ended"
+        );
+        assert_eq!(generation_started_at(log, "absent"), None);
+        assert_eq!(generation_started_at("", "open"), None);
+    }
+
+    #[test]
+    fn generation_sketch_id_keeps_the_id_past_a_terminal_line_and_drops_it_at_a_new_start() {
+        let log = "\
+2026-11-02T00:00:00Z  s  arc-start  brief.md
+2026-11-02T00:01:00Z  s  arc-sketch  3f9a1c2e
+2026-11-02T00:05:00Z  s  discarded
+2026-11-02T00:06:00Z  s  arc-note  a late word
+";
+        assert_eq!(generation_sketch_id(log, "s").as_deref(), Some("3f9a1c2e"));
+        let reused = format!("{log}2026-11-03T00:00:00Z  s  arc-start  brief.md\n");
+        assert_eq!(generation_sketch_id(&reused, "s"), None);
+        assert_eq!(generation_sketch_id(log, "other"), None);
+    }
+
+    #[test]
+    fn arc_generations_records_each_start_end_and_fate() {
+        let log = "\
+2026-11-02T00:00:00Z  reused  arc-start  arc/reused-brief.md
+2026-11-02T00:05:00Z  reused  302d43b5d1  joined
+2026-11-02T00:06:00Z  reused  302d43b5d1  joined via card
+2026-11-03T00:00:00Z  reused  arc-start  arc/reused-brief.md
+2026-11-03T00:05:00Z  reused  discarded
+2026-11-04T00:00:00Z  reused  arc-start  arc/reused-brief.md
+2026-11-04T00:01:00Z  reused  arc-note  still going
+";
+        let gens = arc_generations(log, "reused");
+        assert_eq!(
+            gens,
+            vec![
+                ArcGeneration {
+                    started_at: "2026-11-02T00:00:00Z".into(),
+                    ended_at: Some("2026-11-02T00:05:00Z".into()),
+                    end: GenerationEnd::Joined {
+                        sha: "302d43b5d1".into()
+                    },
+                },
+                ArcGeneration {
+                    started_at: "2026-11-03T00:00:00Z".into(),
+                    ended_at: Some("2026-11-03T00:05:00Z".into()),
+                    end: GenerationEnd::Discarded,
+                },
+                ArcGeneration {
+                    started_at: "2026-11-04T00:00:00Z".into(),
+                    ended_at: None,
+                    end: GenerationEnd::Open,
+                },
+            ]
+        );
+        assert!(arc_generations(log, "absent").is_empty());
     }
 
     #[test]

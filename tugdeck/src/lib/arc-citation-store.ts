@@ -41,9 +41,18 @@ import { encodeResolveArcs, type ResolveArcsOk } from "@/protocol";
 export type CitedArcAnswer =
   /** Asked, no answer yet — or nobody has asked. */
   | { status: "pending" }
-  /** The log holds it. `joinSha` is set exactly when the arc was joined. */
-  | { status: "found"; fate: "live" | "joined"; joinSha?: string }
-  /** The log never held it, or its newest generation was discarded. */
+  /**
+   * The arc can be read back. `joinSha` is set exactly when the arc was
+   * joined; a `discarded` arc is one whose archive or kept documents remain.
+   * `created` is its newest generation's start, when the server knows it.
+   */
+  | {
+      status: "found";
+      fate: "live" | "joined" | "discarded";
+      joinSha?: string;
+      created?: string;
+    }
+  /** Nothing on this machine can read it back. */
   | { status: "missing" };
 
 const PENDING: CitedArcAnswer = Object.freeze({ status: "pending" });
@@ -134,11 +143,16 @@ export class ArcCitationStore {
     const changed: VerdictKey[] = [];
     for (const arc of response.found) {
       const key = keyFor(root, arc.name);
+      const created = arc.created !== undefined ? { created: arc.created } : {};
       this.answers.set(
         key,
         arc.fate === "joined" && arc.joinSha !== undefined
-          ? { status: "found", fate: "joined", joinSha: arc.joinSha }
-          : { status: "found", fate: "live" },
+          ? { status: "found", fate: "joined", joinSha: arc.joinSha, ...created }
+          : {
+              status: "found",
+              fate: arc.fate === "discarded" ? "discarded" : "live",
+              ...created,
+            },
       );
       changed.push(key);
     }

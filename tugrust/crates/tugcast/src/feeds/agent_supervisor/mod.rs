@@ -2299,6 +2299,9 @@ impl AgentSupervisor {
             A::BindArc | A::ArcResume | A::ArcRun | A::ArcStop | A::UnbindArc | A::ResolveArcs => {
                 self.handle_arc_control(action, payload).await
             }
+            A::SearchArcs | A::ResolveSketches | A::SearchSketches => {
+                self.handle_records_control(action, payload).await
+            }
             A::ChangesetGitInit
             | A::ChangesetCommit
             | A::ChangesetPush

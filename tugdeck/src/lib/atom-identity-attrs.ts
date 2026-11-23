@@ -44,6 +44,28 @@ export interface AtomSessionRef {
   projectDir: string;
 }
 
+/**
+ * The checkout an arc atom's arc lives in, and the generation it names.
+ *
+ * The `<project>/<name>` the chip reads is a name only that checkout's arc log
+ * can answer, so the directory travels with the atom as a session's does.
+ * `created` is the generation's start in the arc log's ISO form; without it
+ * the atom names the arc's newest generation.
+ */
+export interface AtomArcRef {
+  projectDir: string;
+  created?: string;
+}
+
+/**
+ * The checkout a sketch atom's sketch belongs to. The id alone finds the
+ * sketch anywhere on the machine; the directory is what lets a reader tell
+ * this project's sketch from another's.
+ */
+export interface AtomSketchRef {
+  projectDir: string;
+}
+
 /** The identity an atom publishes — the shape `AtomSegment` already carries. */
 export interface AtomIdentity {
   type: string;
@@ -53,6 +75,10 @@ export interface AtomIdentity {
   id?: string;
   /** The session a session atom names, where the mint knew both halves. */
   session?: AtomSessionRef;
+  /** The checkout and generation an arc atom names. */
+  arc?: AtomArcRef;
+  /** The checkout a sketch atom's sketch belongs to. */
+  sketch?: AtomSketchRef;
 }
 
 /**
@@ -70,6 +96,9 @@ export interface AtomIdentityAttrs {
   "data-atom-id"?: string;
   "data-atom-session-id"?: string;
   "data-atom-session-project-dir"?: string;
+  "data-atom-arc-project-dir"?: string;
+  "data-atom-arc-created"?: string;
+  "data-atom-sketch-project-dir"?: string;
 }
 
 /**
@@ -100,6 +129,16 @@ export function atomIdentityAttrs(atom: AtomIdentity): AtomIdentityAttrs {
   ) {
     attrs["data-atom-session-id"] = atom.session.id;
     attrs["data-atom-session-project-dir"] = atom.session.projectDir;
+  }
+  // An arc's or a sketch's directory, absent rather than empty, as above.
+  if (atom.arc !== undefined && atom.arc.projectDir !== "") {
+    attrs["data-atom-arc-project-dir"] = atom.arc.projectDir;
+    if (atom.arc.created !== undefined && atom.arc.created !== "") {
+      attrs["data-atom-arc-created"] = atom.arc.created;
+    }
+  }
+  if (atom.sketch !== undefined && atom.sketch.projectDir !== "") {
+    attrs["data-atom-sketch-project-dir"] = atom.sketch.projectDir;
   }
   return attrs;
 }

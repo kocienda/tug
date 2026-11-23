@@ -790,15 +790,69 @@ export function encodeResolveSessions(ids: readonly string[]): Frame {
  *
  * An arc's existence is recorded only in the project's arc log, which the deck
  * cannot read, so an `arc:` reference asks here. The response broadcasts
- * `resolve_arcs_ok { project_dir, found: [{ name, fate, join_sha? }],
- * missing: string[] }`, every asked name in exactly one of the two lists; a
- * discarded arc is `missing`, because nothing of it is left to open.
+ * `resolve_arcs_ok { project_dir, found: [{ name, fate, created?, join_sha? }],
+ * missing: string[] }`, every asked name in exactly one of the two lists. A
+ * discarded arc is found as `discarded` while an archive entry or its kept
+ * documents can still be read back, and is `missing` once nothing of it is.
  */
 export function encodeResolveArcs(
   projectDir: string,
   names: readonly string[],
 ): Frame {
   return controlFrame("resolve_arcs", { project_dir: projectDir, names });
+}
+
+/**
+ * Build a `search_arcs` CONTROL request frame — "which arcs of this project
+ * does this fragment name?", the read behind the composer's `@` arc search.
+ *
+ * The server matches the fragment against each arc's name and its brief's
+ * title, newest generation first, at most 20; an empty `query` is the newest
+ * 20. `search_arcs_ok` echoes `requestId`, so a caller keeps only the answer
+ * to the ask it is still waiting on.
+ */
+export function encodeSearchArcs(opts: {
+  query: string;
+  projectDir: string;
+  requestId: string;
+}): Frame {
+  return controlFrame("search_arcs", {
+    query: opts.query,
+    project_dir: opts.projectDir,
+    request_id: opts.requestId,
+  });
+}
+
+/**
+ * Build a `resolve_sketches` CONTROL request frame — "which of these sketch
+ * ids does this machine hold, and where?" An id is looked for under every
+ * checkout, so a sketch cited from another project still resolves. The
+ * response is `resolve_sketches_ok { project_dir, found, missing }`, every
+ * asked id in exactly one of the two lists.
+ */
+export function encodeResolveSketches(
+  projectDir: string,
+  ids: readonly string[],
+): Frame {
+  return controlFrame("resolve_sketches", { project_dir: projectDir, ids });
+}
+
+/**
+ * Build a `search_sketches` CONTROL request frame — "which of this
+ * checkout's sketches does this fragment name?", matched against the id, the
+ * arc's name and the sketch's want, the most recently written first, at most
+ * 20. `search_sketches_ok` echoes `requestId`.
+ */
+export function encodeSearchSketches(opts: {
+  query: string;
+  projectDir: string;
+  requestId: string;
+}): Frame {
+  return controlFrame("search_sketches", {
+    query: opts.query,
+    project_dir: opts.projectDir,
+    request_id: opts.requestId,
+  });
 }
 
 /**
@@ -1670,20 +1724,28 @@ export interface SearchSessionsOk {
   sessions: readonly SearchedSession[];
 }
 
-/** One arc a `resolve_arcs_ok` found in the project's log. */
+/**
+ * What became of an arc: `live` while it is open, `joined` once its work
+ * landed, `discarded` when it ended without landing but its documents can
+ * still be read back.
+ */
+export type ArcFate = "live" | "joined" | "discarded";
+
+/** One arc a `resolve_arcs_ok` found. */
 export interface ResolvedArc {
   name: string;
-  /** `live` while the arc is open; `joined` once its work landed. */
-  fate: "live" | "joined";
+  fate: ArcFate;
   /** The join's squash commit, present exactly when `fate` is `joined`. */
   joinSha?: string;
+  /** The newest generation's start, in the arc log's ISO form. */
+  created?: string;
 }
 
 /** The decoded `resolve_arcs_ok` CONTROL response. */
 export interface ResolveArcsOk {
   projectDir: string;
   found: readonly ResolvedArc[];
-  /** The asked names the log does not hold, or holds only as discarded. */
+  /** The asked names nothing on this machine can read back. */
   missing: readonly string[];
 }
 
@@ -1706,14 +1768,23 @@ export function decodeResolveArcsOk(payload: unknown): ResolveArcsOk | null {
       if (typeof entry !== "object" || entry === null) continue;
       const e = entry as Record<string, unknown>;
       if (typeof e.name !== "string" || e.name.length === 0) continue;
-      if (e.fate === "live") {
-        found.push({ name: e.name, fate: "live" });
+      const created =
+        typeof e.created === "string" && e.created.length > 0
+          ? { created: e.created }
+          : {};
+      if (e.fate === "live" || e.fate === "discarded") {
+        found.push({ name: e.name, fate: e.fate, ...created });
       } else if (
         e.fate === "joined" &&
         typeof e.join_sha === "string" &&
         e.join_sha.length > 0
       ) {
-        found.push({ name: e.name, fate: "joined", joinSha: e.join_sha });
+        found.push({
+          name: e.name,
+          fate: "joined",
+          joinSha: e.join_sha,
+          ...created,
+        });
       }
     }
   }
@@ -1723,6 +1794,211 @@ export function decodeResolveArcsOk(payload: unknown): ResolveArcsOk | null {
       )
     : [];
   return { projectDir: obj.project_dir, found, missing };
+}
+
+/** One arc generation a `search_arcs` request found. */
+export interface SearchedArc {
+  name: string;
+  /** The generation's start, in the arc log's ISO form. */
+  created: string;
+  fate: ArcFate;
+  /** The join's squash commit, present exactly when `fate` is `joined`. */
+  joinSha?: string;
+  /** The brief's first heading, when the generation has a brief. */
+  title: string | null;
+  sketchId: string | null;
+}
+
+/** The decoded `search_arcs_ok` CONTROL response. */
+export interface SearchArcsOk {
+  /** The asker's own mark, echoed; `null` when the request carried none. */
+  requestId: string | null;
+  projectDir: string;
+  /** Newest generation first. */
+  arcs: readonly SearchedArc[];
+}
+
+/** The arc a sketch was recorded for: its name and its generation's start. */
+export interface SketchArcLink {
+  name: string;
+  created: string | null;
+}
+
+/** One kept version of a sketch. */
+export interface SketchVersionInfo {
+  n: number;
+  at: string;
+}
+
+/** One sketch a `resolve_sketches_ok` found. */
+export interface ResolvedSketch {
+  id: string;
+  /** The checkout the sketch belongs to, which need not be the asker's. */
+  projectDir: string;
+  arc: SketchArcLink | null;
+  versions: readonly SketchVersionInfo[];
+}
+
+/** The decoded `resolve_sketches_ok` CONTROL response. */
+export interface ResolveSketchesOk {
+  projectDir: string;
+  found: readonly ResolvedSketch[];
+  /** The asked ids no checkout on this machine holds. */
+  missing: readonly string[];
+}
+
+/** One sketch a `search_sketches` request found. */
+export interface SearchedSketch {
+  id: string;
+  arc: SketchArcLink | null;
+  /** The first paragraph of the sketch's body, when it has one. */
+  want: string | null;
+  /** When its newest version was written. */
+  updated: string;
+}
+
+/** The decoded `search_sketches_ok` CONTROL response. */
+export interface SearchSketchesOk {
+  requestId: string | null;
+  projectDir: string;
+  /** The most recently written first. */
+  sketches: readonly SearchedSketch[];
+}
+
+/** A sketch id is eight lowercase hex characters. */
+function isSketchId(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{8}$/.test(value);
+}
+
+function decodeSketchArc(value: unknown): SketchArcLink | null {
+  if (typeof value !== "object" || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (typeof v.name !== "string" || v.name.length === 0) return null;
+  return {
+    name: v.name,
+    created: typeof v.created === "string" && v.created.length > 0 ? v.created : null,
+  };
+}
+
+/**
+ * Type guard + decoder for `search_arcs_ok`. A frame with no project is
+ * refused; a row missing its name, its start or a known fate is dropped, and
+ * so is a joined row with no sha, on `decodeResolveArcsOk`'s terms.
+ */
+export function decodeSearchArcsOk(payload: unknown): SearchArcsOk | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const obj = payload as Record<string, unknown>;
+  if (obj.action !== "search_arcs_ok") return null;
+  if (typeof obj.project_dir !== "string" || obj.project_dir.length === 0) {
+    return null;
+  }
+  const arcs: SearchedArc[] = [];
+  if (Array.isArray(obj.arcs)) {
+    for (const entry of obj.arcs) {
+      if (typeof entry !== "object" || entry === null) continue;
+      const e = entry as Record<string, unknown>;
+      if (typeof e.name !== "string" || e.name.length === 0) continue;
+      if (typeof e.created !== "string" || e.created.length === 0) continue;
+      if (e.fate !== "live" && e.fate !== "joined" && e.fate !== "discarded") {
+        continue;
+      }
+      const joinSha =
+        typeof e.join_sha === "string" && e.join_sha.length > 0 ? e.join_sha : null;
+      if (e.fate === "joined" && joinSha === null) continue;
+      arcs.push({
+        name: e.name,
+        created: e.created,
+        fate: e.fate,
+        ...(e.fate === "joined" && joinSha !== null ? { joinSha } : {}),
+        title: typeof e.title === "string" && e.title.length > 0 ? e.title : null,
+        sketchId: isSketchId(e.sketch_id) ? e.sketch_id : null,
+      });
+    }
+  }
+  return {
+    requestId: typeof obj.request_id === "string" ? obj.request_id : null,
+    projectDir: obj.project_dir,
+    arcs,
+  };
+}
+
+/**
+ * Type guard + decoder for `resolve_sketches_ok`. A frame with no project is
+ * refused; a found row with a malformed id or no project is dropped, since
+ * neither can be opened.
+ */
+export function decodeResolveSketchesOk(
+  payload: unknown,
+): ResolveSketchesOk | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const obj = payload as Record<string, unknown>;
+  if (obj.action !== "resolve_sketches_ok") return null;
+  if (typeof obj.project_dir !== "string" || obj.project_dir.length === 0) {
+    return null;
+  }
+  const found: ResolvedSketch[] = [];
+  if (Array.isArray(obj.found)) {
+    for (const entry of obj.found) {
+      if (typeof entry !== "object" || entry === null) continue;
+      const e = entry as Record<string, unknown>;
+      if (!isSketchId(e.id)) continue;
+      if (typeof e.project_dir !== "string" || e.project_dir.length === 0) continue;
+      const versions: SketchVersionInfo[] = [];
+      if (Array.isArray(e.versions)) {
+        for (const v of e.versions) {
+          if (typeof v !== "object" || v === null) continue;
+          const r = v as Record<string, unknown>;
+          if (typeof r.n !== "number" || typeof r.at !== "string") continue;
+          versions.push({ n: r.n, at: r.at });
+        }
+      }
+      found.push({
+        id: e.id,
+        projectDir: e.project_dir,
+        arc: decodeSketchArc(e.arc),
+        versions,
+      });
+    }
+  }
+  const missing = Array.isArray(obj.missing)
+    ? obj.missing.filter(
+        (id): id is string => typeof id === "string" && id.length > 0,
+      )
+    : [];
+  return { projectDir: obj.project_dir, found, missing };
+}
+
+/**
+ * Type guard + decoder for `search_sketches_ok`. A frame with no project is
+ * refused; a row with a malformed id or no `updated` is dropped.
+ */
+export function decodeSearchSketchesOk(payload: unknown): SearchSketchesOk | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const obj = payload as Record<string, unknown>;
+  if (obj.action !== "search_sketches_ok") return null;
+  if (typeof obj.project_dir !== "string" || obj.project_dir.length === 0) {
+    return null;
+  }
+  const sketches: SearchedSketch[] = [];
+  if (Array.isArray(obj.sketches)) {
+    for (const entry of obj.sketches) {
+      if (typeof entry !== "object" || entry === null) continue;
+      const e = entry as Record<string, unknown>;
+      if (!isSketchId(e.id)) continue;
+      if (typeof e.updated !== "string" || e.updated.length === 0) continue;
+      sketches.push({
+        id: e.id,
+        arc: decodeSketchArc(e.arc),
+        want: typeof e.want === "string" && e.want.length > 0 ? e.want : null,
+        updated: e.updated,
+      });
+    }
+  }
+  return {
+    requestId: typeof obj.request_id === "string" ? obj.request_id : null,
+    projectDir: obj.project_dir,
+    sketches,
+  };
 }
 
 /**

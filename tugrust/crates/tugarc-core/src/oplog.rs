@@ -170,6 +170,12 @@ pub struct OpAfter {
     /// to that session's display name — resolve-base only.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub folded_from: BTreeMap<String, String>,
+    /// The archive entry the arc's documents were kept as, `<name>/<stamp>` —
+    /// join only. What an undo restores `.tug/arcs/<name>/` from; `None` for
+    /// a join of an arc with no documents, and for every join recorded before
+    /// documents were archived.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived: Option<String>,
 }
 
 /// How far a join's teardown has got.
@@ -937,7 +943,7 @@ pub fn undo_in(paths: &Paths, repo: &Path, arc: Option<&str>) -> Result<UndoOutc
     let undo_seq = record_begin(paths, repo, OpVerb::Undo, &name, undo_before, &tips)?;
 
     let outcome = match op.verb {
-        OpVerb::Join => undo_join(repo, &op, &after, &mut warnings),
+        OpVerb::Join => undo_join(paths, repo, &op, &after, &mut warnings),
         OpVerb::Replay => undo_replay(repo, &op, &after),
         OpVerb::Discard => undo_discard(repo, &op, &mut warnings),
         OpVerb::ResolveBase => undo_resolve_base(repo, &op, &after),
@@ -1143,7 +1149,7 @@ pub fn redo_in(paths: &Paths, repo: &Path, arc: Option<&str>) -> Result<RedoOutc
     let redo_seq = record_begin(paths, repo, OpVerb::Redo, &name, redo_before, &tips)?;
 
     let outcome = match original.verb {
-        OpVerb::Join => redo_join(repo, &original, &original_after, &mut warnings),
+        OpVerb::Join => redo_join(paths, repo, &original, &original_after, &mut warnings),
         // Re-committing is the fold's own act, and the fold is the one that
         // knows which paths it took. Redo therefore replays the base tip
         // rather than re-deriving the commit — the object is still there, and
@@ -1255,7 +1261,12 @@ fn redo_resolve_base(
 
 /// Re-land the join: move the base back to what it landed, then tear the arc
 /// down again.
+///
+/// The teardown re-performed here never touched the documents, but an undo
+/// restores them, so a redo archives `.tug/arcs/<name>/` again under the
+/// join's own rule — removed only once the archive holds it.
 fn redo_join(
+    paths: &Paths,
     repo: &Path,
     op: &OpPayload,
     after: &OpAfter,
@@ -1303,6 +1314,16 @@ fn redo_join(
     }
 
     teardown_arc(repo, op, warnings);
+    if crate::ops::documents_dir(repo, &op.arc).is_dir() {
+        crate::archive::archive_joined_then_remove(
+            paths,
+            repo,
+            &op.arc,
+            after.landed_commit.as_deref().unwrap_or(landed),
+            base_branch,
+            warnings,
+        );
+    }
     Ok((None, Some(landed.to_string())))
 }
 
@@ -1402,7 +1423,13 @@ fn teardown_arc(repo: &Path, op: &OpPayload, warnings: &mut Vec<String>) {
 }
 
 /// Put the base branch back, then rebuild the arc the join tore down.
+///
+/// The documents come back too, from the archive entry the join recorded —
+/// but never over a `.tug/arcs/<name>/` that already stands, and never at the
+/// cost of the undo: the git restore is the irreplaceable half, so a document
+/// that cannot be put back is a warning.
 fn undo_join(
+    paths: &Paths,
     repo: &Path,
     op: &OpPayload,
     after: &OpAfter,
@@ -1444,6 +1471,14 @@ fn undo_join(
     }
 
     restore_arc(repo, op, warnings)?;
+    match after.archived.as_deref() {
+        Some(key) => {
+            if let Err(e) = crate::archive::restore_documents(paths, repo, key) {
+                warnings.push(e.to_string());
+            }
+        }
+        None => warnings.push("no documents were archived for this join".to_string()),
+    }
     Ok((
         Some(op.before.arc_tip.clone()),
         Some(op.before.base_tip.clone()),
@@ -1607,6 +1642,16 @@ fn restore_arc(repo: &Path, op: &OpPayload, warnings: &mut Vec<String>) -> Resul
 mod tests {
     use super::*;
     use tugcore::test_fixtures::git::{GitFixture, git};
+
+    #[test]
+    fn an_op_written_before_documents_were_archived_still_parses() {
+        let after: OpAfter =
+            serde_json::from_str(r#"{"base_tip":"abc","landed_commit":"def"}"#).unwrap();
+        assert_eq!(after.archived, None);
+        assert_eq!(after.landed_commit.as_deref(), Some("def"));
+        let written = serde_json::to_string(&after).unwrap();
+        assert!(!written.contains("archived"), "{written}");
+    }
 
     struct Fixture {
         repo: tempfile::TempDir,

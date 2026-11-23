@@ -958,7 +958,7 @@ async fn changeset_delete_documents_removes_only_the_documents() {
         done["summary"]
             .as_str()
             .expect("a summary")
-            .contains("git will not give them back"),
+            .contains("Kept in the arc archive"),
         "{done}"
     );
 

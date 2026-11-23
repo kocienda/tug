@@ -39,11 +39,13 @@
  *
  * ## The typed marker
  *
- * One kind carries its type on the wire: a session, as
- * `` `@session:<project>/<callsign>` ``. Every other kind is recovered on
+ * Three kinds carry their type on the wire: a session, as
+ * `` `@session:<project>/<callsign>` ``, an arc, as `` `@arc:<project>/<name>` ``,
+ * and a sketch, as `` `@sketch:<id>` ``. Every other kind is recovered on
  * replay from the shape of its own value — a trailing `/` is a directory, a
- * run of sha-shaped hex is a commit — and a session has no such shape:
- * `<project>/<callsign>` is spelled exactly like a relative file path. The
+ * run of sha-shaped hex is a commit — and these three have no such shape:
+ * `<project>/<callsign>` and `<project>/<name>` are spelled exactly like a
+ * relative file path, and a sketch id is spelled like a short sha. The
  * discriminator used to be the tag store, which made replay depend on what
  * THIS client happened to have seen, so the same JSONL read back on a
  * different instance gave a file chip where the user had put a session. The
@@ -54,7 +56,7 @@
  *
  * ```text
  * marker  := "`@" [ type ":" ] value "`"
- * type    := "session"
+ * type    := "session" | "arc" | "sketch"
  * value   := one-or-more non-backtick characters
  * ```
  *
@@ -107,8 +109,19 @@ export function wrapAtomMention(value: string): string {
   return "`" + MENTION_PREFIX + value + "`";
 }
 
-/** The one atom type the marker names on the wire. */
+/** The atom types the marker names on the wire. */
 const SESSION_MARKER_TYPE = "session";
+const ARC_MARKER_TYPE = "arc";
+const SKETCH_MARKER_TYPE = "sketch";
+
+/** A type the marker can name, in the order the parser tries them. */
+export type MarkerAtomType = "session" | "arc" | "sketch";
+
+const MARKER_TYPES: readonly MarkerAtomType[] = [
+  SESSION_MARKER_TYPE,
+  ARC_MARKER_TYPE,
+  SKETCH_MARKER_TYPE,
+];
 
 /** The `type:` separator inside a marker. */
 const MARKER_TYPE_SEP = ":";
@@ -124,8 +137,28 @@ const MARKER_TYPE_SEP = ":";
  * fallback is defensive rather than expected.
  */
 export function wrapSessionMention(value: string): string {
+  return wrapTypedMention(SESSION_MARKER_TYPE, value);
+}
+
+/**
+ * Wrap an arc atom's `value` as `` `@arc:<project>/<name>` ``, with the same
+ * backtick fallback.
+ */
+export function wrapArcMention(value: string): string {
+  return wrapTypedMention(ARC_MARKER_TYPE, value);
+}
+
+/**
+ * Wrap a sketch atom's `value` as `` `@sketch:<id>` ``, with the same
+ * backtick fallback.
+ */
+export function wrapSketchMention(value: string): string {
+  return wrapTypedMention(SKETCH_MARKER_TYPE, value);
+}
+
+function wrapTypedMention(type: MarkerAtomType, value: string): string {
   if (value.includes("`")) return value;
-  return "`" + MENTION_PREFIX + SESSION_MARKER_TYPE + MARKER_TYPE_SEP + value + "`";
+  return "`" + MENTION_PREFIX + type + MARKER_TYPE_SEP + value + "`";
 }
 
 // ---------------------------------------------------------------------------
@@ -144,13 +177,13 @@ export type AtomMentionSegment =
       kind: "mention";
       value: string;
       /**
-       * The type the marker named, where it named one. Present only for
-       * `` `@session:…` ``; `value` has the prefix stripped, so a reader that
+       * The type the marker named, where it named one: `` `@session:…` ``,
+       * `` `@arc:…` `` or `` `@sketch:…` ``. `value` has the prefix stripped, so a reader that
        * ignores this field still sees the same value an untyped marker
        * carries. Absent means the wire said nothing, and the synthesizer
        * recovers the type from the value's own shape as it always has.
        */
-      atomType?: "session";
+      atomType?: MarkerAtomType;
     };
 
 /**
@@ -189,13 +222,13 @@ export function parseAtomMentionSegments(text: string): AtomMentionSegment[] {
       segments.push({ kind: "text", text: text.slice(lastEnd, match.index) });
     }
     const inner = match[1];
-    const typed = inner.startsWith(SESSION_MARKER_TYPE + MARKER_TYPE_SEP);
+    const typed = MARKER_TYPES.find((t) => inner.startsWith(t + MARKER_TYPE_SEP));
     segments.push(
-      typed
+      typed !== undefined
         ? {
             kind: "mention",
-            value: inner.slice(SESSION_MARKER_TYPE.length + MARKER_TYPE_SEP.length),
-            atomType: SESSION_MARKER_TYPE,
+            value: inner.slice(typed.length + MARKER_TYPE_SEP.length),
+            atomType: typed,
           }
         : { kind: "mention", value: inner },
     );

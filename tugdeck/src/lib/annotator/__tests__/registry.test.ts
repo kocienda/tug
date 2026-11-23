@@ -160,17 +160,18 @@ describe("a help ref is a kind like any other", () => {
 });
 
 describe("an arc is reached through its join, or through the Arcs rail", () => {
-  test("a joined arc opens its join commit, then copies and inserts", () => {
+  test("a joined arc opens its join commit, then copies and inserts as an atom", () => {
     const entries = bareEntries("arc");
     expect(entries.map((e) => e.label)).toEqual([
       "Open Join Commit",
+      "Copy as Atom",
       "Copy Arc Name",
-      "Insert into Prompt",
+      "Insert Atom into Prompt",
     ]);
     expect(entries[0]?.action).toBe(TUG_ACTIONS.OPEN_COMMIT);
     expect(entries[0]?.value).toEqual({ root: "/repo", sha: "302d43b5d1" });
     expect(entries[1]?.separatorBefore).toBe(true);
-    expect(entries[2]?.separatorBefore).toBe(true);
+    expect(entries[3]?.separatorBefore).toBe(true);
   });
 
   test("a live arc shows itself in the Arcs rail instead", () => {
@@ -181,8 +182,9 @@ describe("an arc is reached through its join, or through the Arcs rail", () => {
       ) ?? [];
     expect(entries.map((e) => e.label)).toEqual([
       "Show in Arcs",
+      "Copy as Atom",
       "Copy Arc Name",
-      "Insert into Prompt",
+      "Insert Atom into Prompt",
     ]);
     expect(entries[0]?.action).toBe(TUG_ACTIONS.REVEAL_ARCS);
   });

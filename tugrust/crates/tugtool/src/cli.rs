@@ -329,6 +329,11 @@ pub enum Commands {
     #[command(subcommand)]
     Session(SessionCommands),
 
+    /// A sketch's record: keep an arc's `sketch.md` as a version, or read one
+    /// back by its id.
+    #[command(subcommand)]
+    Sketch(SketchCommands),
+
     /// The plugin's Claude Code hooks — payload in on stdin, decision out.
     #[command(subcommand)]
     Hook(crate::commands::HookCommands),
@@ -657,6 +662,33 @@ impl UnitCommands {
             UnitCommands::Finish { label, text } => UnitCall::Finish { label, text },
         }
     }
+}
+
+#[derive(Subcommand)]
+pub enum SketchCommands {
+    /// Keep `.tug/arcs/<arc>/sketch.md` as the newest version of the arc's
+    /// sketch, minting the sketch's id the first time.
+    ///
+    /// Run it right after writing the sketch. Text byte-identical to the
+    /// latest version is not kept twice.
+    Record {
+        /// Arc name.
+        arc: String,
+    },
+    /// Print a sketch's text, verbatim, by its id.
+    ///
+    /// Read-only. Scans every checkout's sketches on this machine, so it
+    /// needs no repository. Exits 3 when the id is not on this machine.
+    Show {
+        /// The sketch's id: eight hex characters.
+        id: String,
+        /// The version to print (default: the latest).
+        #[arg(long)]
+        version: Option<u32>,
+        /// List the versions instead of printing one.
+        #[arg(long)]
+        versions: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1225,9 +1257,11 @@ pub enum ArcCommands {
     /// `arc discard` refuses, because it is about an arc's git state and those
     /// names have none.
     ///
-    /// **The delete is permanent.** `.tug/` is excluded from git, so the brief
-    /// is in no commit and no reflog: nothing gives it back. An arc that still
-    /// has a branch or a worktree is refused by name.
+    /// **The documents are archived before they are deleted.** `.tug/` is
+    /// excluded from git, so the archive beside the arc log keeps the only
+    /// copy, and `tugtool arc show <name> --document <kind>` reads it back. An
+    /// archive that fails deletes nothing. An arc that still has a branch or a
+    /// worktree is refused by name.
     DeleteDocuments {
         /// Arc name.
         name: String,
@@ -1270,10 +1304,26 @@ pub enum ArcCommands {
     Config,
     /// List every active arc, derived from git.
     List,
-    /// Show one arc's metadata, rounds, and worktree dirt.
+    /// Show one arc, live or ended.
+    ///
+    /// A live arc reports its metadata, rounds and worktree dirt from git.
+    /// An arc with no live branch answers from its record: a joined or
+    /// discarded arc from the arc archive, paperwork from `.tug/arcs/<name>/`,
+    /// and a join from before documents were archived from the arc log alone.
+    /// A bare name answers for its newest generation; `--created` names an
+    /// older one. Read-only.
     Show {
         /// Arc name.
         name: String,
+        /// The generation to read, by its start (ISO time or compact stamp).
+        #[arg(long)]
+        created: Option<String>,
+        /// Print this document's bytes and nothing else.
+        #[arg(long, value_parser = ["brief", "plan", "tasks", "sketch"])]
+        document: Option<String>,
+        /// Resolve the repository from this directory instead of the cwd.
+        #[arg(long)]
+        project: Option<std::path::PathBuf>,
     },
     /// Report one arc's lifecycle: stage, rounds, worktree dirt, draft,
     /// interrupted landing, and the sessions working on it.

@@ -646,3 +646,91 @@ describe("buildWirePayload — the trailing reference block", () => {
     expect(lastText(content)).toContain(`uuid ${ID}, project ${DIR}, verdict: here`);
   });
 });
+
+describe("buildWirePayload — arc and sketch atoms and their reference blocks", () => {
+  const ARC: AtomSegment = {
+    kind: "atom",
+    type: "arc",
+    label: "parser",
+    value: "tug/parser",
+    arc: { projectDir: "/u/src/tug", created: "2026-11-22T14:59:33.128Z" },
+  };
+  const SKETCH: AtomSegment = {
+    kind: "atom",
+    type: "sketch",
+    label: "sketch:0a1b2c3d",
+    value: "0a1b2c3d",
+    sketch: { projectDir: "/u/src/tug" },
+  };
+  const SESSION: AtomSegment = {
+    kind: "atom",
+    type: "session",
+    label: "tug/odd-kiln",
+    value: "tug/odd-kiln",
+  };
+
+  test("both reach the text as typed markers, each followed by its block", () => {
+    const store = createAtomBytesStore();
+    const { content } = buildWirePayload(`${C} from ${C}`, [ARC, SKETCH], store);
+    expect(content).toHaveLength(3);
+    expect(content[0]).toEqual({
+      type: "text",
+      text: "`@arc:tug/parser` from `@sketch:0a1b2c3d`",
+    });
+    const texts = content.map((b) => (b.type === "text" ? b.text : ""));
+    expect(texts[1]).toStartWith("<!-- tug:arc-refs -->\n");
+    expect(texts[2]).toStartWith("<!-- tug:sketch-refs -->\n");
+  });
+
+  test("with no verdict functions every reference is unverified", () => {
+    const store = createAtomBytesStore();
+    const { content } = buildWirePayload(`${C} ${C}`, [ARC, SKETCH], store);
+    const texts = content.map((b) => (b.type === "text" ? b.text : ""));
+    expect(texts[1]).toContain(
+      "- @arc:tug/parser — verdict: unverified — check: tugtool arc show parser --created 2026-11-22T14:59:33.128Z --project /u/src/tug",
+    );
+    expect(texts[2]).toContain(
+      "- @sketch:0a1b2c3d — verdict: unverified — check: tugtool sketch show 0a1b2c3d",
+    );
+  });
+
+  test("the blocks come in session, arc, sketch order, and duplicates earn one line", () => {
+    const store = createAtomBytesStore();
+    const { content } = buildWirePayload(
+      `${C} ${C} ${C} ${C} ${C}`,
+      [SKETCH, ARC, SESSION, ARC, SKETCH],
+      store,
+      {
+        arcVerdict: () => ({ verdict: "here", fate: "joined", joinSha: "a340619012345" }),
+        sketchVerdict: () => ({
+          verdict: "elsewhere",
+          projectDir: "/u/src/eucit",
+          arc: "fold-rail",
+          versions: 2,
+        }),
+      },
+    );
+    const texts = content.map((b) => (b.type === "text" ? b.text : ""));
+    expect(texts).toHaveLength(4);
+    expect(texts[1]).toStartWith("<!-- tug:session-refs -->");
+    expect(texts[2]).toBe(
+      "<!-- tug:arc-refs -->\n"
+      + "Arc references in this message (read one with the command shown; do not guess at what a reference means):\n"
+      + "- @arc:tug/parser — project /u/src/tug, created 2026-11-22T14:59:33.128Z, fate: joined a34061901, verdict: here — read: tugtool arc show parser --created 2026-11-22T14:59:33.128Z",
+    );
+    expect(texts[3]).toBe(
+      "<!-- tug:sketch-refs -->\n"
+      + "Sketch references in this message (read one with the command shown; do not guess at what a reference means):\n"
+      + "- @sketch:0a1b2c3d — project /u/src/eucit, arc fold-rail, versions 2, verdict: elsewhere — read: tugtool sketch show 0a1b2c3d",
+    );
+  });
+
+  test("a message with no arc or sketch atom gets neither block", () => {
+    const store = createAtomBytesStore();
+    const { content } = buildWirePayload(`see ${C}`, [fileAtom("src/a.ts")], store, {
+      arcVerdict: () => ({ verdict: "here" }),
+      sketchVerdict: () => ({ verdict: "here" }),
+    });
+    expect(content).toEqual([{ type: "text", text: "see `@src/a.ts`" }]);
+  });
+});

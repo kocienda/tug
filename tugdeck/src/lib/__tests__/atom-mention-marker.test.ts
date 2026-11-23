@@ -22,8 +22,10 @@ import { describe, expect, test } from "bun:test";
 
 import {
   parseAtomMentionSegments,
+  wrapArcMention,
   wrapAtomMention,
   wrapSessionMention,
+  wrapSketchMention,
   type AtomMentionSegment,
 } from "../atom-mention-marker";
 
@@ -268,3 +270,32 @@ describe("the typed `@session:` marker", () => {
   });
 });
 
+
+describe("the typed `@arc:` and `@sketch:` markers", () => {
+  test("wrap with their own prefix", () => {
+    expect(wrapArcMention("tug/parser")).toBe("`@arc:tug/parser`");
+    expect(wrapSketchMention("0a1b2c3d")).toBe("`@sketch:0a1b2c3d`");
+  });
+
+  test("parse back to their type with the prefix stripped", () => {
+    expect(
+      parseAtomMentionSegments("see `@arc:tug/parser` and `@sketch:0a1b2c3d`"),
+    ).toEqual<AtomMentionSegment[]>([
+      { kind: "text", text: "see " },
+      { kind: "mention", value: "tug/parser", atomType: "arc" },
+      { kind: "text", text: " and " },
+      { kind: "mention", value: "0a1b2c3d", atomType: "sketch" },
+    ]);
+  });
+
+  test("an unknown prefix stays part of the value", () => {
+    expect(parseAtomMentionSegments("`@brief:x`")).toEqual<AtomMentionSegment[]>([
+      { kind: "mention", value: "brief:x" },
+    ]);
+  });
+
+  test("a backtick in the value falls back to the bare value", () => {
+    expect(wrapArcMention("tug/a`b")).toBe("tug/a`b");
+    expect(wrapSketchMention("a`b")).toBe("a`b");
+  });
+});

@@ -449,3 +449,15 @@ describe("classifyInlineCode — a path is actionable only once confirmed", () =
     expect(asked).toBe(false);
   });
 });
+
+describe("payloadForAtom — an arc atom", () => {
+  test("names its arc in the checkout it recorded", () => {
+    expect(
+      payloadForAtom({ type: "arc", value: "tug/parser", arc: { projectDir: "/u/src/tug" } }),
+    ).toEqual({ kind: "arc", name: "parser", root: "/u/src/tug" });
+  });
+
+  test("an arc atom with no recorded checkout has no gesture", () => {
+    expect(payloadForAtom({ type: "arc", value: "tug/parser" })).toBeNull();
+  });
+});

@@ -51,6 +51,11 @@ import { buildWirePayload } from "./build-wire-payload";
 import { sessionCitationStore } from "./session-citation-store";
 import { sessionVerdictAskKey } from "./session-atom";
 import type { SessionRefVerdict } from "./session-ref-block";
+import type { ArcRefFate, ArcRefVerdict } from "./arc-ref-block";
+import type { SketchRefVerdict } from "./sketch-ref-block";
+import { arcCitationStore } from "./arc-citation-store";
+import { sketchCitationStore } from "./sketch-citation-store";
+import { arcAtomName } from "./record-atom-shape";
 import { putImageBytes, synthesizeUserMessageFromBlocks } from "./synthesize-user-message";
 import {
   createInitialState,
@@ -263,6 +268,66 @@ function sessionAtomVerdict(atom: AtomSegment): {
   return { verdict: answer.status === "unknown" ? "absent" : "unverified" };
 }
 
+/** Two directory spellings name one directory, trailing slashes aside. */
+function sameDir(a: string, b: string): boolean {
+  return a.replace(/\/+$/, "") === b.replace(/\/+$/, "");
+}
+
+/**
+ * What the client knows about one arc atom, for the arc reference block.
+ *
+ * The server answers existence under the atom's own checkout; whether that
+ * checkout is this composer's project is a comparison the client makes, so
+ * `here` and `elsewhere` are decided here.
+ */
+function arcAtomVerdict(
+  atom: AtomSegment,
+  composerDir: string | undefined,
+): {
+  verdict: ArcRefVerdict;
+  created?: string;
+  fate?: ArcRefFate;
+  joinSha?: string;
+} {
+  if (atom.arc === undefined) return { verdict: "unverified" };
+  const answer = arcCitationStore.getAnswer(atom.arc.projectDir, arcAtomName(atom.value));
+  if (answer.status === "missing") return { verdict: "absent" };
+  if (answer.status === "pending") return { verdict: "unverified" };
+  return {
+    verdict:
+      composerDir !== undefined && sameDir(atom.arc.projectDir, composerDir)
+        ? "here"
+        : "elsewhere",
+    fate: answer.fate,
+    ...(answer.created !== undefined ? { created: answer.created } : {}),
+    ...(answer.joinSha !== undefined ? { joinSha: answer.joinSha } : {}),
+  };
+}
+
+/** What the client knows about one sketch atom, for the sketch reference block. */
+function sketchAtomVerdict(
+  atom: AtomSegment,
+  composerDir: string | undefined,
+): {
+  verdict: SketchRefVerdict;
+  projectDir?: string;
+  arc?: string;
+  versions?: number;
+} {
+  const answer = sketchCitationStore.getAnswer(atom.value);
+  if (answer.status === "missing") return { verdict: "absent" };
+  if (answer.status === "pending") return { verdict: "unverified" };
+  return {
+    verdict:
+      composerDir !== undefined && sameDir(answer.projectDir, composerDir)
+        ? "here"
+        : "elsewhere",
+    projectDir: answer.projectDir,
+    ...(answer.arc !== undefined ? { arc: answer.arc.name } : {}),
+    versions: answer.versions.length,
+  };
+}
+
 export interface CodeSessionStoreOptions {
   conn: TugConnection;
   /**
@@ -308,6 +373,12 @@ export interface CodeSessionStoreOptions {
    * (`lib/harness-sessions.ts`). Its CONTROL frames still go.
    */
   offWire?: boolean;
+  /**
+   * The card's project directory — what an arc or sketch reference is
+   * compared against to say `here` or `elsewhere`. Absent, every found one
+   * is `elsewhere`.
+   */
+  projectDir?: string;
   /**
    * The per-card queue of shell / `/btw` interactions staged to ride the next
    * code-route submission as attributed `<tug-context>` context. Consulted at
@@ -359,6 +430,7 @@ export class CodeSessionStore extends Subscribable {
 
   private readonly conn: TugConnection;
   private readonly offWire: boolean;
+  private readonly projectDir: string | undefined;
   private readonly lifecycle: ConnectionLifecycle;
   readonly tugSessionId: string;
   private readonly displayLabel: string;
@@ -515,6 +587,7 @@ export class CodeSessionStore extends Subscribable {
     super();
     this.conn = options.conn;
     this.offWire = options.offWire === true;
+    this.projectDir = options.projectDir;
     this.lifecycle = options.lifecycle;
     this.tugSessionId = options.tugSessionId;
     this.displayLabel = options.displayLabel ?? options.tugSessionId.slice(0, 8);
@@ -976,6 +1049,8 @@ export class CodeSessionStore extends Subscribable {
     // content blocks and never touches the bytes-store.
     const wire = buildWirePayload(effText, atoms, this.atomBytesStore, {
       sessionVerdict: sessionAtomVerdict,
+      arcVerdict: (atom) => arcAtomVerdict(atom, this.projectDir),
+      sketchVerdict: (atom) => sketchAtomVerdict(atom, this.projectDir),
     });
     // A leading command atom is sent as a clean `/name` for claude to
     // expand (no `@`-mention marker), so `wire.content` can't round-trip the
@@ -1582,6 +1657,8 @@ export class CodeSessionStore extends Subscribable {
   private sendWhen(text: string, condition: SendCondition): void {
     const wire = buildWirePayload(text, [], this.atomBytesStore, {
       sessionVerdict: sessionAtomVerdict,
+      arcVerdict: (atom) => arcAtomVerdict(atom, this.projectDir),
+      sketchVerdict: (atom) => sketchAtomVerdict(atom, this.projectDir),
     });
     const synth = synthesizeUserMessageFromBlocks(wire.content, this.atomBytesStore, {
       atomIdAt: wire.atomIdAt,

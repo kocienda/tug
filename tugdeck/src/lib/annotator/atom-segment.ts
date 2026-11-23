@@ -19,6 +19,8 @@
 import type { AnnotationPayload } from "./payloads";
 import { formatAtomLabel, type AtomSegment } from "@/lib/tug-atom-img";
 import { COMMIT_ATOM_TYPE } from "@/lib/command-atom";
+import { arcAtomSegment } from "@/lib/arc-atom";
+import { projectLeafOf } from "@/lib/record-atom-shape";
 import { atomPlainText } from "@/lib/atom-plain-text";
 import { commitAtomLabel } from "@/lib/commit-format";
 import {
@@ -110,8 +112,16 @@ export function atomSegmentFor(payload: AnnotationPayload): AtomSegment | null {
       value: payload.sha,
     };
   }
-  // An arc has no atom type: it inserts as its text, `arc:<name>`, which is
-  // the spelling the prose scan reads back.
+  if (payload.kind === "arc") {
+    // The value carries the checkout's leaf and the segment its directory,
+    // which is what makes the round trip through `payloadForAtom` the
+    // identity function on `{ name, root }`.
+    return arcAtomSegment({
+      projectLeaf: projectLeafOf(payload.root),
+      projectDir: payload.root,
+      name: payload.name,
+    });
+  }
   return null;
 }
 

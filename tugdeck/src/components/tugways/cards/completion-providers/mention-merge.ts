@@ -1,5 +1,6 @@
 /**
- * mention-merge.ts — one `@` provider over files, sessions and commits.
+ * mention-merge.ts — one `@` provider over files, sessions, arcs, sketches
+ * and commits.
  *
  * `mergeCommandProviders` beside it merges synchronous command lists into one
  * ranked list. This is the other shape: three sources of different kinds,
@@ -9,11 +10,12 @@
  * - **Files keep their place.** Whatever the file provider answers comes
  *   first, whole and in its own order, so `@` followed by a path behaves
  *   exactly as it did when files were all `@` offered.
- * - **Sessions, then commits, follow as short groups** of at most
- *   {@link MENTION_GROUP_CAP} rows each. With nothing typed these are the
- *   most recent sessions and the newest commits, which is how a bare `@`
- *   shows that the two kinds are there to be had.
- * - **`session:` and `commit:` narrow to one kind, uncapped.** The fragment
+ * - **Sessions, arcs, sketches, then commits, follow as short groups** of at
+ *   most {@link MENTION_GROUP_CAP} rows each. With nothing typed these are
+ *   the most recent of each, which is how a bare `@` shows that the kinds
+ *   are there to be had.
+ * - **`session:`, `arc:`, `sketch:` and `commit:` narrow to one kind,
+ *   uncapped.** The fragment
  *   after the colon is the query; an empty one browses that kind. `@@` and
  *   `@#` are the same two narrowings in one keystroke, and a bare `@` says so
  *   in the popup's hint line.
@@ -29,12 +31,14 @@
 import type { CompletionItem, CompletionProvider } from "@/lib/tug-text-types";
 import { MENTION_SIGIL_HINT, splitMentionKind } from "@/lib/mention-kinds";
 
-/** How many sessions, and how many commits, follow the files. */
+/** How many rows of each searched kind follow the files. */
 export const MENTION_GROUP_CAP = 3;
 
 export interface MentionSources {
   files: CompletionProvider;
   sessions: CompletionProvider;
+  arcs: CompletionProvider;
+  sketches: CompletionProvider;
   commits: CompletionProvider;
 }
 
@@ -45,17 +49,27 @@ export function mergeMentionProviders(
   const provider = ((query: string): CompletionItem[] => {
     const { kind, rest } = splitMentionKind(query);
     if (kind === "session") return sources.sessions(rest);
+    if (kind === "arc") return sources.arcs(rest);
+    if (kind === "sketch") return sources.sketches(rest);
     if (kind === "commit") return sources.commits(rest);
     return [
       ...sources.files(query),
       ...sources.sessions(query).slice(0, groupCap),
+      ...sources.arcs(query).slice(0, groupCap),
+      ...sources.sketches(query).slice(0, groupCap),
       ...sources.commits(query).slice(0, groupCap),
     ];
   }) as CompletionProvider;
 
   provider.subscribe = (listener: () => void): (() => void) => {
     const releases: Array<() => void> = [];
-    for (const source of [sources.files, sources.sessions, sources.commits]) {
+    for (const source of [
+      sources.files,
+      sources.sessions,
+      sources.arcs,
+      sources.sketches,
+      sources.commits,
+    ]) {
       if (source.subscribe !== undefined) releases.push(source.subscribe(listener));
     }
     return () => {

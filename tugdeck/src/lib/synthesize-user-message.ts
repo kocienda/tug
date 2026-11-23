@@ -46,6 +46,10 @@
  * user committed, pushed, joined or discarded since its last turn — is
  * stripped on the same terms and contributes nothing at all.
  *
+ * The `tug:arc-refs` and `tug:sketch-refs` blocks are stripped the same way,
+ * and each puts its identity back: an arc atom takes its checkout and pinned
+ * generation, a sketch atom its owning checkout.
+ *
  * The bytes-store side-effect is the documented seam: for each image
  * block, the synthesizer ensures the bytes-store has an entry at the
  * resolved id with `content` + `mediaType` matching the block's
@@ -91,13 +95,29 @@ import type { AtomBytesEntry, AtomBytesStore } from "./atom-bytes-store";
 import type { AtomSegment } from "./tug-atom-img";
 import { TUG_ATOM_CHAR } from "./tug-atom-char";
 import { bakeThumbnail } from "./image-downsample";
-import { parseAtomMentionSegments } from "./atom-mention-marker";
+import { parseAtomMentionSegments, type MarkerAtomType } from "./atom-mention-marker";
+import {
+  arcAtomName,
+  isArcAtomType,
+  isSketchAtomType,
+  sketchAtomLabel,
+} from "./record-atom-shape";
 import { COMMIT_ATOM_TYPE, detectCommandEcho } from "./command-atom";
 import {
   isSessionRefBlock,
   parseSessionRefBlock,
   type ParsedSessionRef,
 } from "./session-ref-block";
+import {
+  isArcRefBlock,
+  parseArcRefBlock,
+  type ParsedArcRef,
+} from "./arc-ref-block";
+import {
+  isSketchRefBlock,
+  parseSketchRefBlock,
+  type ParsedSketchRef,
+} from "./sketch-ref-block";
 import { commitAtomLabel } from "./commit-format";
 import { isCommitSha } from "./annotator/detect-commit-sha";
 import { isLandingsBlock } from "./landings-block";
@@ -210,7 +230,11 @@ function mentionAtomType(value: string): string {
  * recovering the spelling would put a forty-character sha inside the mark.
  */
 function mentionAtomLabel(type: string, value: string): string {
-  return type === COMMIT_ATOM_TYPE ? commitAtomLabel(value) : value;
+  if (type === COMMIT_ATOM_TYPE) return commitAtomLabel(value);
+  // An arc labels itself by its bare name, a sketch as `sketch:<id>`.
+  if (isArcAtomType(type)) return arcAtomName(value);
+  if (isSketchAtomType(type)) return sketchAtomLabel(value);
+  return value;
 }
 
 /**
@@ -229,7 +253,7 @@ function mentionAtomLabel(type: string, value: string): string {
  */
 function mentionAtom(seg: {
   value: string;
-  atomType?: "session";
+  atomType?: MarkerAtomType;
 }): AtomSegment {
   const type = seg.atomType ?? mentionAtomType(seg.value);
   return {
@@ -343,11 +367,25 @@ export function synthesizeUserMessageFromBlocks(
   // sent. What it leaves behind is the identity it carried, which is put back
   // onto the atoms the markers re-mint.
   const refs = new Map<string, ParsedSessionRef>();
+  const arcRefs = new Map<string, ParsedArcRef>();
+  const sketchRefs = new Map<string, ParsedSketchRef>();
   const bodyBlocks: ContentBlock[] = [];
   for (const block of blocks) {
     if (block.type === "text" && isSessionRefBlock(block.text)) {
       for (const ref of parseSessionRefBlock(block.text)) {
         if (!refs.has(ref.value)) refs.set(ref.value, ref);
+      }
+      continue;
+    }
+    if (block.type === "text" && isArcRefBlock(block.text)) {
+      for (const ref of parseArcRefBlock(block.text)) {
+        if (!arcRefs.has(ref.value)) arcRefs.set(ref.value, ref);
+      }
+      continue;
+    }
+    if (block.type === "text" && isSketchRefBlock(block.text)) {
+      for (const ref of parseSketchRefBlock(block.text)) {
+        if (!sketchRefs.has(ref.value)) sketchRefs.set(ref.value, ref);
       }
       continue;
     }
@@ -364,6 +402,22 @@ export function synthesizeUserMessageFromBlocks(
    * a message that predates the block.
    */
   const withRefIdentity = (atom: AtomSegment): AtomSegment => {
+    if (isArcAtomType(atom.type)) {
+      const arcRef = arcRefs.get(atom.value);
+      if (arcRef === undefined) return atom;
+      return {
+        ...atom,
+        arc: {
+          projectDir: arcRef.projectDir,
+          ...(arcRef.created !== undefined ? { created: arcRef.created } : {}),
+        },
+      };
+    }
+    if (isSketchAtomType(atom.type)) {
+      const sketchRef = sketchRefs.get(atom.value);
+      if (sketchRef === undefined) return atom;
+      return { ...atom, sketch: { projectDir: sketchRef.projectDir } };
+    }
     const ref = refs.get(atom.value);
     if (atom.type !== "session" || ref === undefined) return atom;
     return { ...atom, session: { id: ref.sessionId, projectDir: ref.projectDir } };

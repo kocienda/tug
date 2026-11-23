@@ -639,6 +639,7 @@ class CardServicesStore {
       // A session the harness bound by hand has nothing behind it on the
       // wire, so its writes stay off it (`harness-sessions.ts`).
       offWire: isHarnessSession(binding.tugSessionId),
+      projectDir: binding.projectDir,
     });
     const editorStore = new EditorSettingsStore();
     const transcriptStore = new TranscriptSettingsStore();

@@ -1,7 +1,8 @@
 //! The arc family of CONTROL actions: `bind_arc`, `arc_resume`, `arc_run`,
 //! `arc_stop`, and `unbind_arc` — a card's mating to an arc and the
 //! transport presses that start, resume, and stop it — and `resolve_arcs`,
-//! the read that says which arc names a project's log holds.
+//! the read that says which arc names a project's log holds, and which of
+//! them can still be read back.
 
 use super::super::*;
 use tugcast_core::ControlAction;
@@ -75,25 +76,54 @@ fn parse_resolve_arcs_payload(payload: &[u8]) -> Result<(String, Vec<String>), S
 }
 
 /// The `resolve_arcs_ok` body for `names` over an arc log's text: each asked
-/// name in exactly one of `found` and `missing`, with a joined arc's squash
-/// sha beside its fate.
-fn resolve_arcs_body(project_dir: &str, names: &[String], log_text: &str) -> serde_json::Value {
+/// name in exactly one of `found` and `missing`, with its newest generation's
+/// start and a joined arc's squash sha beside its fate.
+///
+/// A name the log's fates omit — a discarded arc — is found as `discarded`
+/// when an archive entry or its `.tug/arcs/<name>/` still holds its documents,
+/// which is exactly when `arc show` reads it back; otherwise it is missing.
+fn resolve_arcs_body(
+    paths: &Paths,
+    repo_root: &std::path::Path,
+    project_dir: &str,
+    names: &[String],
+    log_text: &str,
+) -> serde_json::Value {
     let fates = tugarc_core::log::arc_fates(log_text);
     let mut found = Vec::new();
     let mut missing = Vec::new();
     for name in names {
+        let created = tugarc_core::log::generation_started_at(log_text, name);
         match fates.get(name) {
             Some(tugarc_core::log::ArcFate::Live) => {
-                found.push(serde_json::json!({ "name": name, "fate": "live" }));
+                found.push(serde_json::json!({
+                    "name": name,
+                    "fate": "live",
+                    "created": created,
+                }));
             }
             Some(tugarc_core::log::ArcFate::Joined { sha }) => {
                 found.push(serde_json::json!({
                     "name": name,
                     "fate": "joined",
                     "join_sha": sha,
+                    "created": created,
                 }));
             }
-            None => missing.push(name.clone()),
+            None => {
+                let entry = tugarc_core::archive::entry(paths, repo_root, name, None);
+                let kept = tugarc_core::ops::documents_dir(repo_root, name).is_dir();
+                if entry.is_none() && !kept {
+                    missing.push(name.clone());
+                    continue;
+                }
+                let created = created.or_else(|| entry.map(|e| e.created));
+                found.push(serde_json::json!({
+                    "name": name,
+                    "fate": "discarded",
+                    "created": created,
+                }));
+            }
         }
     }
     serde_json::json!({
@@ -194,22 +224,25 @@ impl AgentSupervisor {
     /// `resolve_sessions` about a cited session. A missing log is not an
     /// error: it answers every name missing, because a project that never
     /// ran an arc holds none. The read walks a file, so it runs off the
-    /// reactor.
+    /// reactor, and so do the archive and documents reads beside it.
     async fn do_resolve_arcs(&self, project_dir: String, names: Vec<String>) {
-        let read_dir = project_dir.clone();
-        let text = tokio::task::spawn_blocking(move || {
-            let path = tugtool_core::paths::arc_log_path_at(
-                &Paths::from_env(),
-                std::path::Path::new(&read_dir),
-            );
-            std::fs::read_to_string(path).unwrap_or_default()
+        let reply_dir = project_dir.clone();
+        let body = tokio::task::spawn_blocking(move || {
+            let paths = Paths::from_env();
+            let repo = std::path::Path::new(&project_dir);
+            let path = tugtool_core::paths::arc_log_path_at(&paths, repo);
+            let text = std::fs::read_to_string(path).unwrap_or_default();
+            resolve_arcs_body(&paths, repo, &project_dir, &names, &text)
         })
         .await
-        .unwrap_or_default();
-        send_control(
-            &self.control_tx,
-            resolve_arcs_body(&project_dir, &names, &text),
-        );
+        .unwrap_or_else(|err| {
+            serde_json::json!({
+                "action": "resolve_arcs_err",
+                "project_dir": reply_dir,
+                "message": format!("resolve_arcs task failed: {err}"),
+            })
+        });
+        send_control(&self.control_tx, body);
     }
 
     /// Handle a `bind_arc` CONTROL request (Spec S03): mate a session to an
@@ -1020,5 +1053,66 @@ impl AgentSupervisor {
             "reason": reason,
         });
         send_control(control_tx, body);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn names(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// A discarded arc is found while something still reads it back — an
+    /// archive entry or its kept documents — and missing once nothing does.
+    #[test]
+    fn resolve_arcs_reports_a_kept_discard_as_discarded_and_a_bare_one_missing() {
+        let repo_dir = tempfile::tempdir().unwrap();
+        let state_dir = tempfile::tempdir().unwrap();
+        let repo = repo_dir.path().canonicalize().unwrap();
+        let paths = Paths::under(&state_dir.path().canonicalize().unwrap());
+        for arc in ["archived", "kept", "bare"] {
+            tugarc_core::log::append_arc_log(&paths, &repo, arc, "arc-start", "").unwrap();
+            tugarc_core::log::append_arc_log(&paths, &repo, arc, "discarded", "").unwrap();
+        }
+        let docs = |arc: &str| {
+            let dir = tugarc_core::ops::documents_dir(&repo, arc);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("brief.md"), "# Brief\n").unwrap();
+        };
+        docs("archived");
+        tugarc_core::archive::archive_documents(
+            &paths,
+            &repo,
+            "archived",
+            tugarc_core::archive::ArchiveFate::Discarded,
+            None,
+            None,
+        )
+        .unwrap();
+        std::fs::remove_dir_all(tugarc_core::ops::documents_dir(&repo, "archived")).unwrap();
+        docs("kept");
+
+        let log =
+            std::fs::read_to_string(tugtool_core::paths::arc_log_path_at(&paths, &repo)).unwrap();
+        let body = resolve_arcs_body(
+            &paths,
+            &repo,
+            repo.to_str().unwrap(),
+            &names(&["archived", "kept", "bare"]),
+            &log,
+        );
+        let found = body["found"].as_array().unwrap();
+        let found_names: Vec<&str> = found.iter().map(|r| r["name"].as_str().unwrap()).collect();
+        assert_eq!(found_names, ["archived", "kept"], "{body}");
+        for row in found {
+            assert_eq!(row["fate"], "discarded", "{row}");
+            assert!(
+                row["created"].as_str().is_some_and(|c| !c.is_empty()),
+                "{row}"
+            );
+        }
+        assert_eq!(body["missing"], serde_json::json!(["bare"]));
     }
 }

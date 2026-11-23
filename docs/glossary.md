@@ -188,7 +188,7 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Sigil.** The caret, `^`, that an arc wears wherever it is named to a person, as in `juicy-roach^arc-steps`. It draws the departure and return the word names.
 
-**Sketch.** The converged shape of the conversation an *idea* starts: what you and the model arrive at by going back and forth. A sketch lives only in the transcript and is never written to a file. An idea can skip this rung.
+**Sketch.** The converged shape of the conversation an *idea* starts: what you and the model arrive at by going back and forth. When an arc's door writes a sketch down, it gets an id of its own and every version of it is kept, so `tugtool sketch show <id>` can read it back later. It stays informal: no skeleton and no required sections. An idea can skip this rung.
 
 **Slot.** One of the one to six numbered places on the *deck*. Every card lives in a slot at the width you set. A slot holding more than one card is either a *stack* or a *split*.
 

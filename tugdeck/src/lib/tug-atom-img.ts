@@ -24,7 +24,11 @@
 
 import { getTokenValue } from "@/theme-tokens";
 import { applyAtomIdentityAttrs } from "@/lib/atom-identity-attrs";
-import type { AtomSessionRef } from "@/lib/atom-identity-attrs";
+import type {
+  AtomArcRef,
+  AtomSessionRef,
+  AtomSketchRef,
+} from "@/lib/atom-identity-attrs";
 import {
   chipStyle,
   chipDisplayLabel,
@@ -126,6 +130,14 @@ export interface AtomSegment {
    * the DOM attributes and the wire.
    */
   session?: AtomSessionRef;
+  /**
+   * For an arc atom: the checkout its arc lives in and, when pinned, the
+   * generation's start. `value` is `<project leaf>/<name>`, which only that
+   * checkout's arc log can answer.
+   */
+  arc?: AtomArcRef;
+  /** For a sketch atom: the checkout its sketch belongs to. */
+  sketch?: AtomSketchRef;
 }
 
 /** Label display mode for file paths. */
@@ -172,6 +184,10 @@ export interface AtomImgOptions {
    * passes `segment.session` straight through.
    */
   session?: AtomSessionRef;
+  /** For an arc atom: written onto the `<img>` as `data-atom-arc-*`. */
+  arc?: AtomArcRef;
+  /** For a sketch atom: written onto the `<img>` as `data-atom-sketch-*`. */
+  sketch?: AtomSketchRef;
   /**
    * Which face to bake, and the value the `<img>` records in
    * `data-chip-variant`. Defaults to `"default"`. The widget passes
@@ -192,6 +208,12 @@ const ATOM_ICON_PATHS: Record<string, string> = {
   // component paints in both of its registers.
   session:
     '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M13 8H7"/><path d="M17 12H7"/>',
+  // ChevronUp — the arc sigil's `^` drawn as a stroke, so the chip carries
+  // the same mark the arc's name runs wear in prose.
+  arc: '<path d="m18 15-6-6-6 6"/>',
+  // PencilLine — a sketch is the drawn shape of an idea.
+  sketch:
+    '<path d="M12 20h9"/><path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838a.5.5 0 0 1-.62-.62l.838-2.872a2 2 0 0 1 .506-.854z"/>',
 };
 
 // ---- Layout constants ----
@@ -655,6 +677,18 @@ function paintPillChip(
       ctx.strokeStyle = ink;
       ctx.lineWidth = w;
       ctx.stroke();
+    } else if (mark === "icon") {
+      // An arc's or a sketch's glyph, stroked in the pill's own ink: the pill
+      // has no wash for a separate icon token to read against.
+      ctx.save();
+      ctx.translate(g.iconX, g.iconY);
+      ctx.scale(g.iconScale, g.iconScale);
+      ctx.strokeStyle = ink;
+      ctx.lineWidth = 2;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      strokeIconMarkup(ctx, g.iconPath);
+      ctx.restore();
     } else if (!omitDot) {
       ctx.beginPath();
       ctx.arc(cx, cy, g.dotSize / 2, 0, Math.PI * 2);
@@ -966,6 +1000,8 @@ export function createAtomImgElement(
     value,
     ...(options?.id !== undefined ? { id: options.id } : {}),
     ...(options?.session !== undefined ? { session: options.session } : {}),
+    ...(options?.arc !== undefined ? { arc: options.arc } : {}),
+    ...(options?.sketch !== undefined ? { sketch: options.sketch } : {}),
   });
   img.title = value;
   // [L06] — the face is DOM, not state. Written always, including the

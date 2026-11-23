@@ -855,3 +855,63 @@ describe("synthesizeUserMessageFromBlocks — the `tug:landings` block", () => {
     expect(synth.text).toBe("what does <!-- tug:landings --> mean?");
   });
 });
+
+describe("synthesizeUserMessageFromBlocks — the typed `@arc:` and `@sketch:` markers", () => {
+  test("re-mint arc and sketch atoms, not file chips", () => {
+    const store = createAtomBytesStore();
+    const synth = synthesizeUserMessageFromBlocks(
+      [{ type: "text", text: "`@arc:tug/parser` from `@sketch:0a1b2c3d`" }],
+      store,
+    );
+    expect(synth.text).toBe(`${C} from ${C}`);
+    expect(synth.atoms).toEqual([
+      { kind: "atom", type: "arc", label: "parser", value: "tug/parser" },
+      { kind: "atom", type: "sketch", label: "sketch:0a1b2c3d", value: "0a1b2c3d" },
+    ]);
+  });
+
+  test("both reference blocks are stripped and their identity lands on the atoms", () => {
+    const store = createAtomBytesStore();
+    const wire = buildWirePayload(
+      `${C} from ${C}`,
+      [
+        {
+          kind: "atom",
+          type: "arc",
+          label: "parser",
+          value: "tug/parser",
+          arc: { projectDir: "/u/src/tug", created: "2026-11-22T14:59:33.128Z" },
+        },
+        {
+          kind: "atom",
+          type: "sketch",
+          label: "sketch:0a1b2c3d",
+          value: "0a1b2c3d",
+        },
+      ],
+      store,
+      {
+        arcVerdict: () => ({ verdict: "here", fate: "live" }),
+        sketchVerdict: () => ({ verdict: "elsewhere", projectDir: "/u/src/eucit", versions: 1 }),
+      },
+    );
+    const synth = synthesizeUserMessageFromBlocks(wire.content, store);
+    expect(synth.text).toBe(`${C} from ${C}`);
+    expect(synth.atoms).toEqual([
+      {
+        kind: "atom",
+        type: "arc",
+        label: "parser",
+        value: "tug/parser",
+        arc: { projectDir: "/u/src/tug", created: "2026-11-22T14:59:33.128Z" },
+      },
+      {
+        kind: "atom",
+        type: "sketch",
+        label: "sketch:0a1b2c3d",
+        value: "0a1b2c3d",
+        sketch: { projectDir: "/u/src/eucit" },
+      },
+    ]);
+  });
+});

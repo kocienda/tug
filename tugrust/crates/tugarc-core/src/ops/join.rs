@@ -2670,16 +2670,25 @@ fn finish_join_teardown(
                 _ => {}
             }
         }
-        // The documents go with the branch ([P11]): the squash commit is the
-        // durable record of a joined arc, and the brief and the plan have
-        // nothing to add to it. Named in the receipt rather than done quietly,
-        // because an `undo` does not bring the directory back.
+        // The working documents go with the branch, and their record stays.
+        // An earlier decision ([P11]) deleted them outright, reasoning that the
+        // squash commit was the durable record of a joined arc. That was
+        // reversed ([B01] of the arc-and-sketch-identity brief): the squash
+        // says what changed, and only the brief and the plan say what was
+        // decided and why. So they are archived beside the arc log, and the
+        // directory is removed only once the archive holds them — an archive
+        // that failed keeps the documents, because they are the only copy.
         let documents = documents_dir(repo_root, name);
         if documents.is_dir() {
-            match std::fs::remove_dir_all(&documents) {
-                Ok(()) => warnings.push(format!("removed .tug/arcs/{name}/")),
-                Err(e) => warnings.push(format!("could not remove {}: {e}", documents.display())),
-            }
+            let base = base_branch_of(paths, repo_root, op_seq, name);
+            crate::archive::archive_joined_then_remove(
+                paths,
+                repo_root,
+                name,
+                &progress.commit_hash,
+                &base,
+                &mut warnings,
+            );
         }
         progress.phase = crate::oplog::JoinPhase::BranchDeleted;
         crate::oplog::record_join_progress(paths, repo_root, op_seq, progress.clone())?;
@@ -2700,9 +2709,22 @@ fn finish_join_teardown(
         .map_err(|e| ArcError::arc_log(paths, repo_root, e))?;
 
     let base_branch = base_branch_of(paths, repo_root, op_seq, name);
+    // The entry this generation's documents were archived as, read back by
+    // the generation's own start: a `--continue` past the archive phase finds
+    // it the same way. Never the newest entry of any generation — when this
+    // one had no documents, that is an older generation's, and an undo would
+    // restore its brief as this one's.
+    let archived = crate::archive::entry(
+        paths,
+        repo_root,
+        name,
+        crate::log::generation_start(paths, repo_root, name).as_deref(),
+    )
+    .map(|e| e.key());
     let after = crate::oplog::OpAfter {
         base_tip: git_stdout(repo_root, &["rev-parse", &base_branch]).ok(),
         landed_commit: Some(progress.commit_hash.clone()),
+        archived,
         ..Default::default()
     };
     if let Err(e) = crate::oplog::record_complete(paths, repo_root, op_seq, after) {
@@ -2842,11 +2864,26 @@ mod tests {
             !documents.exists(),
             "the join removed the documents directory"
         );
+        // The directory still goes, and its record now stays: the brief and
+        // the plan are archived beside the arc log, byte for byte.
+        let entry = crate::archive::entry(&paths, &root, "landing", None)
+            .expect("the join archived the documents");
+        assert_eq!(entry.fate, crate::archive::ArchiveFate::Joined);
+        assert_eq!(entry.join_sha, out.commit_hash);
+        assert_eq!(entry.base_branch.as_deref(), Some("main"));
+        assert_eq!(entry.files, vec!["brief.md", "plan.md"]);
+        assert_eq!(
+            fs::read_to_string(entry.dir.join("brief.md")).unwrap(),
+            "# The brief\n"
+        );
+        assert_eq!(
+            fs::read_to_string(entry.dir.join("plan.md")).unwrap(),
+            TWO_STEP_PLAN
+        );
+        let receipt = format!("archived .tug/arcs/landing/ to {}", entry.dir.display());
         assert!(
-            out.warnings
-                .iter()
-                .any(|w| w == "removed .tug/arcs/landing/"),
-            "the receipt names the removal: {:?}",
+            out.warnings.contains(&receipt),
+            "the receipt names the archive: {:?}",
             out.warnings
         );
         assert_eq!(git_stdout(&root, &["status", "--porcelain"]).unwrap(), "");
@@ -3465,6 +3502,175 @@ mod tests {
         );
         assert_eq!(config_get(repo, &tugid_config_key("undome")), tugid);
         assert!(out.restored_unbound, "rebinding is the user's gesture");
+    }
+
+    /// Brief, plan and sketch in `name`'s documents directory, as a door and
+    /// its stages would have left them.
+    fn write_arc_documents(repo: &Path, name: &str) -> std::path::PathBuf {
+        let documents = documents_dir(repo, name);
+        fs::create_dir_all(&documents).unwrap();
+        fs::write(documents.join("brief.md"), "# Brief\n\nwhat was decided\n").unwrap();
+        fs::write(documents.join("plan.md"), "# Plan\n\nthe steps\n").unwrap();
+        fs::write(documents.join("sketch.md"), "# Sketch\n\nthe want\n").unwrap();
+        documents
+    }
+
+    fn assert_documents_back(documents: &Path) {
+        assert_eq!(
+            fs::read_to_string(documents.join("brief.md")).unwrap(),
+            "# Brief\n\nwhat was decided\n"
+        );
+        assert_eq!(
+            fs::read_to_string(documents.join("plan.md")).unwrap(),
+            "# Plan\n\nthe steps\n"
+        );
+        assert_eq!(
+            fs::read_to_string(documents.join("sketch.md")).unwrap(),
+            "# Sketch\n\nthe want\n"
+        );
+    }
+
+    #[test]
+    fn a_join_archives_the_documents_it_removes() {
+        let temp = TempDir::new().unwrap();
+        let paths = seed_arc_with_a_round(&temp, "kept");
+        let repo = temp.path();
+        let documents = write_arc_documents(repo, "kept");
+
+        let out = join_in(&paths, repo, "kept", mechanics()).unwrap();
+
+        assert!(!documents.exists(), "the working documents go");
+        let entry = crate::archive::entry(&paths, repo, "kept", None).unwrap();
+        assert_eq!(entry.fate, crate::archive::ArchiveFate::Joined);
+        assert_eq!(entry.join_sha, out.commit_hash, "the landed commit");
+        assert_eq!(entry.files, vec!["brief.md", "plan.md", "sketch.md"]);
+        assert_documents_back(&entry.dir);
+
+        let op = crate::oplog::list_ops(&paths, repo)
+            .into_iter()
+            .find(|o| o.verb == crate::oplog::OpVerb::Join)
+            .unwrap();
+        assert_eq!(op.after.unwrap().archived, Some(entry.key()));
+    }
+
+    #[test]
+    fn a_join_whose_archive_fails_keeps_the_documents() {
+        let temp = TempDir::new().unwrap();
+        let paths = seed_arc_with_a_round(&temp, "unkept");
+        let repo = temp.path();
+        let documents = write_arc_documents(repo, "unkept");
+        // A regular file where the archive's directory belongs.
+        let root = crate::archive::archive_root(&paths, repo);
+        fs::create_dir_all(root.parent().unwrap()).unwrap();
+        fs::write(&root, "not a directory").unwrap();
+
+        let out = join_in(&paths, repo, "unkept", mechanics()).unwrap();
+
+        assert!(out.commit_hash.is_some(), "the join itself still lands");
+        assert_documents_back(&documents);
+        assert!(
+            out.warnings
+                .iter()
+                .any(|w| w.starts_with("could not archive .tug/arcs/unkept/: ")
+                    && w.ends_with("; the documents were kept")),
+            "{:?}",
+            out.warnings
+        );
+        let op = crate::oplog::list_ops(&paths, repo)
+            .into_iter()
+            .find(|o| o.verb == crate::oplog::OpVerb::Join)
+            .unwrap();
+        assert_eq!(op.after.unwrap().archived, None);
+    }
+
+    #[test]
+    fn undo_of_a_join_restores_its_documents_and_keeps_the_archive() {
+        let temp = TempDir::new().unwrap();
+        let paths = seed_arc_with_a_round(&temp, "returns");
+        let repo = temp.path();
+        let documents = write_arc_documents(repo, "returns");
+        join_in(&paths, repo, "returns", mechanics()).unwrap();
+        assert!(!documents.exists());
+
+        let out = crate::oplog::undo_in(&paths, repo, None).unwrap();
+
+        assert_documents_back(&documents);
+        assert!(
+            !documents.join(crate::archive::ARC_JSON).exists(),
+            "arc.json describes the entry and is not restored"
+        );
+        assert!(
+            crate::archive::entry(&paths, repo, "returns", None).is_some(),
+            "the archive entry is a record, and stays"
+        );
+        assert!(out.warnings.is_empty(), "{:?}", out.warnings);
+    }
+
+    #[test]
+    fn undo_of_a_join_never_overwrites_documents_written_since() {
+        let temp = TempDir::new().unwrap();
+        let paths = seed_arc_with_a_round(&temp, "rewritten");
+        let repo = temp.path();
+        let documents = write_arc_documents(repo, "rewritten");
+        join_in(&paths, repo, "rewritten", mechanics()).unwrap();
+        fs::create_dir_all(&documents).unwrap();
+        fs::write(documents.join("brief.md"), "a newer brief\n").unwrap();
+
+        let out = crate::oplog::undo_in(&paths, repo, None).unwrap();
+
+        assert!(
+            branch_exists(repo, "tugarc/rewritten"),
+            "the undo still ran"
+        );
+        assert_eq!(
+            fs::read_to_string(documents.join("brief.md")).unwrap(),
+            "a newer brief\n"
+        );
+        assert!(!documents.join("plan.md").exists());
+        assert!(
+            out.warnings.contains(
+                &"documents not restored: .tug/arcs/rewritten/ already exists".to_string()
+            ),
+            "{:?}",
+            out.warnings
+        );
+    }
+
+    #[test]
+    fn undo_of_a_join_with_no_archive_says_so() {
+        let temp = TempDir::new().unwrap();
+        let paths = seed_arc_with_a_round(&temp, "bare");
+        let repo = temp.path();
+        join_in(&paths, repo, "bare", mechanics()).unwrap();
+
+        let out = crate::oplog::undo_in(&paths, repo, None).unwrap();
+
+        assert!(!documents_dir(repo, "bare").exists());
+        assert!(
+            out.warnings
+                .contains(&"no documents were archived for this join".to_string()),
+            "{:?}",
+            out.warnings
+        );
+    }
+
+    #[test]
+    fn redo_of_an_undone_join_archives_the_restored_documents_again() {
+        let temp = TempDir::new().unwrap();
+        let paths = seed_arc_with_a_round(&temp, "relanded");
+        let repo = temp.path();
+        let documents = write_arc_documents(repo, "relanded");
+        join_in(&paths, repo, "relanded", mechanics()).unwrap();
+        crate::oplog::undo_in(&paths, repo, None).unwrap();
+        assert!(documents.is_dir());
+
+        crate::oplog::redo_in(&paths, repo, None).unwrap();
+
+        assert!(!documents.exists(), "no stray paperwork after a redo");
+        let entries = crate::archive::entries(&paths, repo, "relanded");
+        assert_eq!(entries.len(), 1, "the same generation, archived once");
+        assert_eq!(entries[0].fate, crate::archive::ArchiveFate::Joined);
+        assert_documents_back(&entries[0].dir);
     }
 
     #[test]

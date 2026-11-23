@@ -2806,20 +2806,24 @@ pub(crate) fn format_discard_summary(
     format!("{header}\n{}", lines.join("\n"))
 }
 
-/// The documents-delete receipt: what was destroyed, and that git has no copy.
+/// The documents-delete receipt: what was removed, and where it was kept.
 ///
 /// The discard's summary says the documents *stay*; this one is the other
-/// half of that sentence, and it has to be as plain, because `.tug/` is
-/// excluded from git — no commit, no reflog, nothing to restore from. The
-/// files are named rather than counted for the same reason a discard names
-/// its round subjects: a count cannot be checked against afterwards.
+/// half of that sentence. `.tug/` is excluded from git, so the copy the
+/// engine archived before the delete is the only one, and the receipt names
+/// the verb that reads it back rather than leaving the user to believe the
+/// documents are gone. The files are named rather than counted for the same
+/// reason a discard names its round subjects: a count cannot be checked
+/// against afterwards.
 pub(crate) fn format_delete_documents_summary(arc: &str, files: &[String]) -> String {
     let header = format!("deleted the documents for {arc}");
     let mut lines = Vec::new();
     if !files.is_empty() {
-        lines.push(format!("Destroyed .tug/arcs/{arc}/: {}", files.join(", ")));
+        lines.push(format!("Removed .tug/arcs/{arc}/: {}", files.join(", ")));
     }
-    lines.push("Untracked, so git will not give them back.".to_string());
+    lines.push(format!(
+        "Kept in the arc archive; `tugtool arc show {arc} --document <kind>` reads them back."
+    ));
     format!("{header}\n{}", lines.join("\n"))
 }
 
@@ -7176,7 +7180,7 @@ Some context.
     }
 
     #[test]
-    fn format_delete_documents_summary_names_the_files_and_says_git_has_no_copy() {
+    fn format_delete_documents_summary_names_the_files_and_where_they_were_kept() {
         let s = format_delete_documents_summary(
             "ghost",
             &["brief.md".to_string(), "tasks.md".to_string()],
@@ -7184,18 +7188,20 @@ Some context.
         assert_eq!(
             s,
             "deleted the documents for ghost\n\
-             Destroyed .tug/arcs/ghost/: brief.md, tasks.md\n\
-             Untracked, so git will not give them back."
+             Removed .tug/arcs/ghost/: brief.md, tasks.md\n\
+             Kept in the arc archive; `tugtool arc show ghost --document <kind>` reads them back."
         );
     }
 
     /// A directory that was already empty still says what the delete means —
-    /// the sentence about git is the point of the receipt, not the file list.
+    /// the sentence about the archive is the point of the receipt, not the
+    /// file list.
     #[test]
-    fn format_delete_documents_summary_keeps_its_warning_without_files() {
+    fn format_delete_documents_summary_keeps_its_archive_line_without_files() {
         assert_eq!(
             format_delete_documents_summary("ghost", &[]),
-            "deleted the documents for ghost\nUntracked, so git will not give them back."
+            "deleted the documents for ghost\n\
+             Kept in the arc archive; `tugtool arc show ghost --document <kind>` reads them back."
         );
     }
 

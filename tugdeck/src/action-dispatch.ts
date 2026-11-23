@@ -87,6 +87,9 @@ import { sessionSynopsisStore } from "./lib/session-synopsis-store";
 import { sessionCitationStore } from "./lib/session-citation-store";
 import { arcCitationStore } from "./lib/arc-citation-store";
 import { deliverSessionSearchAnswer } from "./lib/session-search-answers";
+import { deliverArcSearchAnswer } from "./lib/arc-search-answers";
+import { deliverSketchSearchAnswer } from "./lib/sketch-search-answers";
+import { sketchCitationStore } from "./lib/sketch-citation-store";
 import { deliverScrubShareAnswer } from "./lib/share-scrub";
 import {
   applyAuthResultPayload,
@@ -120,9 +123,12 @@ import { keyboardAccessStore } from "./keyboard-access-store";
 import {
   decodeResolveSessionsOk,
   decodeResolveArcsOk,
+  decodeResolveSketchesOk,
   decodeScrubShareTextErr,
   decodeScrubShareTextOk,
+  decodeSearchArcsOk,
   decodeSearchSessionsOk,
+  decodeSearchSketchesOk,
   normalizeSessionRow,
 } from "./protocol";
 import type {
@@ -1889,6 +1895,49 @@ export function registerStoreTailActions(): void {
   registerAction("resolve_arcs_err", (payload) => {
     console.warn("resolve_arcs_err", payload.message);
     arcCitationStore.applyFailed();
+  });
+
+  // search_arcs_ok / _err and search_sketches_ok / _err: the answers to a
+  // composer's `@` arc and sketch searches, on `search_sessions_ok`'s terms.
+  // Every provider hears the answer and keeps the one carrying its own
+  // request id; an error is logged and delivered to nobody, so the next
+  // keystroke asks again.
+  registerAction("search_arcs_ok", (payload) => {
+    const decoded = decodeSearchArcsOk(payload);
+    if (decoded === null) {
+      console.warn("search_arcs_ok: undecodable payload", payload);
+      return;
+    }
+    deliverArcSearchAnswer(decoded);
+  });
+  registerAction("search_arcs_err", (payload) => {
+    console.warn("search_arcs_err", payload.message);
+  });
+  registerAction("search_sketches_ok", (payload) => {
+    const decoded = decodeSearchSketchesOk(payload);
+    if (decoded === null) {
+      console.warn("search_sketches_ok: undecodable payload", payload);
+      return;
+    }
+    deliverSketchSearchAnswer(decoded);
+  });
+  registerAction("search_sketches_err", (payload) => {
+    console.warn("search_sketches_err", payload.message);
+  });
+
+  // resolve_sketches_ok / _err: the machine's answer to "which of these cited
+  // sketch ids do you hold, and where?" — the read behind a sketch chip.
+  registerAction("resolve_sketches_ok", (payload) => {
+    const decoded = decodeResolveSketchesOk(payload);
+    if (decoded === null) {
+      console.warn("resolve_sketches_ok: undecodable payload", payload);
+      return;
+    }
+    sketchCitationStore.applyResolved(decoded);
+  });
+  registerAction("resolve_sketches_err", (payload) => {
+    console.warn("resolve_sketches_err", payload.message);
+    sketchCitationStore.applyFailed();
   });
 
   // search_sessions_ok / _err: the answer to a composer's `@` session search.

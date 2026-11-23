@@ -31,6 +31,7 @@ import { isHelpDocName } from "@/lib/help-docs";
 import type { HelpCardSeed } from "@/lib/open-help-in-card";
 import { resolveAtomFilePath, type AtomPathRoots } from "@/lib/atom-file-path";
 import { COMMIT_ATOM_TYPE } from "@/lib/command-atom";
+import { ARC_ATOM_TYPE, arcAtomName } from "@/lib/record-atom-shape";
 
 /** A URL in transcript ink. */
 export interface UrlPayload {
@@ -163,6 +164,8 @@ export interface AtomLike {
   value: string;
   label?: string;
   id?: string;
+  /** An arc atom's checkout: the root its payload names. */
+  arc?: { projectDir: string };
 }
 
 /**
@@ -251,6 +254,11 @@ export function payloadForAtom(
     return root === null
       ? null
       : { kind: "commit-sha", sha: value, root, paths: [] };
+  }
+  // An arc atom names its arc in the checkout it recorded; one with no
+  // recorded checkout has no log to look in, and so no gesture.
+  if (type === ARC_ATOM_TYPE && value !== "" && atom.arc !== undefined && atom.arc.projectDir !== "") {
+    return { kind: "arc", name: arcAtomName(value), root: atom.arc.projectDir };
   }
   return null;
 }

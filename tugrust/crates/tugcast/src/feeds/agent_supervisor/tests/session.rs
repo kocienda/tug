@@ -1058,8 +1058,23 @@ async fn resolve_arcs_answers_found_and_missing_in_one_frame() {
 
     let response = drain_until_action(&mut rx, "resolve_arcs_ok");
     assert_eq!(response["project_dir"], root.to_str().unwrap());
+    let found = response["found"].as_array().expect("found");
+    assert!(
+        found
+            .iter()
+            .all(|row| row["created"].as_str().is_some_and(|c| !c.is_empty())),
+        "every found row carries its generation's start: {response}"
+    );
+    let without_created: Vec<serde_json::Value> = found
+        .iter()
+        .map(|row| {
+            let mut row = row.clone();
+            row.as_object_mut().unwrap().remove("created");
+            row
+        })
+        .collect();
     assert_eq!(
-        response["found"],
+        serde_json::json!(without_created),
         serde_json::json!([
             { "name": "still-open", "fate": "live" },
             { "name": "landed", "fate": "joined", "join_sha": "302d43b5d1" },

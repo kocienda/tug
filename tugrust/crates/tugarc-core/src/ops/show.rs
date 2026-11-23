@@ -7,7 +7,7 @@ use std::path::Path;
 use tugcore::instance::Paths;
 
 use super::commit::SWEEP_TRAILER_KEY;
-use super::documents::{ArcDocuments, document_arcs};
+use super::documents::{ArcDocuments, document_arcs, documents_dir};
 use super::git::{config_get, git_stdout};
 use super::identity::{
     BRANCH_PREFIX, arc_base, arc_owner_key, branch_exists, branch_name, description_config_key,
@@ -18,8 +18,12 @@ use super::{
     BaseOverlapPath, arc_draft_message, dirty_tracked_paths, intersect_base_dirt, main_repo_root,
     untracked_paths,
 };
+use crate::archive::{ArchiveEntry, compact_stamp};
 use crate::error::ArcError;
-use crate::log::{ArcDeclaration, ArcDeclarations, ArcTips, FitFact, read_declarations};
+use crate::log::{
+    ArcDeclaration, ArcDeclarations, ArcGeneration, ArcTips, FitFact, GenerationEnd,
+    arc_generations, read_declarations, validate_arc_name,
+};
 
 /// One entry in the [`list_in`] outcome.
 ///
@@ -270,6 +274,200 @@ pub fn show_in(paths: &Paths, repo_root: &Path, name: &str) -> Result<ShowOutcom
         status: "active".to_string(),
         rounds,
         uncommitted_changes,
+    })
+}
+
+/// One document an arc's record holds: its kind (`brief`, `plan`, `tasks`,
+/// `sketch`, or whatever the file's stem is) and where it lies.
+#[derive(Debug, Clone, Serialize)]
+pub struct RecordDocument {
+    pub kind: String,
+    pub path: String,
+}
+
+/// Outcome of [`show_record_in`]: an arc with no live branch, read from the
+/// archive, from paperwork left in `.tug/arcs/<name>/`, or from the log alone.
+#[derive(Debug, Clone, Serialize)]
+pub struct RecordShowOutcome {
+    pub name: String,
+    /// `"joined"`, `"discarded"`, `"abandoned"` or `"paperwork"`.
+    pub status: String,
+    /// The generation's start, in the arc log's ISO form.
+    pub created: Option<String>,
+    pub ended_at: Option<String>,
+    pub join_sha: Option<String>,
+    pub base_branch: Option<String>,
+    pub sketch_id: Option<String>,
+    /// `false` for a generation the log records and nothing kept: a join
+    /// from before documents were archived.
+    pub documents_kept: bool,
+    pub documents: Vec<RecordDocument>,
+    /// The archive entry's directory, when the archive answered.
+    pub archive: Option<String>,
+}
+
+impl RecordShowOutcome {
+    /// The document of this kind, if the record holds one.
+    pub fn document(&self, kind: &str) -> Option<&RecordDocument> {
+        self.documents.iter().find(|d| d.kind == kind)
+    }
+}
+
+/// Read an arc with no live branch: a joined or discarded one from the
+/// archive, paperwork from `.tug/arcs/<name>/`, or a joined generation the
+/// log alone remembers.
+///
+/// With no `created`, the answer is for the name's **newest** generation
+/// first: its archive entry, else the paperwork directory, else — when it
+/// ended in a join — the log's record of that join with no documents kept.
+/// Only then does the newest archive entry of any generation answer. The
+/// order is what keeps a name joined and archived, then reused and discarded
+/// with its documents kept, answering the newer paperwork rather than the
+/// older archive.
+///
+/// With `created` (the ISO form or the compact stamp), only that
+/// generation's archive entry or log record answers.
+///
+/// A live branch is [`show_in`]'s to answer; this reads none.
+pub fn show_record_in(
+    paths: &Paths,
+    repo_root: &Path,
+    name: &str,
+    created: Option<&str>,
+) -> Result<RecordShowOutcome, ArcError> {
+    validate_arc_name(name).map_err(ArcError::InvalidName)?;
+    let not_found = || ArcError::NotFound {
+        name: name.to_string(),
+    };
+    let log = std::fs::read_to_string(tugtool_core::paths::arc_log_path_at(paths, repo_root))
+        .unwrap_or_default();
+    let generations = arc_generations(&log, name);
+    let newest = generations.last();
+
+    if let Some(created) = created {
+        let want = compact_stamp(created);
+        let generation = generations
+            .iter()
+            .find(|g| compact_stamp(&g.started_at) == want);
+        if let Some(entry) = crate::archive::entry(paths, repo_root, name, Some(created)) {
+            return Ok(from_archive(entry, generation));
+        }
+        let Some(generation) = generation else {
+            return Err(not_found());
+        };
+        if newest == Some(generation)
+            && let Some(paperwork) = from_paperwork(repo_root, name, Some(generation), &log)
+        {
+            return Ok(paperwork);
+        }
+        return from_log(name, generation).ok_or_else(not_found);
+    }
+
+    if let Some(generation) = newest
+        && let Some(entry) =
+            crate::archive::entry(paths, repo_root, name, Some(&generation.started_at))
+    {
+        return Ok(from_archive(entry, Some(generation)));
+    }
+    if let Some(paperwork) = from_paperwork(repo_root, name, newest, &log) {
+        return Ok(paperwork);
+    }
+    if let Some(generation) = newest
+        && matches!(generation.end, GenerationEnd::Joined { .. })
+        && let Some(joined) = from_log(name, generation)
+    {
+        return Ok(joined);
+    }
+    if let Some(entry) = crate::archive::entry(paths, repo_root, name, None) {
+        let generation = generations
+            .iter()
+            .find(|g| compact_stamp(&g.started_at) == compact_stamp(&entry.created));
+        return Ok(from_archive(entry, generation));
+    }
+    Err(not_found())
+}
+
+/// The documents in `dir` (top-level files, dot-files skipped), sorted, each
+/// keyed by its stem.
+fn documents_in(dir: &Path, names: impl IntoIterator<Item = String>) -> Vec<RecordDocument> {
+    let mut documents: Vec<RecordDocument> = names
+        .into_iter()
+        .filter(|f| !f.starts_with('.') && dir.join(f).is_file())
+        .map(|f| RecordDocument {
+            kind: f.strip_suffix(".md").unwrap_or(&f).to_string(),
+            path: dir.join(&f).to_string_lossy().into_owned(),
+        })
+        .collect();
+    documents.sort_by(|a, b| a.kind.cmp(&b.kind));
+    documents
+}
+
+fn from_archive(entry: ArchiveEntry, generation: Option<&ArcGeneration>) -> RecordShowOutcome {
+    let documents = documents_in(&entry.dir, entry.files.clone());
+    RecordShowOutcome {
+        status: entry.fate.as_str().to_string(),
+        ended_at: generation
+            .and_then(|g| g.ended_at.clone())
+            .or(Some(entry.archived_at.clone())),
+        archive: Some(entry.dir.to_string_lossy().into_owned()),
+        name: entry.name,
+        created: Some(entry.created),
+        join_sha: entry.join_sha,
+        base_branch: entry.base_branch,
+        sketch_id: entry.sketch_id,
+        documents_kept: true,
+        documents,
+    }
+}
+
+fn from_paperwork(
+    repo_root: &Path,
+    name: &str,
+    generation: Option<&ArcGeneration>,
+    log: &str,
+) -> Option<RecordShowOutcome> {
+    let dir = documents_dir(repo_root, name);
+    let names = std::fs::read_dir(&dir)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned());
+    let documents = documents_in(&dir, names);
+    if documents.is_empty() {
+        return None;
+    }
+    Some(RecordShowOutcome {
+        name: name.to_string(),
+        status: "paperwork".to_string(),
+        created: generation.map(|g| g.started_at.clone()),
+        ended_at: generation.and_then(|g| g.ended_at.clone()),
+        join_sha: None,
+        base_branch: None,
+        sketch_id: crate::log::generation_sketch_id(log, name),
+        documents_kept: true,
+        documents,
+        archive: None,
+    })
+}
+
+/// A generation the log records and nothing kept. An open one has nothing
+/// to say, so it answers `None`.
+fn from_log(name: &str, generation: &ArcGeneration) -> Option<RecordShowOutcome> {
+    let (status, join_sha) = match &generation.end {
+        GenerationEnd::Open => return None,
+        GenerationEnd::Joined { sha } => ("joined", Some(sha.clone())),
+        GenerationEnd::Discarded => ("discarded", None),
+    };
+    Some(RecordShowOutcome {
+        name: name.to_string(),
+        status: status.to_string(),
+        created: Some(generation.started_at.clone()),
+        ended_at: generation.ended_at.clone(),
+        join_sha,
+        base_branch: None,
+        sketch_id: None,
+        documents_kept: false,
+        documents: Vec::new(),
+        archive: None,
     })
 }
 
@@ -2783,5 +2981,187 @@ mod tests {
             "and it names a directory that exists: {}",
             asked_there.worktree_abs
         );
+    }
+
+    /// The record half of `arc show`: arcs with no live branch, answered from
+    /// the archive, kept paperwork, or the log. None of it needs git.
+    mod record {
+        use super::super::show_record_in;
+        use crate::archive::{ArchiveFate, archive_documents};
+        use crate::error::ArcError;
+        use crate::ops::documents_dir;
+        use std::fs;
+        use std::path::{Path, PathBuf};
+        use tempfile::TempDir;
+        use tugcore::instance::Paths;
+
+        fn scratch() -> (TempDir, PathBuf, Paths) {
+            let temp = TempDir::new().unwrap();
+            let repo = temp.path().join("repo");
+            fs::create_dir_all(&repo).unwrap();
+            let paths = Paths::under(&temp.path().join("state"));
+            (temp, repo, paths)
+        }
+
+        fn write_docs(repo: &Path, name: &str, files: &[(&str, &str)]) {
+            let dir = documents_dir(repo, name);
+            fs::create_dir_all(&dir).unwrap();
+            for (file, text) in files {
+                fs::write(dir.join(file), text).unwrap();
+            }
+        }
+
+        fn write_log(paths: &Paths, repo: &Path, text: &str) {
+            let log = tugtool_core::paths::arc_log_path_at(paths, repo);
+            fs::create_dir_all(log.parent().unwrap()).unwrap();
+            fs::write(log, text).unwrap();
+        }
+
+        /// Archive the documents as the newest generation's entry and remove
+        /// the working directory, as a join does.
+        fn archive_and_clear(paths: &Paths, repo: &Path, name: &str, fate: ArchiveFate) {
+            let sha = (fate == ArchiveFate::Joined).then_some("a34061901aa");
+            archive_documents(paths, repo, name, fate, sha, Some("main")).unwrap();
+            fs::remove_dir_all(documents_dir(repo, name)).unwrap();
+        }
+
+        #[test]
+        fn show_record_answers_a_joined_arc_from_its_archive() {
+            let (_t, repo, paths) = scratch();
+            write_log(
+                &paths,
+                &repo,
+                "2026-11-01T00:00:00Z  done  arc-start  brief\n\
+                 2026-11-01T01:00:00Z  done  a34061901aa  joined\n",
+            );
+            write_docs(
+                &repo,
+                "done",
+                &[("brief.md", "# Done\n"), ("plan.md", "# Plan\n")],
+            );
+            archive_and_clear(&paths, &repo, "done", ArchiveFate::Joined);
+
+            let out = show_record_in(&paths, &repo, "done", None).unwrap();
+            assert_eq!(out.status, "joined");
+            assert_eq!(out.created.as_deref(), Some("2026-11-01T00:00:00Z"));
+            assert_eq!(out.ended_at.as_deref(), Some("2026-11-01T01:00:00Z"));
+            assert_eq!(out.join_sha.as_deref(), Some("a34061901aa"));
+            assert_eq!(out.base_branch.as_deref(), Some("main"));
+            assert!(out.documents_kept && out.archive.is_some());
+            let kinds: Vec<&str> = out.documents.iter().map(|d| d.kind.as_str()).collect();
+            assert_eq!(kinds, vec!["brief", "plan"]);
+            let brief = out.document("brief").unwrap();
+            assert_eq!(fs::read_to_string(&brief.path).unwrap(), "# Done\n");
+        }
+
+        #[test]
+        fn show_record_reports_a_log_only_join_as_documents_not_kept() {
+            let (_t, repo, paths) = scratch();
+            write_log(
+                &paths,
+                &repo,
+                "2026-10-01T00:00:00Z  old  arc-start  brief\n\
+                 2026-10-01T01:00:00Z  old  77aa88bb  joined via card\n",
+            );
+            let out = show_record_in(&paths, &repo, "old", None).unwrap();
+            assert_eq!(out.status, "joined");
+            assert_eq!(out.join_sha.as_deref(), Some("77aa88bb"));
+            assert_eq!(out.ended_at.as_deref(), Some("2026-10-01T01:00:00Z"));
+            assert!(!out.documents_kept);
+            assert!(out.documents.is_empty() && out.archive.is_none());
+        }
+
+        #[test]
+        fn show_record_answers_the_newest_generation_and_created_pins_an_older_one() {
+            let (_t, repo, paths) = scratch();
+            write_log(
+                &paths,
+                &repo,
+                "2026-11-01T00:00:00Z  twice  arc-start  brief\n\
+                 2026-11-01T01:00:00Z  twice  a34061901aa  joined\n",
+            );
+            write_docs(&repo, "twice", &[("brief.md", "# First\n")]);
+            archive_and_clear(&paths, &repo, "twice", ArchiveFate::Joined);
+            write_log(
+                &paths,
+                &repo,
+                "2026-11-01T00:00:00Z  twice  arc-start  brief\n\
+                 2026-11-01T01:00:00Z  twice  a34061901aa  joined\n\
+                 2026-11-02T00:00:00Z  twice  arc-start  brief\n\
+                 2026-11-02T01:00:00Z  twice  b5b5b5b5bb  joined\n",
+            );
+            write_docs(&repo, "twice", &[("brief.md", "# Second\n")]);
+            archive_and_clear(&paths, &repo, "twice", ArchiveFate::Joined);
+
+            let newest = show_record_in(&paths, &repo, "twice", None).unwrap();
+            assert_eq!(newest.created.as_deref(), Some("2026-11-02T00:00:00Z"));
+            let brief = newest.document("brief").unwrap();
+            assert_eq!(fs::read_to_string(&brief.path).unwrap(), "# Second\n");
+
+            for spelling in ["2026-11-01T00:00:00Z", "20261101T000000Z"] {
+                let older = show_record_in(&paths, &repo, "twice", Some(spelling)).unwrap();
+                assert_eq!(older.created.as_deref(), Some("2026-11-01T00:00:00Z"));
+                let brief = older.document("brief").unwrap();
+                assert_eq!(fs::read_to_string(&brief.path).unwrap(), "# First\n");
+            }
+
+            let missing = show_record_in(&paths, &repo, "twice", Some("2026-01-01T00:00:00Z"));
+            assert!(
+                matches!(missing, Err(ArcError::NotFound { .. })),
+                "{missing:?}"
+            );
+        }
+
+        #[test]
+        fn show_record_prefers_newer_paperwork_over_an_older_archive() {
+            let (_t, repo, paths) = scratch();
+            write_log(
+                &paths,
+                &repo,
+                "2026-11-01T00:00:00Z  reused  arc-start  brief\n\
+                 2026-11-01T01:00:00Z  reused  a34061901aa  joined\n",
+            );
+            write_docs(&repo, "reused", &[("brief.md", "# Joined one\n")]);
+            archive_and_clear(&paths, &repo, "reused", ArchiveFate::Joined);
+            write_log(
+                &paths,
+                &repo,
+                "2026-11-01T00:00:00Z  reused  arc-start  brief\n\
+                 2026-11-01T01:00:00Z  reused  a34061901aa  joined\n\
+                 2026-11-03T00:00:00Z  reused  arc-start  brief\n\
+                 2026-11-03T01:00:00Z  reused  discarded\n",
+            );
+            write_docs(&repo, "reused", &[("brief.md", "# Discarded one\n")]);
+
+            let out = show_record_in(&paths, &repo, "reused", None).unwrap();
+            assert_eq!(out.status, "paperwork");
+            assert_eq!(out.created.as_deref(), Some("2026-11-03T00:00:00Z"));
+            assert_eq!(out.ended_at.as_deref(), Some("2026-11-03T01:00:00Z"));
+            let brief = out.document("brief").unwrap();
+            assert_eq!(
+                fs::read_to_string(&brief.path).unwrap(),
+                "# Discarded one\n"
+            );
+        }
+
+        #[test]
+        fn show_record_answers_a_discarded_archive_and_refuses_an_unknown_name() {
+            let (_t, repo, paths) = scratch();
+            write_log(
+                &paths,
+                &repo,
+                "2026-11-01T00:00:00Z  dropped  arc-start  brief\n\
+                 2026-11-01T01:00:00Z  dropped  discarded\n",
+            );
+            write_docs(&repo, "dropped", &[("brief.md", "# Dropped\n")]);
+            archive_and_clear(&paths, &repo, "dropped", ArchiveFate::Discarded);
+
+            let out = show_record_in(&paths, &repo, "dropped", None).unwrap();
+            assert_eq!(out.status, "discarded");
+            assert!(out.join_sha.is_none() && out.documents_kept);
+
+            let none = show_record_in(&paths, &repo, "never", None);
+            assert!(matches!(none, Err(ArcError::NotFound { .. })), "{none:?}");
+        }
     }
 }
