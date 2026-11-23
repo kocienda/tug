@@ -142,6 +142,8 @@ describe("no hand-made host channel", () => {
       "OpenableFiles.swift",
       // A page-load stall reading's `trigger.json` and `stall.json`, written to disk for a person and the app-test runner to read.
       "PageLoadStallReading.swift",
+      // `UserDefaults` persistent domains, laid over one another when v0.9.5's stranded preferences are adopted.
+      "InstanceAdoption.swift",
     ].map((name) => `tugapp/Sources/${name}`);
     expect(NOT_HOST_MESSAGES.every((rel) => HOST.some(({ path }) => relative(CHECKOUT, path) === rel))).toBe(true);
     expect(hits(HOST, /\[String:\s*Any\]/, NOT_HOST_MESSAGES)).toEqual([]);
