@@ -32,7 +32,11 @@ The user also wants membership to show: "the session callsign could expand to be
 
 **[F07] `$` is eaten by the shell.** Unquoted, `echo mighty-cabin$feature-docket^arc-name` prints `mighty-cabin-docket^arc-name`: the shell reads `$feature` as a variable. `+` in the same place passes through unchanged. **(verified by running both)**
 
-**[F08] Every docket gesture opens a fresh Session card.** Keep sketch, Write brief, Revise brief, Open arc and Reopen arc each open a new session whose first turn is the plugin command (`docket-card.tsx`, header comment). **(verified)**
+**[F08] Every docket gesture opens a fresh Session card, and reads the conversation back from disk.** Keep sketch, Write brief, Revise brief, Open arc and Reopen arc each open a new session whose first turn is the plugin command (`tugdeck/src/lib/docket-authoring.ts`). `tugplug/skills/keep-sketch/SKILL.md` and the brief skill's `--sketch` path then read the source session with `tugtool session show`, which prints the turns' text and one line per tool call, and leaves out the thinking and the tool output. **(verified)**
+
+**[F09] Both skills already work in the session that held the conversation.** The keep-sketch skill says "When `printenv TUG_SESSION_ID` is the source's uuid, this session is the conversation, and you write from it", and the brief skill's first description of itself is that it writes "the conversation you are already in". A slash command can already be sent to the key Session card (`run-slash-command` in `tugdeck/src/lib/action-vocabulary.ts`). **(verified)**
+
+**[F10] No docket exists on this machine.** `tugtool docket list` and `tugtool idea list` report none in this checkout under either spelling of its path, and none in the two other checkouts Tug has opened. **(verified)**
 
 ---
 
@@ -56,7 +60,7 @@ The user also wants membership to show: "the session callsign could expand to be
 
 **[B09] An audit's follow-ups are offered as new dockets.** Accepting one makes a docket whose opening text is the follow-up, linked to the docket it came from. This replaces the proposals that became ideas in `briefs/docket-loop-brief.md` [B09].
 
-**[B10] Membership shows in the object's own name.** A session, arc or commit on a docket is spelled with its docket, and its arc where it has one, after its own name: the user's form is `session-name$feature-docket^arc-name`. The object named comes first and its context trails.
+**[B10] Membership shows in the object's own name.** A session, arc or commit on a docket is spelled with its docket, and its arc where it has one, after its own name: as `session-name+feature-docket^arc-name`. The object named comes first and its context trails. The docket's sigil is `+`: the user first wrote `$`, which the shell deletes from an unquoted spelling ([F07]), and chose `+` in its place.
 
 **[B11] Own name first, context after, because a name is cut from the right.** A pill that runs out of room keeps what identifies the object and loses the context. Docket-first would start every atom on a docket's own card with the same word and cut the part that tells them apart. The context runs from the outer container to the inner: docket, then arc.
 
@@ -64,15 +68,19 @@ The user also wants membership to show: "the session callsign could expand to be
 
 **[B13] The full spelling is the citation; a surface may show less.** Copy writes the full form, and the reference block the model reads carries it. Inside a docket's own card the docket part is dropped, since every row would repeat it. A Session card working on a docket shows the docket in its identity, and pressing it opens the Docket card.
 
+**[B15] Keep Sketch, Write Brief and Revise Brief run in the session that held the conversation, when it can take them.** That session has read the code and holds the reasoning; a fresh one gets only the transcript's text ([F08]), and both skills are already written for the first case ([F09]). The gesture goes to the docket's most recent sketching session when its card is open, its turn is idle, and its context is under the project's yield share; the card is brought forward so the user sees the work happen. Otherwise the gesture opens a fresh session, as built. The card says which it did.
+
+**[B16] Open Arc always opens its own card.** The wheel takes over the card an arc opens on and rotates fresh sessions through it, so opening an arc in the sketching session would take that conversation away from the user.
+
+**[B17] The record changes shape with no migration.** No docket exists to carry over ([F10]) and the install base is zero. A record in the old shape, if one is ever met, is dropped.
+
 **[B14] The documents are corrected in the same arc.** Every shipped document that describes threads or ideas as objects ([F04]) is rewritten to this model, the plugin's prompt files first, since those reach every project.
 
 ---
 
 ## Open Questions {#open-questions}
 
-- **The docket's sigil.** The user wrote `$`. The shell deletes it from an unquoted spelling ([F07]), which matters because these names are typed into `tugtool` commands by the user and by the model. `+` survives the shell and reads as "plus its context": `mighty-cabin+feature-docket^arc-name`. The recommendation is `+`. If `$` is kept, every command that takes a reference must be documented as needing quotes, and the model's prompt file must say so.
-- **Where the gestures run.** Keep Sketch and Write Brief open a fresh session today ([F08]). The session that held the conversation has the context and would write the better brief. Whether those two act in that session when it is live is undecided.
-- **Dockets that already hold several lines of work.** With no installs, the simple answer is to split each into its own docket on first read, or to drop them. This checkout has some from testing the feature.
+- **Sending a gesture to a session card that is not the key card.** [B15] needs it. `run-slash-command` reaches the key card today ([F09]); whether it can be aimed at a named card, or the card is made key first, is for the arc to read and settle.
 
 ---
 
@@ -94,6 +102,6 @@ The user also wants membership to show: "the session callsign could expand to be
 
 1. The record: a docket holds one line of work and its opening text; the idea record and its verbs are removed.
 2. The card: one docket per card, the opening field over the three panels, the chooser removed.
-3. The doors: File ▸ New Docket on ⇧⌘N, File ▸ Open Docket, and the docket shown in a Session card's identity.
-4. The spelling: the context after an object's own name, in atoms, in Copy, in the reference block and in the resolver, once the sigil is settled.
+3. The doors: File ▸ New Docket on ⇧⌘N, File ▸ Open Docket, the docket shown in a Session card's identity, and the gestures routed to the sketching session ([B15]).
+4. The spelling: the context after an object's own name, with `+` and `^`, in atoms, in Copy, in the reference block and in the resolver.
 5. Follow-ups as new dockets, and the document corrections.
