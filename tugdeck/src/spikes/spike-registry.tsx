@@ -49,6 +49,7 @@ import { spike as miniaturePlusSpike } from "./spike-miniature-plus";
 import { spike as timePopupSpike } from "./spike-time-popup";
 import { spike as shareShadeCtaSpike } from "./spike-share-shade-cta";
 import { spike as codeExplainerSpike } from "./spike-code-explainer";
+import { spike as workspaceSessionRowSpike } from "./spike-workspace-session-row";
 
 /**
  * One design spike. The shape a spike file exports as `spike`.
@@ -125,6 +126,7 @@ export const SPIKES: readonly SpikeDef[] = [
   focusLanguageSpike,
   lightChromeSpike,
   askDialogHeightSpike,
+  workspaceSessionRowSpike,
 ].sort((a, b) => a.title.localeCompare(b.title));
 
 /**

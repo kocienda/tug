@@ -1,0 +1,255 @@
+/**
+ * spike-workspace-session-row.css — the bench, and the two proposals' packing.
+ *
+ * The "Today" column is the shipped `TugSessionRow`; the only rules it gets
+ * here are the Cards card's own rail knobs, restated so the column packs the
+ * way the rail does. Everything under `.sp-wsr-row` is the proposal: where the
+ * width goes on a row that is allowed to be taller.
+ *
+ * Tokens only ([L15]); no gallery vocabulary ([L16]).
+ */
+
+/* ── The bench ───────────────────────────────────────────────────────────── */
+
+.sp-wsr-tuner {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px 24px;
+  max-inline-size: 640px;
+}
+
+.sp-wsr-bench {
+  --sp-wsr-rail-width: 310px;
+  --sp-wsr-prose-lines: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.sp-wsr-column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  inline-size: var(--sp-wsr-rail-width);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-wsr-column-title {
+  font-size: var(--tug-font-size-sm);
+  font-weight: var(--tug-font-weight-semibold);
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-wsr-caption {
+  margin: 0;
+  font-size: var(--tug-font-size-xs);
+  line-height: 1.4;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* A rail's worth of rows: the Cards list's own padding knobs, and a hairline
+   frame so the rail's edge — the thing every line is truncating against — is
+   visible on the bench. */
+.sp-wsr-rail {
+  --tugx-list-row-padding-inline: var(--tug-space-md);
+  --tugx-list-row-indicator-gutter: 0px;
+  display: flex;
+  flex-direction: column;
+  inline-size: 100%;
+  overflow: hidden;
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--tug7-element-global-text-normal-subtle-rest) 35%,
+      transparent
+    );
+  border-radius: 6px;
+}
+
+/* The Cards card's knobs for its session rows (`cards-card.css`), restated:
+   the tighter name gap under the large dot, the air before the mark, and the
+   list's narrower trailing pad. */
+.sp-wsr-rail .tug-session-row {
+  --tugx-session-row-name-gap: 6px;
+  --tugx-session-row-leading-inset: 4px;
+  padding-inline-end: 4px;
+}
+
+/* ── The proposal: a taller row ──────────────────────────────────────────── */
+
+.sp-wsr-row {
+  /* Where the three lines under the name start. One vertical for all of
+     them, a step inside the dot's ink. TUNE HERE. */
+  --sp-wsr-indent: 10px;
+  /* Air between the row's lines. TUNE HERE for density. */
+  --sp-wsr-line-gap: 3px;
+  --sp-wsr-sub-size: var(--tug-font-size-sm);
+  --sp-wsr-sub-line: calc(var(--sp-wsr-sub-size) * var(--tug-line-height-tight));
+  --sp-wsr-fine-size: var(--tug-font-size-xs);
+  --sp-wsr-fine-line: calc(var(--sp-wsr-fine-size) * 1.3);
+  padding-block: 12px;
+  padding-inline-end: 4px;
+}
+
+.sp-wsr-lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-wsr-line-gap);
+  min-inline-size: 0;
+  padding-inline: 4px;
+}
+
+/* The name line: the dot, the name, the slots. The name is the only run that
+   gives way, and with the arc cluster gone from the line it rarely has to. */
+.sp-wsr-name-line {
+  display: flex;
+  align-items: center;
+  min-inline-size: 0;
+  line-height: var(--tug-line-height-tight);
+}
+
+.sp-wsr-dot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 20px;
+  block-size: 1em;
+  overflow: visible;
+  margin-inline-end: 6px;
+}
+
+.sp-wsr-name-line .tug-list-row-title {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+}
+
+/* The same single-line ellipsis box the shipped row gives its title, for the
+   same reason: the label's line-clamp box hands the identity no measure to
+   elide against. */
+.sp-wsr-name-line .tug-list-row-title .tug-label-text {
+  display: block;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sp-wsr-name-line .tug-list-row-title .tug-label-text > * {
+  display: flex;
+  inline-size: max-content;
+  max-inline-size: 100%;
+  min-inline-size: 0;
+}
+
+.sp-wsr-slots {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  margin-inline-start: 6px;
+}
+
+.sp-wsr-slots:empty {
+  display: none;
+}
+
+/* The standing line: the arc and its progress, or the session's facts. One
+   line on every row, so a row does not change height when an arc binds. The
+   arc's NAME is the run that gives way; the mark beside it never does, so the
+   phase is always said whole. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-wsr-standing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-inline-size: 0;
+  padding-inline-start: var(--sp-wsr-indent);
+  font-size: var(--sp-wsr-fine-size);
+  line-height: var(--sp-wsr-fine-line);
+  min-block-size: var(--sp-wsr-sub-line);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-wsr-arc-name {
+  flex: 0 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--sp-wsr-sub-size);
+}
+
+.sp-wsr-arc-mark {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+}
+
+.sp-wsr-facts {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The description: the row's whole width, no tape to stop short of. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-wsr-description {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-inline-start: var(--sp-wsr-indent);
+  font-size: var(--sp-wsr-sub-size);
+  line-height: var(--sp-wsr-sub-line);
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-wsr-description[data-stamp="true"] {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* The activity and its tape. The tape stands at the row's bottom trailing
+   corner on every row, so the instrument is in one place down the rail. */
+.sp-wsr-activity-line {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--tug-space-sm);
+  min-inline-size: 0;
+  padding-inline-start: var(--sp-wsr-indent);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-wsr-activity {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--sp-wsr-fine-size);
+  line-height: var(--sp-wsr-fine-line);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-wsr-tape {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+}
+
+.sp-wsr-tape .tug-sparkline {
+  flex-shrink: 0;
+}
+
+/* ── Wrapped: the prose runs to the bench's line count ───────────────────── */
+
+.sp-wsr-row[data-wrap="true"] :is(.sp-wsr-description, .sp-wsr-activity) {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--sp-wsr-prose-lines);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

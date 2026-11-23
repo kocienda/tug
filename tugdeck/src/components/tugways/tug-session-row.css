@@ -626,3 +626,81 @@ body {
 .tug-session-row .tug-activity-line-trailing .tug-sparkline {
   flex-shrink: 0;
 }
+
+/* ── The standing line ───────────────────────────────────────────────────
+   The line under the title that holds while the prose beneath it moves: the
+   session's arc on the Workspaces card, or its standing facts when no arc
+   holds it. It is present on every row of a list that asks for it, bound or
+   not, so binding an arc never changes a row's height ([D141] as amended).
+
+   It hangs off the same vertical as the sub-lines, in their quieter size, and
+   stands one lead gap off the group beneath it — the title and this line are
+   what the session IS; the pair below is what it is doing. One line, always:
+   the run that gives way is the caller's to say (the arc's name elides, its
+   lifecycle mark never does). `min-block-size` keeps an empty line's band. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.tug-session-row-standing {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  min-inline-size: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  padding-inline-start: var(--tugx-session-identity-row-indent, 10px);
+  margin-block-end: var(--tugx-session-identity-lead-gap, 3px);
+  font-size: var(--tug-font-size-xs);
+  line-height: var(--tugx-session-row-sub-line-tight);
+  min-block-size: var(--tugx-session-row-sub-line-tight);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* ── Wrapped prose ───────────────────────────────────────────────────────
+   `proseLines` lets the description and the activity each run to that many
+   lines instead of eliding on one — the Workspaces card's rows, where a rail
+   is narrow and the two sentences are the reason the row is there. The
+   mechanism is the masthead's wall register's (`session-masthead.css`): a
+   clamped box that keeps its end ellipsis, and a line box whose declared
+   step becomes a floor.
+
+   The description runs the row's WHOLE width here: the tape no longer
+   overhangs it, because it stands at the bottom of the activity's own box
+   rather than lifted into the band above. */
+.tug-session-row[data-prose="wrap"] .tug-session-row-description,
+.tug-session-row[data-prose="wrap"] .tug-activity-line-activity {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--tugx-session-row-prose-lines, 2);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  overflow: hidden;
+}
+
+.tug-session-row[data-prose="wrap"] .tug-session-row-description {
+  padding-inline-end: 0;
+}
+
+/* The tape takes the activity's bottom trailing corner: the line box is at
+   least the tape's height, the run and the tape sit on its foot, and the lift
+   the one-line stack derives is spent on nothing. After that derivation in
+   source order, at the same weight, so this is the one that holds. The strut
+   that fixes a one-line run's baseline goes with the step it was fixing. */
+.tug-session-row[data-prose="wrap"] {
+  --tugx-session-row-spark-rise: 0px;
+}
+
+.tug-session-row[data-prose="wrap"] .tug-activity-line .tug-activity-line-line {
+  block-size: auto;
+  min-block-size: max(
+    var(--tugx-activity-line-stacked-baseline-step),
+    var(--tugx-session-row-spark-height, 0px)
+  );
+  align-items: flex-end;
+}
+
+.tug-session-row[data-prose="wrap"] .tug-activity-line .tug-activity-line-line::before {
+  display: none;
+}
+
+.tug-session-row[data-prose="wrap"] .tug-activity-line-trailing {
+  align-self: flex-end;
+}

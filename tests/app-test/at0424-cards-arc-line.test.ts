@@ -1,18 +1,25 @@
 /**
- * at0424-cards-arc-line.test.ts — arc progress rides the session's row at its
- * fixed height: the title cluster and the step ring, never a fourth line.
+ * at0424-cards-arc-line.test.ts — arc progress rides the session's row on a
+ * line every row carries, so binding an arc never changes the row's shape.
  *
  * The Cards section is organized by CARDS, so an arc's place in it is inside
  * the session that is on it. The row used to grow a fourth line when bound —
- * which made row height a function of binding state and broke consistency
- * with the masthead — and that line is retired ([D141]). What replaced it:
+ * which made row height a function of binding state — and that line is
+ * retired ([D141]). The cluster then rode the TITLE, where on a rail it
+ * pushed the name and the phase word both into ellipses; it now rides the
+ * row's STANDING line ([D141] as amended), which every Workspaces row
+ * carries whether or not an arc is bound — an unbound row says its standing
+ * facts there. What is pinned:
  *
- *  - The TITLE carries the progress cluster after the identity's own
- *    `^<arc>` run: the lifecycle mark (`ArcLifecycleMark`) — the phase
- *    glyph, one pill, and the `i/N` count (`TugStepFraction`) once step
- *    counters exist. The mark is the COMPACT register of the one grammar,
- *    where an arc is one fact about a session; the track it replaced here
- *    draws in the other register, where the arc is the subject.
+ *  - The STANDING line carries the arc: its `^<arc>` run and the lifecycle
+ *    mark (`ArcLifecycleMark`) — the phase glyph, one pill, the phase word,
+ *    and the `i/N` count (`TugStepFraction`) once step counters exist. The
+ *    mark is the COMPACT register of the one grammar, where an arc is one
+ *    fact about a session; the track draws in the other register, where the
+ *    arc is the subject. The title line carries none of it.
+ *  - The standing line is there before the bind, through it, and after the
+ *    unbind — facts, then the arc, then facts again — so the row is the same
+ *    lines in every binding state.
  *  - The INDICATOR stays the bare phase dot, whatever the arc is doing. It
  *    used to become a segmented step ring once counters existed; with the
  *    track on the title line that was two marks drawing one step count in two
@@ -93,6 +100,10 @@ const PROGRESS = `${SESSION_ROW} [data-slot="session-identity-row-progress"]`;
 const MARK = `${PROGRESS} [data-slot="tug-arc-lifecycle-mark"]`;
 const PILL = `${MARK} [data-slot="tug-arc-lifecycle-mark-pill"]`;
 const FRACTION = `${PROGRESS} [data-slot="tug-step-fraction"]`;
+/** The line every Workspaces row carries under its title, and the facts an
+ *  unbound row says on it. */
+const STANDING = `${SESSION_ROW} [data-slot="tug-session-row-standing"]`;
+const STANDING_FACTS = `${STANDING} [data-slot="session-identity-row-standing-facts"]`;
 
 const LIST_CELLS = `${CARDS} .tug-list-view-cell`;
 
@@ -175,6 +186,9 @@ describe.skipIf(!SHOULD_RUN)("AT0424: arc progress on the session's row", () => 
           { timeoutMs: 20000 },
         );
         expect(await count(app, PROGRESS)).toBe(0);
+        // Unbound, the standing line is already there, saying the facts.
+        expect(await count(app, STANDING)).toBe(1);
+        expect(await count(app, STANDING_FACTS)).toBe(1);
         const bareCells = await listCellCount(app);
 
         // ── Bind, for real ────────────────────────────────────────────────
@@ -186,6 +200,7 @@ describe.skipIf(!SHOULD_RUN)("AT0424: arc progress on the session's row", () => 
 
         const cluster = await kindBody(app, "cards").evalJS<{
           insideSessionRow: boolean;
+          onStandingLine: boolean;
           onTitleLine: boolean;
           stage: string | null;
           stageWord: string | null;
@@ -198,8 +213,10 @@ describe.skipIf(!SHOULD_RUN)("AT0424: arc progress on the session's row", () => 
              const pill = document.querySelector(${JSON.stringify(PILL)});
              return {
                // The structural claim: the cluster is INSIDE the session's
-               // row, on the title's own line.
+               // row, on its standing line and not on the title's.
                insideSessionRow: session.contains(cluster),
+               onStandingLine:
+                 cluster.closest(".tug-session-row-standing") !== null,
                onTitleLine:
                  cluster.closest(".tug-session-row-name-line") !== null,
                stage: mark?.getAttribute("data-phase") ?? null,
@@ -213,7 +230,11 @@ describe.skipIf(!SHOULD_RUN)("AT0424: arc progress on the session's row", () => 
         );
         note("at0424 cluster", JSON.stringify(cluster));
         expect(cluster.insideSessionRow).toBe(true);
-        expect(cluster.onTitleLine).toBe(true);
+        expect(cluster.onStandingLine).toBe(true);
+        expect(cluster.onTitleLine).toBe(false);
+        // The same one standing line, now saying the arc instead of the facts.
+        expect(await count(app, STANDING)).toBe(1);
+        expect(await count(app, STANDING_FACTS)).toBe(0);
         // The fixture's plan is adopted but no step has opened, so the track
         // reads `review` — the phase between a plan existing and a walk
         // beginning. The point is that the cluster says something at all here:
@@ -226,13 +247,13 @@ describe.skipIf(!SHOULD_RUN)("AT0424: arc progress on the session's row", () => 
         // bare dot.
         expect(cluster.fractions).toBe(0);
 
-        // The retired fourth line never renders, and the list did not grow a
-        // row: same cells, same three lines, whatever the binding state.
+        // The retired arc line never renders, and the list did not grow a
+        // row: same cells, same lines, whatever the binding state.
         expect(await count(app, ARC_LINE)).toBe(0);
         expect(await listCellCount(app)).toBe(bareCells);
 
-        // The row says the arc's name exactly once, in the title's identity
-        // run — the sigil rides the session's name wherever it is named.
+        // The row says the arc's name exactly once, on the standing line —
+        // the title's identity run leaves it there rather than saying it twice.
         expect(await arcRunsOnSessionRow(app)).toBe(1);
         note("at0424 cards with the cluster", (await app.screenshot()).path);
 
@@ -336,6 +357,9 @@ describe.skipIf(!SHOULD_RUN)("AT0424: arc progress on the session's row", () => 
         );
         expect(await listCellCount(app)).toBe(bareCells);
         expect(await arcRunsOnSessionRow(app)).toBe(0);
+        // And the standing line says the facts again.
+        expect(await count(app, STANDING)).toBe(1);
+        expect(await count(app, STANDING_FACTS)).toBe(1);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

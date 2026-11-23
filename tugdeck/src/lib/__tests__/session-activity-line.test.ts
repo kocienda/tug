@@ -12,6 +12,8 @@ import { describe, expect, test } from "bun:test";
 import {
   formatRestingStamp,
   sessionActivityBeat,
+  sessionActivityFactsLine,
+  sessionActivityRestCloser,
   sessionActivityRestLine,
 } from "@/lib/session-activity-line";
 
@@ -82,6 +84,38 @@ describe("sessionActivityRestLine", () => {
     expect(line({ turnCount: 0, fileSize: null, lastUsedAtMs: null })).toBe(
       "No turns. Ready.",
     );
+  });
+});
+
+describe("the rest line, split for a standing line", () => {
+  // The Workspaces card's rows say the facts on a standing line and close
+  // the activity on the state alone; the two halves are the joined sentence.
+  test("the facts carry every segment but the closer", () => {
+    expect(
+      sessionActivityFactsLine({ turnCount: 7, fileSize: 49_357, lastUsedAtMs: AT_MS }),
+    ).toBe(`7 turns, 48 KB. Last updated: ${STAMP}.`);
+    expect(
+      sessionActivityFactsLine({ turnCount: 0, fileSize: 8_192, lastUsedAtMs: null }),
+    ).toBe("No turns, 8.0 KB.");
+  });
+
+  test("the closer is Ready., or Done. while an unread turn end stands", () => {
+    const facts = { turnCount: 7, fileSize: 49_357, lastUsedAtMs: AT_MS };
+    expect(sessionActivityRestCloser(facts)).toBe("Ready.");
+    expect(sessionActivityRestCloser({ ...facts, turnEndUnseen: true })).toBe("Done.");
+  });
+
+  test("facts and closer joined are exactly the rest line", () => {
+    const cases = [
+      { turnCount: 7, fileSize: 49_357, lastUsedAtMs: AT_MS, turnEndUnseen: true },
+      { turnCount: 0, fileSize: null, lastUsedAtMs: null },
+      { turnCount: 1, fileSize: 0, lastUsedAtMs: AT_MS },
+    ];
+    for (const facts of cases) {
+      expect(
+        `${sessionActivityFactsLine(facts)} ${sessionActivityRestCloser(facts)}`,
+      ).toBe(sessionActivityRestLine(facts));
+    }
   });
 });
 

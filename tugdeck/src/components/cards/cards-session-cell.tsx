@@ -2,17 +2,21 @@
  * cards-session-cell.tsx — the session *monitor* row, as it appears for a
  * single-card session pane in the Cards card:
  *
- *   [dot] <session name>^<arc> ⚒ 7/12           <slot layout>
- *   <description>
- *   <latest beat line>                        <activity sparkline>
+ *   [dot] <session name>                        <slot layout>
+ *   ^<arc> ⚒ Executing 7/12          — or: 14 turns, 6.8 MB. Last updated: …
+ *   <description, wrapping to two lines>
+ *   <activity, wrapping to two lines>              <activity sparkline>
  *
- * Three lines, always. A session on a counted arc swaps its dot for the step
- * ring and carries the stage glyph and the count on the title line — all of
- * it `SessionIdentityRow`'s own doing, so the row here has nothing arc-shaped
- * to assemble. The fourth line this row used to grow when bound is retired:
- * the title carries the progress in the width the hidden callsign freed, and
- * the step's title is the fraction's hover sentence wherever a fraction is
- * drawn.
+ * The title is the name and the slots, and nothing else. The arc — its
+ * `^<arc>` run and its worded lifecycle mark — stands on a line of its own
+ * under it, and a session on no arc says its standing facts there instead, so
+ * every row carries the line and binding an arc never changes a row's height
+ * ([D141] as amended). The description and the activity each wrap to
+ * {@link CARDS_SESSION_ROW_PROSE_LINES} lines rather than eliding on one: a
+ * rail is narrow, and those two sentences are what the row is there to say.
+ * All of it is `SessionIdentityRow`'s and `TugSessionRow`'s own doing, asked
+ * for by `standingLine` and `proseLines`, so the row here has nothing
+ * arc-shaped to assemble.
  *
  * The middle line is the agent's rolling description of the session, with the
  * session's creation date standing in until one is written — so the row is the
@@ -63,6 +67,12 @@ import { SessionActivitySparkline } from "@/components/tugways/session-activity-
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
 import { useSeedPath } from "@/components/tugways/cards/session-picker-seed";
 import { projectLeafName } from "@/lib/session-identity";
+
+/**
+ * How many lines the description and the activity may each wrap to on a
+ * Workspaces row before they elide. TUNE HERE.
+ */
+export const CARDS_SESSION_ROW_PROSE_LINES = 2;
 
 export interface CardsSessionRowProps {
   cardId: string;
@@ -148,10 +158,15 @@ export function CardsSessionRow({
         subAlign="edge"
         tape
         // The phase in words beside the arc's glyph — `Auditing` — since no
-        // ARC cell stands under a rail row to say it. It elides before the
-        // row's furniture does, and the step count stands beside it only
-        // while the arc is walking its plan.
+        // ARC cell stands under a rail row to say it. On the standing line it
+        // is said whole, and the step count stands beside it only while the
+        // arc is walking its plan.
         arcWord
+        // The arc on a line of its own under the title, or the session's
+        // standing facts there when no arc holds it; and the two sentences
+        // under that wrap rather than elide.
+        standingLine
+        proseLines={CARDS_SESSION_ROW_PROSE_LINES}
         // A monitor row answers a right-click with the session's copies — the
         // atom, the citation, the id, the description, the newest beat — over
         // its whole surface, the same menu the masthead offers. A rail is where
@@ -208,8 +223,8 @@ export interface CardsUnconnectedSessionRowProps {
 /**
  * A Session card that has not connected to a session yet — its picker is up.
  *
- * It wears the monitor row's shape, three lines and the same dot, so adding a
- * Session card does not drop a one-line row into a column of three-line ones
+ * It wears the monitor row's shape, its lines and the same dot, so adding a
+ * Session card does not drop a one-line row into a column of monitor rows
  * and then grow it when the card connects. The title reads like a connected
  * row's `<project>/<callsign>`: the project is the one the card's picker opens
  * on ({@link useSeedPath}), and the callsign's place says it has none yet.
@@ -250,6 +265,9 @@ export function CardsUnconnectedSessionRow({
       }
       indicatorSize={TUG_SESSION_ROW_INDICATOR_SIZE}
       name={renderFilterHighlight(title, filterQuery)}
+      // The connected row's standing line, held empty: nothing stands yet.
+      standing={null}
+      proseLines={CARDS_SESSION_ROW_PROSE_LINES}
       description="Not connected to a session"
       descriptionStandIn
       activity="Choose a session in the card"

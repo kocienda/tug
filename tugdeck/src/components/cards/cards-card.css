@@ -92,7 +92,7 @@
      over the movement caret drawn there. Less than the ring's full overhang,
      deliberately: giving all of it back would seat the reading where it was,
      hanging a visible indent inside the margin the section header sets. TUNE
-     HERE — the whole entry, dot and three lines, moves with it. */
+     HERE — the whole entry, dot and every line, moves with it. */
   --tugx-session-row-leading-inset: 4px;
   /* The tape is pinned to the end of the line and carries its own standoff, so
      the row ends on the list's narrower trailing pad — the same vertical the
@@ -108,7 +108,7 @@
    what makes a file row and a jot row the same height down the rail. No
    shared class carries the number: each rail card's list states it on its own
    rule, so the two are kept equal by hand rather than by the cascade. Scoped
-   to the one-line rows on purpose: the session monitor rows are three lines
+   to the one-line rows on purpose: the session monitor rows are four lines
    and keep the row default's air, and the group headers keep theirs so a
    group reads as separated from the one above it. */
 .cards-list .cards-oneline {

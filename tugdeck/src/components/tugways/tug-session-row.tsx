@@ -214,11 +214,13 @@ export const TUG_SESSION_SPARK_CURVE = sparklineCurves.gamma(0.6);
  */
 const SPARK_RESERVE_STYLE = {
   "--tugx-session-row-spark-width": `${TUG_SESSION_ROW_SPARK_WIDTH}px`,
+  "--tugx-session-row-spark-height": `${TUG_SESSION_ROW_SPARK_HEIGHT}px`,
   "--tugx-session-row-spark-reserve": `calc(${TUG_SESSION_ROW_SPARK_WIDTH}px + var(--tugx-activity-line-trailing-gap))`,
 } as React.CSSProperties;
 
 const NO_SPARK_RESERVE_STYLE = {
   "--tugx-session-row-spark-width": "0px",
+  "--tugx-session-row-spark-height": "0px",
   "--tugx-session-row-spark-reserve": "0px",
 } as React.CSSProperties;
 
@@ -339,6 +341,32 @@ export interface TugSessionRowProps
 
   /** The layout-imposer slots — the arrangement affordance. */
   slots?: React.ReactNode;
+
+  /**
+   * A STANDING line under the title — the fact about the session that holds
+   * while its prose moves. The Workspaces card puts the session's arc there
+   * (its `^<arc>` and lifecycle mark) or, on no arc, its standing facts
+   * (turns, size, last updated), so the title line is the name and the slots
+   * and nothing else.
+   *
+   * Rendered whenever the prop is present, EVEN WHEN NULL, so every row of a
+   * list that asks for it stands the same height whether or not an arc is
+   * bound. A row that does not want the line omits the prop.
+   */
+  standing?: React.ReactNode;
+
+  /**
+   * Let the description and the activity WRAP, each to at most this many
+   * lines, instead of eliding on one. The row is then as tall as what it has
+   * to say, up to the cap, and the tape moves to the activity's last line at
+   * the row's bottom trailing corner — so the description runs the row's whole
+   * width rather than stopping short of a graph beside it.
+   *
+   * Omitted, both lines are one line each, as the masthead and the picker
+   * want.
+   * @selector [data-prose="wrap"]
+   */
+  proseLines?: number;
 
   /**
    * Whether this row carries the pane chrome's GRAB HANDLE — the dot field that
@@ -496,6 +524,8 @@ export const TugSessionRow = React.forwardRef<
     indicatorSize,
     name,
     slots,
+    standing,
+    proseLines,
     grabHandle = false,
     description,
     descriptionFull,
@@ -548,11 +578,15 @@ export const TugSessionRow = React.forwardRef<
               ).toFixed(2)}px`,
             }
           : null),
+        ...(proseLines !== undefined
+          ? { ["--tugx-session-row-prose-lines" as string]: String(proseLines) }
+          : null),
         ...style,
       }}
       data-slot="tug-session-row"
       data-fit={fit}
       data-sub-align={subAlign}
+      data-prose={proseLines !== undefined ? "wrap" : undefined}
       selected={selected}
       trailing={trailing}
       trailingReveal={trailingReveal}
@@ -585,6 +619,14 @@ export const TugSessionRow = React.forwardRef<
             </span>
           ) : null}
         </span>
+        {standing !== undefined ? (
+          <span
+            className="tug-session-row-standing"
+            data-slot="tug-session-row-standing"
+          >
+            {standing}
+          </span>
+        ) : null}
         {/* The description and the beat beneath it are ONE GROUP, and the
             group is a real box rather than an arrangement the eye infers.
             What wants it is the tape: the graph reports on the pair, not on

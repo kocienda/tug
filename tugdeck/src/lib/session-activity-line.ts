@@ -99,6 +99,17 @@ export interface SessionActivityFacts {
  * `Done.` while an unread turn end stands, `Ready.` otherwise.
  */
 export function sessionActivityRestLine(facts: SessionActivityFacts): string {
+  return `${sessionActivityFactsLine(facts)} ${sessionActivityRestCloser(facts)}`;
+}
+
+/**
+ * The rest line's FACTS, without its closer: `<turns> turns, <size>. Last
+ * updated: <stamp>.` The Workspaces card's rows say these on a standing line
+ * of their own when no arc holds it, so the line under them can close on the
+ * session's state alone ({@link sessionActivityRestCloser}). Composed here so
+ * the split and the joined sentence are one grammar.
+ */
+export function sessionActivityFactsLine(facts: SessionActivityFacts): string {
   const segments: string[] = [];
 
   const turns = facts.turnCount > 0 ? facts.turnCount : 0;
@@ -117,9 +128,12 @@ export function sessionActivityRestLine(facts: SessionActivityFacts): string {
     segments.push(`Last updated: ${formatRestingStamp(facts.lastUsedAtMs)}.`);
   }
 
-  segments.push(facts.turnEndUnseen === true ? `${TURN_DONE_MARKER}.` : "Ready.");
-
   return segments.join(" ");
+}
+
+/** The rest line's closer: `Done.` while an unread turn end stands, else `Ready.` */
+export function sessionActivityRestCloser(facts: SessionActivityFacts): string {
+  return facts.turnEndUnseen === true ? `${TURN_DONE_MARKER}.` : "Ready.";
 }
 
 /**

@@ -210,6 +210,8 @@ import {
 } from "@/lib/overview-store";
 import {
   sessionActivityBeat,
+  sessionActivityFactsLine,
+  sessionActivityRestCloser,
   sessionActivityRestLine,
 } from "@/lib/session-activity-line";
 import { useArcForSession, type ArcSessionFact } from "@/lib/arc-session-index";
@@ -724,6 +726,7 @@ export interface SessionIdentityRowProps
     | "descriptionStandIn"
     | "activity"
     | "sparkline"
+    | "standing"
   > {
   /** Whose session. The only key most surfaces hold, and the only one needed. */
   sessionId: string;
@@ -793,6 +796,22 @@ export interface SessionIdentityRowProps
    * @default false
    */
   arcWord?: boolean;
+  /**
+   * Whether the row carries a STANDING line under its title, and the arc
+   * moves onto it — the Workspaces card's rows.
+   *
+   * A rail's title line had six things to hold (the dot, the name, the
+   * `^<arc>` run, the arc's lifecycle mark, the slot picker and the slot
+   * badge), so the name and the phase word both elided at any width a rail
+   * stands at. On, the title is the name and the slots; the line under it
+   * says the arc and its mark, or, for a session on no arc, its standing
+   * facts — turns, size, last updated — and the rest sentence below then
+   * closes on `Ready.` or `Done.` alone rather than saying them twice. The
+   * line is there on every row either way, so binding an arc never changes
+   * a row's height ([D141] as amended).
+   * @default false
+   */
+  standingLine?: boolean;
   /**
    * Wrap the tape before it is mounted — for a surface that hangs an
    * affordance on it. The masthead's tape is the trigger for the expanded
@@ -954,6 +973,7 @@ export function SessionIdentityRow({
   drift = false,
   tape = false,
   arcWord = false,
+  standingLine = false,
   renderTape,
   identityContext,
   row: rowOverride,
@@ -1181,12 +1201,20 @@ export function SessionIdentityRow({
   // own `done` key, so the two cannot disagree: a session whose work is still
   // running in the background wears neither.
   const turnEndUnseen = useSessionPhase(sessionId) === "done";
-  const restLine = sessionActivityRestLine({
+  const restFacts = {
     turnCount: facts?.turn_count ?? 0,
     fileSize: facts?.file_size ?? null,
     lastUsedAtMs: facts?.last_used_at ?? null,
     turnEndUnseen,
-  });
+  };
+  // On a row with a standing line and no arc, the facts are said on that
+  // line, and the rest sentence closes on the session's state alone — the
+  // same sentence, split across the two lines, never said twice.
+  const factsLine = sessionActivityFactsLine(restFacts);
+  const restLine =
+    standingLine && arcFact === null
+      ? sessionActivityRestCloser(restFacts)
+      : sessionActivityRestLine(restFacts);
   const choice = sessionActivity({
     override: activityOverride,
     compacting,
@@ -1326,7 +1354,9 @@ export function SessionIdentityRow({
       // handed the answer rather than subscribing for it. `false` when the row
       // read no arc — that is the prop's "on no arc, and do not ask" arm,
       // and it is the case a second subscription most often disagreed about.
-      arc={arcFact ?? false}
+      // On a row with a standing line, the arc is said THERE, once — the
+      // title is the name alone.
+      arc={standingLine ? false : (arcFact ?? false)}
       // Where the row answers a right-click, the hover says nothing. Both were
       // showing the session's name and description over a row already showing
       // both, and only one of them can be acted on.
@@ -1392,7 +1422,7 @@ export function SessionIdentityRow({
       </span>
     ) : null;
   const titleRun =
-    progress !== null ? (
+    progress !== null && !standingLine ? (
       <span className="session-identity-row-title-run">
         {runs}
         {progress}
@@ -1400,6 +1430,30 @@ export function SessionIdentityRow({
     ) : (
       runs
     );
+
+  // The standing line: the arc and its lifecycle mark, or the session's
+  // standing facts when no arc holds it. The arc's name is the run that gives
+  // way; the mark is said whole (`session-identity-row.css`).
+  const standing = !standingLine ? undefined : arcFact !== null ? (
+    <>
+      <span className="session-identity-row-standing-arc">
+        <ArcSigil
+          name={arcFact.name}
+          nameContent={renderFilterHighlight(arcFact.name, highlight)}
+          slot="session-identity-arc"
+          ariaLabel={`Worked by arc ${arcFact.name}`}
+        />
+      </span>
+      {progress}
+    </>
+  ) : (
+    <span
+      className="session-identity-row-standing-facts"
+      data-slot="session-identity-row-standing-facts"
+    >
+      {factsLine}
+    </span>
+  );
 
   return (
     <>
@@ -1440,6 +1494,7 @@ export function SessionIdentityRow({
         )
       }
       description={descriptionRun}
+      standing={standing}
       descriptionFull={descriptionFull}
       descriptionElided={description !== descriptionFull}
       descriptionStandIn={descriptionStandIn}
