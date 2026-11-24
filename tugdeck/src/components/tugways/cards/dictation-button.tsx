@@ -64,7 +64,7 @@ export interface DictationButtonProps {
   target: Pick<PromptInsertTarget, "dictation">;
   /**
    * `lg` in the Session entry, `sm` in the Overview — their Submit sizes —
-   * and `xs` in a Text card's status strip, beside its popups.
+   * and `sm` in a Text card's status strip too, beside its popups.
    */
   size: "xs" | "sm" | "lg";
   /**

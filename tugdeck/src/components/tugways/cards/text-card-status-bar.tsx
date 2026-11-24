@@ -174,7 +174,7 @@ export function TextCardStatusBar({
             <TugPushButton
               className="text-card-status-preview"
               data-testid="text-card-status-preview"
-              size="xs"
+              size="sm"
               emphasis="outlined"
               role="option"
               pressed={previewing}
@@ -187,7 +187,7 @@ export function TextCardStatusBar({
             </TugPushButton>
           ) : null}
           <TugPopupButton
-            size="xs"
+            size="sm"
             label={languageLabel}
             items={LANGUAGE_ITEMS}
             senderId={languageSenderId}
@@ -195,7 +195,7 @@ export function TextCardStatusBar({
             focusOrder={focusOrder + 1}
           />
           <TugPopupButton
-            size="xs"
+            size="sm"
             label={LINE_ENDING_LABEL[lineEnding]}
             items={LINE_ENDING_ITEMS}
             senderId={lineEndingSenderId}
@@ -214,7 +214,7 @@ export function TextCardStatusBar({
               composerId={dictation.id}
               cardId={dictation.id}
               target={dictation.target}
-              size="xs"
+              size="sm"
               disabled={previewing}
               focusGroup={focusGroup}
               focusOrder={focusOrder + 3}

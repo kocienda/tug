@@ -112,9 +112,9 @@
   display: flex;
   align-items: center;
   gap: var(--tug-space-lg);
-  min-height: 2rem;
+  min-height: 2.75rem;
   box-sizing: border-box;
-  padding: 0 var(--tug-space-lg);
+  padding: var(--tug-space-xs) var(--tug-space-lg);
   flex: 0 0 auto;
   /* Contrasting rule vs. the editor content (pane-title-bar divider). */
   border-top: 1px solid var(--tug7-element-global-divider-normal-default-rest);
