@@ -41,6 +41,13 @@ describe("parseActivityFrame", () => {
     });
   });
 
+  test("reads tugcast's machine rate channel under its own name", () => {
+    const f = parseActivityFrame(
+      encode({ tug_session_id: "s", channels: { machine: 300 } }),
+    );
+    expect(f).toEqual({ tug_session_id: "s", channels: { machine: 300 } });
+  });
+
   test("normalizes gauge wire keys and folds disk read+write", () => {
     const f = parseActivityFrame(
       encode({

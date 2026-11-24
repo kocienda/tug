@@ -45,12 +45,15 @@ import {
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
 
 /** The per-session activity channels (Spec S01). Rate channels are
- *  stream-derived by tugcode; gauge channels are cast-sampled OS signals. */
+ *  stream-derived by tugcode, save `machine`, which tugcast samples from what
+ *  a session's tool processes consume; gauge channels are cast-sampled OS
+ *  signals. */
 export type ActivityChannel =
   | "text"
   | "tokens"
   | "tools"
   | "subagents"
+  | "machine"
   | "cpu"
   | "memory"
   | "disk";
@@ -101,6 +104,16 @@ export const ACTIVITY_DESCRIPTORS: Readonly<
   subagents: {
     unit: "ops/s",
     hue: "var(--activity-subagents)",
+    fullScale: 1200,
+    curve: sparklineCurves.gamma(0.6),
+    kind: "rate",
+  },
+  // Machine work: what the session's tool processes consume, sampled by
+  // tugcast at the tape's grain whether or not a turn is open. One busy
+  // core is 600 units a second, half this full scale.
+  machine: {
+    unit: "units/s",
+    hue: "var(--activity-machine)",
     fullScale: 1200,
     curve: sparklineCurves.gamma(0.6),
     kind: "rate",

@@ -1111,6 +1111,7 @@ body {
   --activity-tokens:    var(--tugx-term-ansi-bright-green);
   --activity-tools:     var(--tugx-term-ansi-bright-yellow);
   --activity-subagents: var(--tugx-term-ansi-bright-magenta);
+  --activity-machine:   var(--tugx-term-ansi-cyan);
   --activity-cpu:       var(--tugx-term-ansi-bright-red);
   --activity-memory:    var(--tugx-term-ansi-blue);
   --activity-disk:      var(--tugx-term-ansi-bright-cyan);

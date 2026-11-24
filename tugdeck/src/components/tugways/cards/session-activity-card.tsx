@@ -59,6 +59,10 @@ const CHANNEL_META: Readonly<
     label: "Subagents",
     blurb: "Background agents — their tool calls and results.",
   },
+  machine: {
+    label: "Machine",
+    blurb: "Work the session's commands are doing — processor time, processes started, and disk.",
+  },
   cpu: {
     label: "CPU",
     blurb: "CPU used by this session's process tree (claude + subprocesses).",
@@ -84,6 +88,7 @@ const VISIBLE_CHANNELS: readonly ActivityChannel[] = [
   "tokens",
   "tools",
   "subagents",
+  "machine",
   "cpu",
   "disk",
 ];

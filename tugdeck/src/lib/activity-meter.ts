@@ -2,7 +2,7 @@
  * Activity meters — the per-channel rolling-bin records behind the
  * {@link SessionActivityStore} ([P02]). Two aggregation kinds:
  *
- *  - **rate** (`text | tokens | tools | subagents`): work accumulated into
+ *  - **rate** (`text | tokens | tools | subagents | machine`): work accumulated into
  *    fixed 250 ms wall-clock bins. `series` returns the per-bin counts
  *    oldest→newest; the sparkline sums the trailing window into a
  *    per-second rate. Advancing past idle bins zero-fills them, so a

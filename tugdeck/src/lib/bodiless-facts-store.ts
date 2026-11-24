@@ -63,7 +63,7 @@ import { bodyCardsStore, pageless, type BodyCardState } from "./body-cards-store
 import { bodyFactsStore } from "./body-facts-store";
 import { cardSessionBindingStore, ledgerSegmentForCard } from "./card-session-binding-store";
 import { getShellDeck } from "./deck-store-registry";
-import { getSessionActivityStore, type ActivityChannel } from "./session-activity-store";
+import { getSessionActivityStore, isRateChannel, type ActivityChannel } from "./session-activity-store";
 import { getSessionLedgerStore, subscribeSessionLedger } from "./session-ledger-store";
 import { Subscribable } from "./subscribable";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
@@ -79,8 +79,19 @@ const WORKING_KEYS: ReadonlySet<string> = new Set([
   "interrupting",
 ]);
 
-/** The channels whose sample is the session doing work; the gauges are the OS's. */
-const RATE_CHANNELS: ReadonlySet<ActivityChannel> = new Set<ActivityChannel>(["text", "tokens", "tools", "subagents"]);
+/**
+ * The channels whose sample is the session doing work are the activity
+ * store's rate channels ({@link isRateChannel}); the gauges are the OS's.
+ *
+ * One of them, `machine`, is measured from the processes the session started
+ * rather than from its turn, and is sampled whether or not a turn is open: a
+ * background job that runs on after its turn ended draws it. So a `machine`
+ * sample reads as tool work only as the work of an open turn. Under an open
+ * latch it names the work; under a closed latch it changes nothing, as every
+ * sample does; and on a row with no latch it may rename the work of a reading
+ * that is already working, but never turns an idle reading to working.
+ */
+const MACHINE_CHANNEL: ActivityChannel = "machine";
 
 /**
  * How long after the ledger stamped a turn's end a rate sample is still that
@@ -147,7 +158,7 @@ export function enterBodiless(
 }
 
 /**
- * A rate sample for the session: it is working. Tools and subagents read as
+ * A rate sample for the session: it is working. Tools, subagents and machine work read as
  * tool work, text and tokens as streaming. A sample in the tail of a turn
  * whose end was just heard changes nothing.
  *
@@ -162,10 +173,12 @@ export function onActivity(
   atMs: number,
   latch: boolean | null = null,
 ): BodilessReading {
-  if (!RATE_CHANNELS.has(channel)) return reading;
+  if (!isRateChannel(channel)) return reading;
   if (latch === false) return reading;
   if (latch === null && reading.endedAt !== null && atMs - reading.endedAt < TURN_TAIL_MS) return reading;
-  const activity = channel === "tools" || channel === "subagents" ? "tool_work" : "streaming";
+  if (channel === MACHINE_CHANNEL && latch === null && !reading.working) return reading;
+  const activity =
+    channel === "tools" || channel === "subagents" || channel === MACHINE_CHANNEL ? "tool_work" : "streaming";
   if (reading.working && reading.activity === activity) return reading;
   return { ...reading, activity, working: true };
 }

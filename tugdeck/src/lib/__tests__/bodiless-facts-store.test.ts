@@ -168,6 +168,23 @@ describe("the derivation", () => {
     expect(onActivity(ended, "text", 7_001, null), "an unknown latch keeps the tail rule").toBe(ended);
   });
 
+  test("machine work is tool work only as an open turn's: it never opens a turn on its own", () => {
+    const idle = enterBodiless(facts(), 1_000, 5_000);
+    const open = onLedger(idle, row({ turn_active: true }), 6_000);
+    expect(onActivity(open, "machine", 6_001, true), "an open latch names the work").toMatchObject({
+      activity: "tool_work",
+      working: true,
+    });
+    const ended = onLedger(open, row({ turn_active: false }), 7_000);
+    expect(onActivity(ended, "machine", 7_000 + 10 * TURN_TAIL_MS, false), "a closed latch changes nothing").toBe(ended);
+    expect(onActivity(idle, "machine", 6_000, null), "no latch: an idle reading stays idle").toBe(idle);
+    const streaming = onActivity(idle, "text", 6_000, null);
+    expect(onActivity(streaming, "machine", 6_100, null), "no latch: a working reading is renamed").toMatchObject({
+      activity: "tool_work",
+      working: true,
+    });
+  });
+
   test("the followed session: the binding, else the ledger's live row for a card no page has bound", () => {
     const ledger = () => "s9";
     expect(followedSession("s1", "unmade", ledger)).toBe("s1");

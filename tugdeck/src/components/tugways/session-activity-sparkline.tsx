@@ -49,7 +49,7 @@ import {
 } from "@/components/tugways/tug-session-row";
 
 /** What the tape says it is, on every surface that draws one. */
-const SPARK_TITLE = "Session activity — text, tokens, tools, and subagents";
+const SPARK_TITLE = "Session activity — text, tokens, tools, subagents, and machine work";
 
 /**
  * The handle on this instrument, as distinct from any other tape the app draws.

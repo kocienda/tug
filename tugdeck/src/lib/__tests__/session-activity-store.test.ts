@@ -34,6 +34,28 @@ describe("SessionActivityStore", () => {
     expect(composite[composite.length - 1]).toBe(150);
   });
 
+  it("machine work is a rate: it joins the composite and can take the hue", () => {
+    const store = newStore();
+    const now = 1_000;
+    store.record(S, "text", 30, now);
+    store.record(S, "machine", 600, now);
+    const composite = store.compositeSeries(S, now);
+    expect(composite[composite.length - 1]).toBe(630);
+    // A session whose line is machine work reads as machine work.
+    expect(store.dominant(S, now)).toBe("machine");
+  });
+
+  it("machine work wakes a composite listener", () => {
+    const store = newStore();
+    const woke: string[] = [];
+    const unsubscribe = store.subscribeActivity(S, (channel) => {
+      woke.push(channel);
+    });
+    store.record(S, "machine", 60, 1_000);
+    expect(woke).toEqual(["machine"]);
+    unsubscribe();
+  });
+
   it("reports the dominant rate channel, and null when idle", () => {
     const store = newStore();
     const now = 1_000;
@@ -93,15 +115,17 @@ describe("SessionActivityStore", () => {
     // Record out of canonical order and across rate + gauge kinds.
     store.record(S, "cpu", 40, now);
     store.record(S, "text", 100, now);
+    store.record(S, "machine", 60, now);
     store.record(S, "subagents", 5, now);
     store.record(S, "tokens", 20, now);
     // The Activity card maps `channels(session)` to its rows, so the order
     // is the canonical descriptor order regardless of arrival order.
-    expect(store.channels(S)).toEqual(["text", "tokens", "subagents", "cpu"]);
+    expect(store.channels(S)).toEqual(["text", "tokens", "subagents", "machine", "cpu"]);
     expect(store.getSnapshot().sessions.get(S)).toEqual([
       "text",
       "tokens",
       "subagents",
+      "machine",
       "cpu",
     ]);
   });

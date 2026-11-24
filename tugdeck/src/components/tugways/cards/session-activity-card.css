@@ -73,6 +73,9 @@
 .session-activity-card-row[data-activity-channel="subagents"] {
   --row-accent: var(--activity-subagents);
 }
+.session-activity-card-row[data-activity-channel="machine"] {
+  --row-accent: var(--activity-machine);
+}
 .session-activity-card-row[data-activity-channel="cpu"] {
   --row-accent: var(--activity-cpu);
 }

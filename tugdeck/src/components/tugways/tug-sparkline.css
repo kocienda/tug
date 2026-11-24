@@ -101,6 +101,10 @@
   color: var(--activity-subagents);
 }
 /* @tug-renders-on var(--tug7-surface-card-primary-normal-status-rest) */
+.tug-sparkline[data-activity-channel="machine"] {
+  color: var(--activity-machine);
+}
+/* @tug-renders-on var(--tug7-surface-card-primary-normal-status-rest) */
 .tug-sparkline[data-activity-channel="cpu"] {
   color: var(--activity-cpu);
 }

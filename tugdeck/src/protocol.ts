@@ -1559,6 +1559,7 @@ const ACTIVITY_WIRE_CHANNELS: Readonly<Record<string, string>> = {
   tokens: "tokens",
   tools: "tools",
   subagents: "subagents",
+  machine: "machine",
   cpu_pct: "cpu",
   rss_bytes: "memory",
   disk_read_bps: "disk",
