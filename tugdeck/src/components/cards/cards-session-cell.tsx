@@ -3,12 +3,12 @@
  * single-card session pane in the Cards card:
  *
  *   [dot] <session name>                        <slot layout>
- *   ^<arc> ⚒ Executing 7/12                       <activity sparkline>
+ *   ^<arc> ⚒ 7/12                                 <activity sparkline>
  *     — or: 14 turns, 6.8 MB. Last updated: …     <activity sparkline>
  *   <description>
  *
  * The title is the name and the slots, and nothing else. The arc — its
- * `^<arc>` run and its worded lifecycle mark — stands on a line of its own
+ * `^<arc>` run and its lifecycle mark — stands on a line of its own
  * under it, and a session on no arc says its standing facts there instead, so
  * every row carries the line and binding an arc never changes a row's height
  * ([D141] as amended). The tape rides that line's trailing end.
@@ -164,11 +164,6 @@ export function CardsSessionRow({
         // the 28px glyph above is a wide indent to spend on a rail this narrow.
         subAlign="edge"
         tape
-        // The phase in words beside the arc's glyph — `Auditing` — since no
-        // ARC cell stands under a rail row to say it. On the standing line it
-        // is said whole, and the step count stands beside it only while the
-        // arc is walking its plan.
-        arcWord
         // The arc on a line of its own under the title, or the session's
         // standing facts there when no arc holds it, with the tape at its
         // end; and no activity line under the description.

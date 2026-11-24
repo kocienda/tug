@@ -12,8 +12,8 @@
  * facts there. What is pinned:
  *
  *  - The STANDING line carries the arc: its `^<arc>` run and the lifecycle
- *    mark (`ArcLifecycleMark`) — the phase glyph, one pill, the phase word,
- *    and the `i/N` count (`TugStepFraction`) once step counters exist. The
+ *    mark (`ArcLifecycleMark`) — the phase glyph, one pill, and the `i/N`
+ *    count (`TugStepFraction`) once step counters exist. The
  *    mark is the COMPACT register of the one grammar, where an arc is one
  *    fact about a session; the track draws in the other register, where the
  *    arc is the subject. The title line carries none of it.
@@ -300,10 +300,9 @@ describe.skipIf(!SHOULD_RUN)("AT0424: arc progress on the session's row", () => 
         // tick per step — is the OTHER register's to draw, on a surface where
         // the arc is the subject; a session's row carries the compact one.
         expect(stepped.phase).toBe("implement");
-        // And says it in WORDS, as the Z2 cell and the Changes lane do: a rail
-        // row has no ARC cell under it, so the glyph alone left `Auditing` and
-        // `Executing` unsaid on this card.
-        expect(stepped.word).toBe("Executing");
+        // And says it with the glyph alone: the phase word is spent so the
+        // arc's name keeps the width ([D141] as amended).
+        expect(stepped.word).toBeNull();
         // One dot on the row, and no ring around it.
         expect(stepped.monitorDots).toBe(1);
         // Still no fourth line, still the same cells.
@@ -311,10 +310,9 @@ describe.skipIf(!SHOULD_RUN)("AT0424: arc progress on the session's row", () => 
         expect(await listCellCount(app)).toBe(bareCells);
         note("at0424 cards with the walk begun", (await app.screenshot()).path);
 
-        // ── The walk ends: the word stands alone ──────────────────────────
-        // Every row closed, so the arc is past `implement`. The count was the
-        // walk's; left standing it read `Auditing 3/3`, and on a rail narrow
-        // enough to elide the word it read `3/3` and nothing else.
+        // ── The walk ends: the glyph moves on ─────────────────────────────
+        // Every row closed, so the arc is past `implement`, and the mark's
+        // glyph says so — still with no word beside it.
         // One typed line, and a short one: the harness types it a key at a
         // time, and the file has a budget. Quiet, too: five steps' worth of
         // output is taller than the transcript, which mounts only the rows
@@ -328,7 +326,7 @@ describe.skipIf(!SHOULD_RUN)("AT0424: arc progress on the session's row", () => 
           2,
         );
         await kindBody(app, "cards").waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(FRACTION)}) === null`,
+          `(() => { const p = document.querySelector(${JSON.stringify(MARK)})?.getAttribute("data-phase"); return p === "audit" || p === "join"; })()`,
           { timeoutMs: 30000 },
         );
         const walked = await kindBody(app, "cards").evalJS<{
@@ -347,7 +345,7 @@ describe.skipIf(!SHOULD_RUN)("AT0424: arc progress on the session's row", () => 
         );
         note("at0424 with the walk over", JSON.stringify(walked));
         expect(["audit", "join"]).toContain(walked.phase ?? "(none)");
-        expect((walked.word ?? "").length).toBeGreaterThan(0);
+        expect(walked.word).toBeNull();
 
         // ── Unbind, for real ──────────────────────────────────────────────
         await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc unbind`, 3);

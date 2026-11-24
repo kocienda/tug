@@ -41,17 +41,10 @@
   margin-inline-end: var(--tugx-session-identity-progress-trail, 6px);
 }
 
-/* A worded cluster may give way: its phase word elides (`Audit…`) rather than
-   pushing the row's trailing furniture off the line. */
-.session-identity-row-progress[data-worded="true"] {
-  flex: 0 1 auto;
-  min-width: 0;
-}
-
 /* The STANDING line's arc ([D141] as amended) — the Workspaces card's rows,
    where the arc leaves the title for a line of its own. The `^<arc>` run is
-   the one that gives way; the lifecycle mark beside it is said whole, phase
-   word and count, which is what moving it off the title line was for. The
+   the one that gives way; the lifecycle mark beside it is said whole — pill,
+   glyph and count, with no phase word — so the name has the width. The
    facts a row on no arc says there elide at the end like any one-line run. */
 .session-identity-row-standing-facts {
   flex: 0 1 auto;
@@ -74,8 +67,7 @@
   max-inline-size: 100%;
 }
 
-.tug-session-row-standing .session-identity-row-progress,
-.tug-session-row-standing .session-identity-row-progress[data-worded="true"] {
+.tug-session-row-standing .session-identity-row-progress {
   flex: 0 0 auto;
   margin-inline-end: 0;
 }
