@@ -22,11 +22,20 @@ afterEach(() => {
   restoreWebSocket();
 });
 
-function openChannel(sessions?: "all" | string[]): { channel: InProcessIngestChannel; batches: SessionBatch[] } {
+function openChannel(
+  sessions?: "all" | string[],
+  watch?: "all" | string[],
+): { channel: InProcessIngestChannel; batches: SessionBatch[] } {
   const channel = new InProcessIngestChannel({ timers: QUIET_TIMERS });
   const batches: SessionBatch[] = [];
   channel.setBatchListener((batch) => batches.push(batch));
-  channel.post({ kind: "init", wsUrl: "ws://test.invalid/ws", periodMs: 16, ...(sessions === undefined ? {} : { sessions }) });
+  channel.post({
+    kind: "init",
+    wsUrl: "ws://test.invalid/ws",
+    periodMs: 16,
+    ...(sessions === undefined ? {} : { sessions }),
+    ...(watch === undefined ? {} : { watch }),
+  });
   return { channel, batches };
 }
 
@@ -139,6 +148,37 @@ describe("IngestHost — the wire half", () => {
     expect(subscriptionOf(["s1"])).toEqual({ action: "subscribe_feeds", feeds: [FeedId.JOTS], sessions: ["s1"] });
     expect(subscriptionOf()).toEqual({ action: "subscribe_feeds", feeds: [FeedId.JOTS] });
     expect(subscriptionOf("all")).toEqual({ action: "subscribe_feeds", feeds: [FeedId.JOTS] });
+  });
+
+  test("the watch scope rides every subscription beside the bound sessions, and none sends nothing", () => {
+    const controls = (sessions?: "all" | string[], watch?: "all" | string[], then?: (c: InProcessIngestChannel) => void): unknown[] => {
+      const { channel } = openChannel(sessions, watch);
+      channel.post({ kind: "subscribe", feeds: [FeedId.ACTIVITY] });
+      channel.post({ kind: "connect" });
+      const ws = FakeWebSocket.last!;
+      handshake(ws);
+      then?.(channel);
+      return ws.sent
+        .filter((d): d is ArrayBuffer => typeof d !== "string")
+        .map((d) => decodeFrame(d))
+        .filter((f) => f.feedId === FeedId.CONTROL)
+        .map((f) => JSON.parse(new TextDecoder().decode(f.payload)));
+    };
+    expect(controls([], "all")).toEqual([
+      { action: "subscribe_feeds", feeds: [FeedId.ACTIVITY], sessions: [], watch: "all" },
+    ]);
+    expect(controls([], ["s1"])).toEqual([
+      { action: "subscribe_feeds", feeds: [FeedId.ACTIVITY], sessions: [], watch: ["s1"] },
+    ]);
+    expect(controls([], [])).toEqual([{ action: "subscribe_feeds", feeds: [FeedId.ACTIVITY], sessions: [] }]);
+    expect(controls([])).toEqual([{ action: "subscribe_feeds", feeds: [FeedId.ACTIVITY], sessions: [] }]);
+    // A live `sessions` post replaces both halves, and the watch it carries goes out with the narrowed set.
+    expect(
+      controls([], [], (c) => c.post({ kind: "sessions", sessions: ["s2"], watch: "all" })),
+    ).toEqual([
+      { action: "subscribe_feeds", feeds: [FeedId.ACTIVITY], sessions: [] },
+      { action: "subscribe_feeds", feeds: [FeedId.ACTIVITY], sessions: ["s2"], watch: "all" },
+    ]);
   });
 
   test("a frame the page sent after the wire closed is refused with a reason, not dropped quietly", () => {

@@ -1652,10 +1652,12 @@ mod tests {
         let h = Harness::bare();
         let only_s1 = || SessionSubscription::Only(["s1".to_string()].into());
         h.pages.register(A, &identity(PageRole::Shell, None));
-        h.pages.set_sessions(A, only_s1());
+        h.pages
+            .set_sessions(A, only_s1(), SessionSubscription::none());
         h.pages
             .register(QUIET_BODY, &identity(PageRole::Body, Some("c1")));
-        h.pages.set_sessions(QUIET_BODY, only_s1());
+        h.pages
+            .set_sessions(QUIET_BODY, only_s1(), SessionSubscription::none());
         h.pages.register(TOOL, &PageIdentity::tool());
         h.control_from(A, json!({"kind": "display-period", "periodMs": 16.0}))
             .await;

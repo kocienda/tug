@@ -436,14 +436,20 @@ export class WireSocket {
   }
 
   /**
-   * Send a `subscribe_feeds` CONTROL frame carrying `feeds`, and `sessions`
-   * when it names some. The message replaces the whole filter, so leaving
-   * `sessions` out is every session.
+   * Send a `subscribe_feeds` CONTROL frame carrying `feeds`, `sessions` when
+   * it names some, and `watch` when it watches any. The message replaces the
+   * whole filter, so leaving `sessions` out is every session and leaving
+   * `watch` out is none.
    */
-  sendSubscription(feeds: readonly number[], sessions: "all" | readonly string[] = "all"): void {
+  sendSubscription(
+    feeds: readonly number[],
+    sessions: "all" | readonly string[] = "all",
+    watch: "all" | readonly string[] = [],
+  ): void {
     const frame = controlFrame("subscribe_feeds", {
       feeds: [...feeds],
       ...(sessions === "all" ? {} : { sessions: [...sessions] }),
+      ...(watch === "all" ? { watch: "all" } : watch.length > 0 ? { watch: [...watch] } : {}),
     });
     this.send(frame.feedId, frame.flags, frame.payload);
   }

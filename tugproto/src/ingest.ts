@@ -132,6 +132,12 @@ export interface IngestInitControl {
    * exactly those ids, `[]` none. Absent, or `"all"`, is every session.
    */
   sessions?: "all" | string[];
+  /**
+   * The sessions this page lists and so watches: it takes the glance feeds
+   * (ACTIVITY) for them beside the ones `sessions` binds it to. An array is
+   * exactly those ids; absent, or `[]`, is none.
+   */
+  watch?: "all" | string[];
 }
 
 /** Open the socket (and clear a previous close's intentional latch). */
@@ -162,12 +168,14 @@ export interface IngestSubscribeControl {
 
 /**
  * Replace the sessions whose session-scoped frames this page receives
- * (`init`'s `sessions`); sent with the subscription again now if the wire is
- * live, and on every later handshake.
+ * (`init`'s `sessions`) and the sessions it watches (`init`'s `watch`); sent
+ * with the subscription again now if the wire is live, and on every later
+ * handshake.
  */
 export interface IngestSessionsControl {
   kind: "sessions";
   sessions: "all" | string[];
+  watch: "all" | string[];
 }
 
 /** One outbound frame's payload; `bytes` is transferred. */

@@ -746,8 +746,10 @@ pub(crate) async fn supervisor(
     feed_router.register_session_feed(&session_sideband_feed);
     // ACTIVITY ([P16]) — a native SessionScopedFeed client. The merger
     // publishes diverted `activity_delta` samples through the handle; the
-    // router wires the same broadcast channel into client delivery.
-    feed_router.register_session_feed(&activity_feed);
+    // router wires the same broadcast channel into client delivery. It is
+    // the one watch feed: a page that lists sessions hears it for every
+    // session it watches, not only the one it is bound to.
+    feed_router.register_watch_feed(&activity_feed);
 
     // Register input sinks (client → server backends). CODE_INPUT points
     // at the supervisor's dispatcher (spawned above); the dispatcher

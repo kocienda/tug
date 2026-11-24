@@ -228,6 +228,12 @@ export class TugConnection {
    * A rebuilt host is initialized with it.
    */
   private sessionScope: "all" | string[] = "all";
+  /**
+   * The sessions this page lists and so watches: tugcast sends it their
+   * glance frames (ACTIVITY) beside its bound `sessionScope`'s. None until a
+   * page that lists sessions names them; a rebuilt host is initialized with it.
+   */
+  private watchScope: "all" | string[] = [];
   /** What each open session's engine was opened with, so a rebuilt host can open it again. */
   private readonly sessionOpens = new Map<string, SessionOpenOptions>();
   /** Set by `dispose`: no channel is built after it, and nothing more is posted. */
@@ -424,6 +430,7 @@ export class TugConnection {
           ? { role: "body", pageId: this.pageId, cardId: this.page.cardId ?? `spare:${this.pageId}` }
           : { role: "shell", pageId: this.pageId },
       sessions: this.sessionScope,
+      watch: this.watchScope,
     });
     // Last, and read back: a channel that had already failed reports it here,
     // and its replacement is the channel to use.
@@ -800,7 +807,20 @@ export class TugConnection {
    */
   setSessions(sessions: "all" | readonly string[]): void {
     this.sessionScope = sessions === "all" ? "all" : [...sessions];
-    this.liveChannel()?.post({ kind: "sessions", sessions: this.sessionScope });
+    this.liveChannel()?.post({ kind: "sessions", sessions: this.sessionScope, watch: this.watchScope });
+  }
+
+  /**
+   * Watch these sessions (`"all"` for every one, `[]` for none): take their
+   * glance frames beside the bound sessions' whole stream. A page that lists
+   * sessions watches all of them; narrowing the bound set with
+   * {@link setSessions} leaves the watch as it was. Re-sends
+   * `subscribe_feeds` now if the wire is live, and every handshake after
+   * carries it.
+   */
+  setWatch(watch: "all" | readonly string[]): void {
+    this.watchScope = watch === "all" ? "all" : [...watch];
+    this.liveChannel()?.post({ kind: "sessions", sessions: this.sessionScope, watch: this.watchScope });
   }
 
   /**

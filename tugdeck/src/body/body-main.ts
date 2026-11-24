@@ -799,6 +799,11 @@ async function bindBody(bind: BodyBind): Promise<void> {
   if (isSpare && !(await bindSpare(cardId))) return;
   boundCardId = cardId;
   bindPageCard(cardId, componentId);
+  // A card that lists sessions hears every session's activity from the
+  // moment it binds, before anything subscribes or replays its intent; the
+  // bound set those narrow leaves the watch as it is ([B04]).
+  const listsSessions = LISTS_SESSIONS.has(componentId);
+  if (listsSessions) connection.setWatch("all");
   const intent: BodyIntent = parseBodyIntent(bind.intent) ?? { kind: "restore" };
 
   const restoreBag = !isTestMode || window.__tugRestoreInTestMode === true;
@@ -863,11 +868,11 @@ async function bindBody(bind: BodyBind): Promise<void> {
         ? intent.kind === "restore" || intent.kind === "mount" ? [] : [intent.tugSessionId]
         : [binding.tugSessionId, ...(binding.seatedSessionId === undefined ? [] : [binding.seatedSessionId])];
       return { cardId, sessionIds: sessions, lineId: binding?.lineId ?? null };
-    }, { lists: LISTS_SESSIONS.has(componentId), cites: (id) => sessionCitationStore.cites(id) }),
+    }, { lists: listsSessions, cites: (id) => sessionCitationStore.cites(id) }),
   );
   // A card that lists every card's session reads the bindings cache, which
   // only a restore pass installs, and no restore pass runs here.
-  if (LISTS_SESSIONS.has(componentId)) spaceBindingsLedgerStore.installOnce();
+  if (listsSessions) spaceBindingsLedgerStore.installOnce();
   cardServicesStore.attachBody(cardId);
   // What this page's chain does not answer — a chord its funnel matched for
   // the deck, a close the pane handles, a control's action sent to a parent
@@ -892,7 +897,17 @@ async function bindBody(bind: BodyBind): Promise<void> {
   // asleep — dormant, hidden past its delay — is scoped to nothing.
   let scopedSessions = "";
   let dormancy: { readonly asleep: boolean } | null = null;
+  // A listing card asleep watches nothing either, as its bound set is
+  // emptied: a page WebKit has suspended cannot drain frames ([B03]).
+  let watching = listsSessions;
+  const rewatch = (): void => {
+    const watch = listsSessions && dormancy?.asleep !== true;
+    if (watch === watching) return;
+    watching = watch;
+    connection.setWatch(watch ? "all" : []);
+  };
   const rescope = (): void => {
+    rewatch();
     const binding = cardSessionBindingStore.getBinding(cardId);
     if (binding === undefined) return;
     const sessions = dormancy?.asleep

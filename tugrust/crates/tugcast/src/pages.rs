@@ -165,6 +165,11 @@ pub(crate) enum SessionSubscription {
 }
 
 impl SessionSubscription {
+    /// No session at all: the default of a page's watch scope.
+    pub(crate) fn none() -> Self {
+        SessionSubscription::Only(HashSet::new())
+    }
+
     /// Does this subscription take frames for `session`?
     pub(crate) fn admits(&self, session: &str) -> bool {
         match self {
@@ -198,6 +203,10 @@ pub(crate) struct PageRecord {
     pub(crate) card_id: Option<String>,
     pub(crate) connected_at_ms: u64,
     pub(crate) sessions: SessionSubscription,
+    /// The sessions this page lists and so watches: it takes a frame on a
+    /// watch feed (ACTIVITY) for any of them, beside its bound `sessions`.
+    /// None until the page's `subscribe_feeds` names some.
+    pub(crate) watch: SessionSubscription,
     /// Whether this page was a spare and has taken its card.
     #[serde(skip)]
     pub(crate) bound_from_spare: bool,
@@ -257,6 +266,7 @@ impl PageRegistry {
             card_id: identity.card_id.clone(),
             connected_at_ms: now_ms(),
             sessions: SessionSubscription::All,
+            watch: SessionSubscription::none(),
             bound_from_spare: false,
         };
         self.inner.lock().pages.insert(client_id, record);
@@ -315,11 +325,17 @@ impl PageRegistry {
         Ok(())
     }
 
-    /// Record which sessions a page's `subscribe_feeds` asked for. An id
-    /// the registry does not hold is ignored.
-    pub(crate) fn set_sessions(&self, client_id: u64, sessions: SessionSubscription) {
+    /// Record which sessions a page's `subscribe_feeds` asked for, bound and
+    /// watched. An id the registry does not hold is ignored.
+    pub(crate) fn set_sessions(
+        &self,
+        client_id: u64,
+        sessions: SessionSubscription,
+        watch: SessionSubscription,
+    ) {
         if let Some(record) = self.inner.lock().pages.get_mut(&client_id) {
             record.sessions = sessions;
+            record.watch = watch;
         }
     }
 
@@ -497,6 +513,25 @@ mod tests {
         reg.register(4, &body("b", "c"));
         let ids: Vec<u64> = reg.snapshot().iter().map(|p| p.client_id).collect();
         assert_eq!(ids, vec![2, 4, 7]);
+    }
+
+    /// The pages listing carries each page's watch scope beside its sessions,
+    /// in the same spelling: `[]` until the page names some, `null` for all.
+    #[test]
+    fn the_listing_carries_the_watch_scope() {
+        let reg = PageRegistry::new();
+        reg.register(2, &body("b", "c"));
+        let fresh = serde_json::to_value(reg.record(2).unwrap()).unwrap();
+        assert_eq!(fresh["sessions"], serde_json::Value::Null);
+        assert_eq!(
+            fresh["watch"],
+            serde_json::json!([]),
+            "a page watches none until it asks"
+        );
+        reg.set_sessions(2, SessionSubscription::none(), SessionSubscription::All);
+        let watching = serde_json::to_value(reg.record(2).unwrap()).unwrap();
+        assert_eq!(watching["sessions"], serde_json::json!([]));
+        assert_eq!(watching["watch"], serde_json::Value::Null);
     }
 
     #[test]

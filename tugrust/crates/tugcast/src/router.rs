@@ -259,6 +259,10 @@ pub struct FeedRouter {
     /// carry a `tug_session_id` and are filtered by each page's session
     /// subscription ([P08]).
     session_feeds: Arc<HashSet<FeedId>>,
+    /// The session feeds registered through `register_watch_feed`: glance
+    /// feeds a page takes for the sessions it watches as well as for the
+    /// ones it is bound to. ACTIVITY is the only one.
+    watch_feeds: Arc<HashSet<FeedId>>,
     /// FeedId → the backend each input feed (client → server) is sent to.
     input_sinks: HashMap<FeedId, InputSink>,
     /// Snapshot watch receivers, keyed by the feed each carries (delivered
@@ -361,6 +365,7 @@ impl FeedRouter {
         Self {
             stream_outputs: HashMap::new(),
             session_feeds: Arc::new(HashSet::new()),
+            watch_feeds: Arc::new(HashSet::new()),
             input_sinks: HashMap::new(),
             snapshot_watches: Vec::new(),
             snapshot_broadcast_senders: Vec::new(),
@@ -449,6 +454,18 @@ impl FeedRouter {
         self.stream_outputs
             .insert(feed.feed_id(), (feed.sender(), feed.lag_policy()));
         Arc::make_mut(&mut self.session_feeds).insert(feed.feed_id());
+    }
+
+    /// Register a session-scoped feed that a page also takes for the
+    /// sessions it watches: a glance feed, small enough that a page listing
+    /// every session can hear every session on it. Registered as a session
+    /// feed too, so the bound scope and dormancy still govern it.
+    pub(crate) fn register_watch_feed(
+        &mut self,
+        feed: &crate::feeds::session_scoped::SessionScopedFeed,
+    ) {
+        self.register_session_feed(feed);
+        Arc::make_mut(&mut self.watch_feeds).insert(feed.feed_id());
     }
 
     /// Register an input sink (client → server backend).
@@ -1015,8 +1032,25 @@ fn parse_subscribe_feeds(payload: &serde_json::Value) -> Option<HashSet<FeedId>>
 /// feed list, one non-string entry refuses the whole set, because an id the
 /// page meant and the router skipped is a session the page silently loses.
 fn parse_subscribe_sessions(payload: &serde_json::Value) -> Option<SessionSubscription> {
-    match payload.get("sessions") {
-        None => Some(SessionSubscription::All),
+    parse_scope(payload.get("sessions"), SessionSubscription::All)
+}
+
+/// Parse the watch half of a `subscribe_feeds` payload: the sessions a page
+/// lists, and so takes glance feeds for. The shapes are the `sessions`
+/// field's, except that an absent `watch` is none — a page watches nothing
+/// it has not named, and a full replacement that omits it stops watching.
+fn parse_subscribe_watch(payload: &serde_json::Value) -> Option<SessionSubscription> {
+    parse_scope(payload.get("watch"), SessionSubscription::none())
+}
+
+/// One scope field: `absent` when missing, every session for `"all"`, an
+/// array of strings for exactly those ids, and `None` for anything else.
+fn parse_scope(
+    field: Option<&serde_json::Value>,
+    absent: SessionSubscription,
+) -> Option<SessionSubscription> {
+    match field {
+        None => Some(absent),
         Some(serde_json::Value::String(s)) if s == "all" => Some(SessionSubscription::All),
         Some(serde_json::Value::Array(ids)) => ids
             .iter()
@@ -1053,15 +1087,25 @@ fn session_of(payload: &[u8]) -> Option<Cow<'_, str>> {
 ///
 /// Only a frame on a session-scoped feed that names a session can be
 /// refused, and a connection taking every session never reads the payload.
+/// A frame on a watch feed is also admitted when the connection's watch
+/// scope takes its session; every other session feed answers to the bound
+/// scope alone, so watching a session never brings its transcript.
 fn admits_session(
     sessions: &SessionSubscription,
+    watch: &SessionSubscription,
     session_feeds: &HashSet<FeedId>,
+    watch_feeds: &HashSet<FeedId>,
     frame: &Frame,
 ) -> bool {
     if matches!(sessions, SessionSubscription::All) || !session_feeds.contains(&frame.feed_id) {
         return true;
     }
-    session_of(&frame.payload).is_none_or(|id| sessions.admits(&id))
+    let watched = watch_feeds.contains(&frame.feed_id);
+    if watched && matches!(watch, SessionSubscription::All) {
+        return true;
+    }
+    session_of(&frame.payload)
+        .is_none_or(|id| sessions.admits(&id) || (watched && watch.admits(&id)))
 }
 
 /// Does a body the host has declared dormant take `frame`? ([B05])
@@ -1355,8 +1399,13 @@ struct ClientSink {
     subscription: Option<HashSet<FeedId>>,
     /// The sessions this connection takes session-scoped frames for.
     sessions: SessionSubscription,
+    /// The sessions this connection watches: it takes frames on the watch
+    /// feeds for them too. None until a `subscribe_feeds` names some.
+    watch: SessionSubscription,
     /// The router's session-scoped feeds, shared by every connection.
     session_feeds: Arc<HashSet<FeedId>>,
+    /// The router's watch feeds, shared by every connection.
+    watch_feeds: Arc<HashSet<FeedId>>,
     /// The cards whose body the host has declared dormant, from the page
     /// registry; read only when this connection is a body.
     dormant_cards: watch::Receiver<HashSet<String>>,
@@ -1382,6 +1431,7 @@ impl ClientSink {
         identity: PageIdentity,
         global_counters: Arc<GlobalFeedCounters>,
         session_feeds: Arc<HashSet<FeedId>>,
+        watch_feeds: Arc<HashSet<FeedId>>,
         dormant_cards: watch::Receiver<HashSet<String>>,
     ) -> Self {
         Self {
@@ -1390,7 +1440,9 @@ impl ClientSink {
             identity,
             subscription: None,
             sessions: SessionSubscription::All,
+            watch: SessionSubscription::none(),
             session_feeds,
+            watch_feeds,
             dormant_cards,
             counters: FeedCounters::new(),
             global_counters,
@@ -1414,7 +1466,13 @@ impl ClientSink {
         let feed_id = frame.feed_id;
         let refusal = if !admits(self.subscription.as_ref(), feed_id) {
             Some(Refusal::Feed)
-        } else if !admits_session(&self.sessions, &self.session_feeds, &frame) {
+        } else if !admits_session(
+            &self.sessions,
+            &self.watch,
+            &self.session_feeds,
+            &self.watch_feeds,
+            &frame,
+        ) {
             Some(Refusal::Scope)
         } else if self.declared_dormant() && !admits_while_dormant(&self.session_feeds, &frame) {
             Some(Refusal::Dormant)
@@ -1837,6 +1895,7 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id
         identity,
         Arc::clone(&router.feed_counters),
         Arc::clone(&router.session_feeds),
+        Arc::clone(&router.watch_feeds),
         router.pages.dormant_cards(),
     );
 
@@ -2153,8 +2212,9 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id
                                                         // either is applied, so a malformed
                                                         // half leaves the whole filter as it
                                                         // was (Spec S04).
-                                                        match parse_subscribe_feeds(&payload).zip(parse_subscribe_sessions(&payload)) {
-                                                            Some((set, sessions)) => {
+                                                        let scopes = parse_subscribe_sessions(&payload).zip(parse_subscribe_watch(&payload));
+                                                        match parse_subscribe_feeds(&payload).zip(scopes) {
+                                                            Some((set, (sessions, watch))) => {
                                                                 // The add-set is a difference, not
                                                                 // the whole set: a previous None
                                                                 // already had everything, so a
@@ -2166,8 +2226,9 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id
                                                                 };
                                                                 debug!(client_id, feeds = set.len(), added = added.len(), "subscribe_feeds applied");
                                                                 sink.subscription = Some(set);
-                                                                router.pages.set_sessions(client_id, sessions.clone());
+                                                                router.pages.set_sessions(client_id, sessions.clone(), watch.clone());
                                                                 sink.sessions = sessions;
+                                                                sink.watch = watch;
                                                                 // Re-deliver each newly added
                                                                 // snapshot feed's retained latest
                                                                 // value. A feed with no retained
@@ -2193,7 +2254,7 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id
                                                                 }
                                                             }
                                                             None => {
-                                                                warn!(client_id, "subscribe_feeds carried no feeds array or a malformed sessions field; subscription left unchanged");
+                                                                warn!(client_id, "subscribe_feeds carried no feeds array or a malformed sessions or watch field; subscription left unchanged");
                                                             }
                                                         }
                                                     } else {
@@ -4065,6 +4126,27 @@ mod tests {
         }
     }
 
+    /// `watch` takes the `sessions` field's shapes, but an absent `watch` is
+    /// none: a page watches only what it names.
+    #[test]
+    fn parse_subscribe_watch_is_none_when_absent() {
+        let parse = |v: serde_json::Value| parse_subscribe_watch(&v);
+        assert_eq!(
+            parse(serde_json::json!({ "feeds": [] })),
+            Some(SessionSubscription::none()),
+            "an absent watch is none"
+        );
+        assert_eq!(
+            parse(serde_json::json!({ "feeds": [], "watch": "all" })),
+            Some(SessionSubscription::All)
+        );
+        assert_eq!(
+            parse(serde_json::json!({ "feeds": [], "watch": ["s-a"] })),
+            Some(only(&["s-a"]))
+        );
+        assert_eq!(parse(serde_json::json!({ "feeds": [], "watch": 5 })), None);
+    }
+
     #[test]
     fn session_of_reads_the_spliced_prefix_without_a_parse() {
         let payload =
@@ -4167,6 +4249,12 @@ mod tests {
         };
         let unscoped = Frame::new(FeedId::CODE_OUTPUT, br#"{"type":"x"}"#.to_vec());
 
+        let none = SessionSubscription::none();
+        let no_watch: HashSet<FeedId> = HashSet::new();
+        let admits_session = |s: &SessionSubscription, feeds: &HashSet<FeedId>, frame: &Frame| {
+            admits_session(s, &none, feeds, &no_watch, frame)
+        };
+
         assert!(admits_session(
             &SessionSubscription::All,
             &feeds,
@@ -4195,6 +4283,103 @@ mod tests {
         );
     }
 
+    /// A page scoped to no session that watches every session takes an
+    /// ACTIVITY frame for any session, and still refuses that session's
+    /// transcript: the watch scope opens the watch feeds and nothing else.
+    #[test]
+    fn a_watching_page_takes_activity_and_refuses_the_transcript() {
+        let feeds: HashSet<FeedId> = [FeedId::CODE_OUTPUT, FeedId::ACTIVITY].into();
+        let watch_feeds: HashSet<FeedId> = [FeedId::ACTIVITY].into();
+        let on = |feed: FeedId, s: &str| {
+            Frame::new(
+                feed,
+                crate::feeds::code::splice_tug_session_id(br#"{"type":"x"}"#, s),
+            )
+        };
+        let bound = only(&[]);
+
+        assert!(
+            admits_session(
+                &bound,
+                &SessionSubscription::All,
+                &feeds,
+                &watch_feeds,
+                &on(FeedId::ACTIVITY, "s-a")
+            ),
+            "a watched session's activity is admitted"
+        );
+        assert!(
+            !admits_session(
+                &bound,
+                &SessionSubscription::All,
+                &feeds,
+                &watch_feeds,
+                &on(FeedId::CODE_OUTPUT, "s-a")
+            ),
+            "a watched session's transcript is refused"
+        );
+        assert!(
+            admits_session(
+                &bound,
+                &only(&["s-a"]),
+                &feeds,
+                &watch_feeds,
+                &on(FeedId::ACTIVITY, "s-a")
+            ),
+            "a watch scope of ids admits its own"
+        );
+        assert!(
+            !admits_session(
+                &bound,
+                &only(&["s-a"]),
+                &feeds,
+                &watch_feeds,
+                &on(FeedId::ACTIVITY, "s-b")
+            ),
+            "and refuses a session it does not name"
+        );
+        assert!(
+            !admits_session(
+                &bound,
+                &SessionSubscription::none(),
+                &feeds,
+                &watch_feeds,
+                &on(FeedId::ACTIVITY, "s-a")
+            ),
+            "a page watching nothing hears no other session's activity"
+        );
+        assert!(
+            admits_session(
+                &only(&["s-a"]),
+                &SessionSubscription::none(),
+                &feeds,
+                &watch_feeds,
+                &on(FeedId::ACTIVITY, "s-a")
+            ),
+            "the bound session's activity still arrives with no watch scope"
+        );
+    }
+
+    /// The router records ACTIVITY as a watch feed and as a session feed, so
+    /// the bound scope and dormancy still govern it.
+    #[test]
+    fn register_watch_feed_records_a_session_feed_too() {
+        use crate::feeds::session_scoped::SessionScopedFeed;
+
+        let feed = SessionScopedFeed::new(FeedId::ACTIVITY, 8, LagPolicy::Warn);
+        let (shutdown_tx, _shutdown_rx) = mpsc::channel(1);
+        let mut router = FeedRouter::new(
+            "test".to_string(),
+            crate::auth::new_shared_auth_state(0),
+            shutdown_tx,
+            crate::dev::new_shared_dev_state(),
+        );
+        router.register_watch_feed(&feed);
+        assert!(router.watch_feeds.contains(&FeedId::ACTIVITY));
+        assert!(router.session_feeds.contains(&FeedId::ACTIVITY));
+        assert!(router.stream_outputs.contains_key(&FeedId::ACTIVITY));
+    }
+
     /// A declared-dormant body hears nothing of any session, whatever its own
     /// subscription says ([B05]); what names no session still reaches it.
     #[test]
@@ -4216,6 +4401,25 @@ mod tests {
         );
         assert!(admits_while_dormant(&feeds, &unscoped));
         assert!(admits_while_dormant(&feeds, &other));
+
+        // Watching every session opens no way round dormancy: the check
+        // reads the session feeds alone, and ACTIVITY is one of them.
+        let activity: HashSet<FeedId> = [FeedId::CODE_OUTPUT, FeedId::ACTIVITY].into();
+        let sample = Frame::new(
+            FeedId::ACTIVITY,
+            crate::feeds::code::splice_tug_session_id(br#"{"type":"x"}"#, "s-a"),
+        );
+        assert!(admits_session(
+            &only(&[]),
+            &SessionSubscription::All,
+            &activity,
+            &[FeedId::ACTIVITY].into(),
+            &sample
+        ));
+        assert!(
+            !admits_while_dormant(&activity, &sample),
+            "a dormant body watching all is still refused a session's activity"
+        );
     }
 
     /// The reveal's catch-up ask withdraws the host's declaration in band, so
