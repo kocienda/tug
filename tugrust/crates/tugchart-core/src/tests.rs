@@ -546,6 +546,7 @@ mod unit {
                 suite: suite.into(),
                 session_id: None,
                 tool_use_id: None,
+                input_key: None,
                 command: format!("just test-{suite}"),
                 exit_code: 0,
                 wall_secs: 10.0,

@@ -107,6 +107,7 @@ pub fn run_record(
         suite,
         session_id: None,
         tool_use_id: crate::report::tool_use_id(),
+        input_key: test_ledger::input_key_from_env(),
         command: command.unwrap_or_default(),
         exit_code,
         wall_secs: (ended_at - started_at).max(0) as f64,

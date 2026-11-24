@@ -1549,6 +1549,7 @@ pub fn run(args: RunArgs) -> Result<(), AppError> {
         suite: args.suite.clone(),
         session_id: session.lock().clone(),
         tool_use_id: crate::report::tool_use_id(),
+        input_key: test_ledger::input_key_from_env(),
         command: args.command.join(" "),
         exit_code: i64::from(code),
         wall_secs: clock.elapsed().as_secs_f64(),

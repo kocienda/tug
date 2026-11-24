@@ -285,6 +285,15 @@ pub struct Surface {
     /// the matching ones. Empty means every claimed path counts.
     #[serde(default)]
     pub commit_check_only: Vec<String>,
+
+    /// The repo-relative files and directories this surface's `check`
+    /// commands read, with the same prefix rule as `paths`. `tugtool arc
+    /// verify` keys each check by the content of these paths, and relies on a
+    /// recorded green run when that key has not moved. Empty — absent — means
+    /// the whole tree, which never skips wrongly; a narrower list is a
+    /// deliberate claim that nothing outside it can turn the checks red.
+    #[serde(default)]
+    pub inputs: Vec<String>,
 }
 
 /// The `[tugtool.report]` table: the commands this project runs that the
@@ -553,10 +562,16 @@ post_create = []
 # touched paths, shell-quoted. `check = []` claims the paths and runs nothing.
 # `checked_by` borrows another surface's commands, one level deep.
 #
+# `inputs` names what the checks read, by the same prefix rule as `paths`, so
+# `tugtool arc verify` can rely on a green check recorded over the same bytes
+# within the last day. Absent means the whole tree: any change anywhere runs
+# the checks again. A borrowed command is keyed by its lender's `inputs`.
+#
 # [[tugtool.arc.surface]]
 # name  = "src"
 # paths = ["src/"]
 # check = ["make check"]
+# inputs = ["src/", "Makefile"]
 #
 # [[tugtool.arc.surface]]
 # name  = "docs"
@@ -647,6 +662,9 @@ pub enum ConfigRefusal {
     EmptyPaths(String),
     /// A path that cannot be resolved against a repo root as written.
     IllegalPath { surface: String, path: String },
+    /// An `inputs` entry that is empty or cannot be resolved against a repo
+    /// root as written.
+    IllegalInput { surface: String, input: String },
     /// Two surfaces claiming the same path, which no longest-prefix rule can
     /// disambiguate.
     DuplicatePath {
@@ -722,6 +740,11 @@ impl std::fmt::Display for ConfigRefusal {
                 f,
                 "surface {surface:?} declares the path {path:?} — paths are repo-relative, \
                  without `..`, and match by prefix rather than by glob"
+            ),
+            Self::IllegalInput { surface, input } => write!(
+                f,
+                "surface {surface:?} declares the input {input:?} — inputs are repo-relative \
+                 paths, non-empty, without `..`, and match by prefix rather than by glob"
             ),
             Self::DuplicatePath {
                 first,
@@ -883,6 +906,18 @@ impl ArcConfig {
                     });
                 }
             }
+            for input in &surface.inputs {
+                if input.trim().is_empty()
+                    || Path::new(input).is_absolute()
+                    || input.split('/').any(|c| c == "..")
+                    || input.contains(['*', '?', '['])
+                {
+                    return Err(ConfigRefusal::IllegalInput {
+                        surface: surface.name.clone(),
+                        input: input.clone(),
+                    });
+                }
+            }
         }
 
         // Borrowing is checked against the whole table, so a surface may
@@ -920,6 +955,19 @@ impl ArcConfig {
 
         Ok(())
     }
+}
+
+/// The inputs a check declared by the surface `declared_by` is keyed by: that
+/// surface's own `inputs`, which for a borrowed command is the lender's — the
+/// commands are the lender's, so what they read is too. Empty means the whole
+/// tree, as it does for a surface that declares none or a name the table does
+/// not hold.
+pub fn check_inputs<'a>(surfaces: &'a [Surface], declared_by: &str) -> &'a [String] {
+    surfaces
+        .iter()
+        .find(|s| s.name == declared_by)
+        .map(|s| s.inputs.as_slice())
+        .unwrap_or(&[])
 }
 
 impl ReportConfig {
@@ -1140,6 +1188,21 @@ mod tests {
                 "[[tugtool.arc.surface]]\nname = \"a\"\npaths = [\"x/\"]\ncommit_check_only = [\"*.ts\"]\n",
                 &["\"a\"", "commit_check_only", "no commit_check"],
             ),
+            (
+                "an empty input",
+                "[[tugtool.arc.surface]]\nname = \"a\"\npaths = [\"x/\"]\ninputs = [\"\"]\n",
+                &["\"a\"", "input"],
+            ),
+            (
+                "an input escaping the root",
+                "[[tugtool.arc.surface]]\nname = \"a\"\npaths = [\"x/\"]\ninputs = [\"../y/\"]\n",
+                &["\"a\"", "../y/"],
+            ),
+            (
+                "an input glob",
+                "[[tugtool.arc.surface]]\nname = \"a\"\npaths = [\"x/\"]\ninputs = [\"x/*.rs\"]\n",
+                &["\"a\"", "x/*.rs"],
+            ),
         ];
 
         for (label, toml_text, fragments) in cases {
@@ -1161,7 +1224,7 @@ mod tests {
 
         // The neighbour: everything the cases above got wrong, done right.
         let legal: Config = toml::from_str(
-            "[tugtool.arc]\npost_create = []\n\n[[tugtool.arc.surface]]\nname = \"a\"\npaths = [\"src/\", \"README.md\"]\ncheck = [\"make check\"]\n\n[[tugtool.arc.surface]]\nname = \"b\"\npaths = [\"proto/\"]\nchecked_by = [\"a\"]\n",
+            "[tugtool.arc]\npost_create = []\n\n[[tugtool.arc.surface]]\nname = \"a\"\npaths = [\"src/\", \"README.md\"]\ncheck = [\"make check\"]\ninputs = [\"src/\", \"Makefile\", \"tests/fixtures\"]\n\n[[tugtool.arc.surface]]\nname = \"b\"\npaths = [\"proto/\"]\nchecked_by = [\"a\"]\n",
         )
         .expect("the legal neighbour should parse");
         legal
@@ -1169,6 +1232,30 @@ mod tests {
             .arc
             .validate()
             .expect("the legal neighbour must still load");
+    }
+
+    /// A surface that declares no inputs is keyed by the whole tree; one that
+    /// declares them is keyed by exactly those; and a borrowed command, whose
+    /// `declared_by` is its lender, is keyed by the lender's.
+    #[test]
+    fn a_checks_inputs_default_to_the_whole_tree_and_follow_the_lender() {
+        let config: Config = toml::from_str(
+            "[[tugtool.arc.surface]]\nname = \"rust\"\npaths = [\"src/\"]\ncheck = [\"make check\"]\ninputs = [\"src/\", \"Makefile\"]\n\n[[tugtool.arc.surface]]\nname = \"docs\"\npaths = [\"docs/\"]\nchecked_by = [\"rust\"]\ninputs = [\"docs/\"]\n\n[[tugtool.arc.surface]]\nname = \"app\"\npaths = [\"app/\"]\ncheck = [\"make app\"]\n",
+        )
+        .unwrap();
+        config.tugtool.arc.validate().unwrap();
+        let surfaces = &config.tugtool.arc.surfaces;
+        assert_eq!(check_inputs(surfaces, "rust"), ["src/", "Makefile"]);
+        assert!(
+            check_inputs(surfaces, "app").is_empty(),
+            "absent is the whole tree"
+        );
+        assert!(check_inputs(surfaces, "ghost").is_empty());
+        // `docs` borrows `rust`: the planned command's `declared_by` is
+        // `rust`, so its key reads `rust`'s inputs; `docs`'s own inputs are
+        // what an own check of `docs` would be keyed by.
+        assert_eq!(check_inputs(surfaces, "docs"), ["docs/"]);
+        assert_ne!(check_inputs(surfaces, "docs"), check_inputs(surfaces, "rust"));
     }
 
     /// The runner table's refusals, in the same shape as the surface table's:

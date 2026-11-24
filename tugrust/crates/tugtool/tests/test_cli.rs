@@ -320,6 +320,54 @@ fn test_run_lines_records_the_items_its_regex_reads() {
     assert_eq!(stdout(&out), "s  (fail) b\n");
 }
 
+/// A run under a check verify ran records the check's content key, read from
+/// the variable verify sets for it; a run under no check records none.
+#[test]
+fn test_run_records_the_check_key_verify_set() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("test_results.db");
+    let wrap = |key: Option<&str>| {
+        let mut cmd = tugtool();
+        if let Some(key) = key {
+            cmd.env(tugtool_core::test_ledger::CHECK_INPUT_KEY_ENV, key);
+        } else {
+            cmd.env_remove(tugtool_core::test_ledger::CHECK_INPUT_KEY_ENV);
+        }
+        let out = cmd
+            .args([
+                "test",
+                "run",
+                "--suite",
+                "s",
+                "--kind",
+                "lines",
+                "--item",
+                r"^(?P<status>PASS|FAIL) (?P<name>\S+)",
+                "--",
+                "sh",
+                "-c",
+                "printf 'PASS a\\n'",
+            ])
+            .current_dir(dir.path())
+            .env("TUG_TEST_RESULTS_DB", &db)
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(0));
+    };
+    wrap(Some("key-under-check"));
+    wrap(None);
+
+    let conn = tugtool_core::test_ledger::open_ledger(&db).unwrap();
+    let keys: Vec<Option<String>> = conn
+        .prepare("SELECT input_key FROM runs ORDER BY id")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(keys, vec![Some("key-under-check".to_string()), None]);
+}
+
 /// `--kind tap` on a real `node --test` run: the top-level results are the
 /// tests, a skip is counted as one, and the failure is named.
 #[test]

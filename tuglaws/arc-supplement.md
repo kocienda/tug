@@ -15,7 +15,7 @@ What a step's checkpoint comes to in this checkout:
 - `cargo nextest run` for Rust — the affected crates while iterating, and on the **last step that touched Rust** the workspace as `just test-rust`, plus `just test-rust-slow` when the step touched `tugarc-core` or tugcast's integration binaries, `arc_runner`, `operator`, `attribution`, `git` or `chart_report` (the Justfile's `RUST_SLOW_FILTER`).
 - An app-test where the change is one only the real app can show.
 
-The arc's ending runs what the `[[tugtool.arc.surface]]` table in `.tugtool/config.toml` declares, through `tugtool arc verify`.
+The arc's ending runs what the `[[tugtool.arc.surface]]` table in `.tugtool/config.toml` declares, through `tugtool arc verify`. A verify may rely on the record: a surface whose every check went green in the last day over the same command and the same bytes of its declared `inputs` (the whole tree when it declares none; here `rust` declares a list and `deck` does not) is reported as relied on and not run, and `--fresh` runs everything.
 
 **A round's TypeScript is checked at the commit.** `tugtool arc commit` runs each surface's `commit_check` over the round's paths that surface claims, before anything is staged; in this checkout the `deck`, `code`, `app-tests` and `proto` surfaces declare their package's `bunx tsc --noEmit` and `oxlint --deny-warnings` over the round's `.ts` and `.tsx` files, so a type error or a lint warning refuses the round with the output in the refusal, and a round touching no TypeScript runs nothing. A `yield:` round is never checked, since a yield is by definition unfinished.
 

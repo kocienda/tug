@@ -95,6 +95,58 @@ fn a_green_run_names_both_counts_and_exits_zero() {
     assert!(text.contains("TUG-VERIFY-RECEIPT: verified"), "{text}");
 }
 
+/// A second verify over unchanged bytes relies on the record and says so,
+/// and `--fresh` runs the check again.
+#[test]
+fn a_second_verify_relies_on_the_record_and_fresh_runs_again() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    std::fs::create_dir_all(&root).unwrap();
+    let counter = tmp.path().join("ran.count");
+    let config = format!(
+        "[[tugtool.arc.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"echo ran >> '{}'\"]\ninputs = [\"src/\"]\n",
+        counter.display()
+    );
+    project(&root, &config, &[("src/a.rs", "a\n")]);
+    let db = tmp.path().join("test_results.db");
+    let run = |args: &[&str]| {
+        tug(tmp.path())
+            .args(["arc", "verify", "demo"])
+            .args(args)
+            .env("TUG_TEST_RESULTS_DB", &db)
+            .current_dir(&root)
+            .output()
+            .expect("failed to run tugtool arc verify")
+    };
+    let runs = || {
+        std::fs::read_to_string(&counter)
+            .map(|t| t.lines().count())
+            .unwrap_or(0)
+    };
+
+    let first = run(&[]);
+    assert_eq!(first.status.code(), Some(0), "{}", stdout_of(&first));
+    assert_eq!(runs(), 1);
+
+    let second = run(&[]);
+    let text = stdout_of(&second);
+    assert_eq!(second.status.code(), Some(0), "{text}");
+    assert_eq!(runs(), 1, "the second verify ran nothing: {text}");
+    assert!(text.contains("ok (relied on the record)"), "{text}");
+    assert!(text.contains("green on record"), "{text}");
+    assert!(
+        text.contains("TUG-VERIFY-RECEIPT: verified")
+            && text.contains("0 surfaces checked · 0 claimed unchecked · 1 relied on the record"),
+        "{text}"
+    );
+
+    let fresh = run(&["--fresh"]);
+    let text = stdout_of(&fresh);
+    assert_eq!(fresh.status.code(), Some(0), "{text}");
+    assert_eq!(runs(), 2, "--fresh runs every check: {text}");
+    assert!(!text.contains("relied"), "{text}");
+}
+
 #[test]
 fn an_unclaimed_path_refuses_before_anything_runs() {
     let tmp = tempfile::tempdir().unwrap();
@@ -284,9 +336,16 @@ fn json_carries_the_same_verdict_counts_and_receipt_as_the_text() {
         .find(|l| l.starts_with("TUG-VERIFY-RECEIPT:"))
         .expect("the text output closes with a receipt");
 
+    // `--fresh`, so the second run checks what the first checked rather than
+    // relying on the record the first wrote: the two outputs are compared
+    // over the same kind of run.
     let json: serde_json::Value =
-        serde_json::from_str(&stdout_of(&verify(tmp.path(), &root, &["--json"])))
-            .expect("valid JSON");
+        serde_json::from_str(&stdout_of(&verify(
+            tmp.path(),
+            &root,
+            &["--json", "--fresh"],
+        )))
+        .expect("valid JSON");
     assert_eq!(json["command"], "arc verify");
     assert_eq!(json["data"]["verdict"], "verified");
     assert_eq!(json["data"]["checked"], 1);

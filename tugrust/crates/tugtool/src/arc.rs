@@ -85,8 +85,13 @@ pub fn dispatch(cmd: ArcCommands, json: bool, quiet: bool) -> ExitCode {
         ),
         ArcCommands::Replay { name } => return run_replay(paths, &name, json, quiet),
         ArcCommands::ResolveBase { name } => return run_resolve_base(paths, &name, json, quiet),
-        ArcCommands::Verify { name, base, head } => {
-            return run_verify(paths, &name, base, head, json, quiet);
+        ArcCommands::Verify {
+            name,
+            base,
+            head,
+            fresh,
+        } => {
+            return run_verify(paths, &name, base, head, fresh, json, quiet);
         }
         ArcCommands::Undo { name, list } => {
             return run_undo(paths, name.as_deref(), list, json, quiet);
@@ -1147,6 +1152,7 @@ fn run_verify(
     name: &str,
     base: Option<String>,
     head: Option<String>,
+    fresh: bool,
     json: bool,
     quiet: bool,
 ) -> ExitCode {
@@ -1161,6 +1167,13 @@ fn run_verify(
     let mut surfaces = crate::report_unit::SurfaceReport::new(vec!["arc verify".to_string()]);
     let wrap = verify_wrapper(&tugarc_core::ops::worktree_path(&repo, name));
     let mut verdict = verify_verdicts();
+    // The record a verify relies on and writes is the test ledger these
+    // paths name, so a redirected data root keeps its own.
+    let memo = tugarc_core::surfaces::VerifyMemo {
+        ledger: paths.test_results_db.clone(),
+        fresh,
+        tool_use_id: crate::report::tool_use_id(),
+    };
     let report = match tugarc_core::surfaces::verify_watched(
         paths,
         &repo,
@@ -1175,6 +1188,7 @@ fn run_verify(
                     let _ = post_report(&surfaces.event(event, now_ms()));
                 }
             },
+            memo: Some(&memo),
         },
     ) {
         Ok(r) => r,
@@ -1263,6 +1277,8 @@ fn print_verify(report: &tugarc_core::surfaces::VerifyReport) {
                 }
             } else if surface.commands.is_empty() {
                 "claimed, unchecked".to_string()
+            } else if surface.relied_on_record {
+                "ok (relied on the record)".to_string()
             } else if surface.borrowed_from.is_empty() {
                 "ok".to_string()
             } else {
@@ -1277,6 +1293,17 @@ fn print_verify(report: &tugarc_core::surfaces::VerifyReport) {
             );
             for command in &surface.commands {
                 match command.status.as_str() {
+                    "recorded" => {
+                        if let Some(row) = &command.relied_on {
+                            println!(
+                                "               green on record {} at {} ({}): {}",
+                                ago(row.recorded_at),
+                                row.head.chars().take(10).collect::<String>(),
+                                secs_text(row.wall_secs),
+                                command.command
+                            );
+                        }
+                    }
                     "already-run" => println!(
                         "               already run for {}: {}",
                         command.already_run_for.as_deref().unwrap_or("?"),
@@ -1305,6 +1332,9 @@ fn print_verify(report: &tugarc_core::surfaces::VerifyReport) {
             }
         }
         println!();
+        if let Some(note) = &report.record_note {
+            println!("the test record was not used for every check: {note}\n");
+        }
         if report.verdict == "red"
             && let Some(call) = crate::report::tool_use_id()
         {
@@ -1315,6 +1345,29 @@ fn print_verify(report: &tugarc_core::surfaces::VerifyReport) {
     }
 
     println!("{}", report.receipt);
+}
+
+/// How long ago an epoch second was, as a verify report says it.
+fn ago(at: i64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(at);
+    let secs = (now - at).max(0);
+    match secs {
+        0..=59 => format!("{secs}s ago"),
+        60..=3599 => format!("{}m ago", secs / 60),
+        _ => format!("{}h{:02}m ago", secs / 3600, (secs % 3600) / 60),
+    }
+}
+
+/// A check's wall time, as a verify report says it.
+fn secs_text(secs: f64) -> String {
+    if secs < 60.0 {
+        format!("{secs:.1}s")
+    } else {
+        format!("{}m{:02}s", secs as u64 / 60, secs as u64 % 60)
+    }
 }
 
 /// The `paths = [...]` line a refusal suggests: the directories the unclaimed

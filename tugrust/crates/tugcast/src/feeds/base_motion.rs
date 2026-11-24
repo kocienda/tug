@@ -2281,6 +2281,10 @@ async fn finish_quiet(
                             board.verify_event(&owner, generation, &event);
                             bump.notify_one();
                         },
+                        // The quiet re-stamp runs every check: it verifies a
+                        // tree the base moved under, unwatched, and is the
+                        // one place a wrong skip would land unseen.
+                        memo: None,
                     },
                 )
             })
@@ -2910,6 +2914,7 @@ mod tests {
             total: None,
             title: None,
             message: None,
+            relied_on: None,
         }
     }
 
@@ -2924,6 +2929,7 @@ mod tests {
             commands,
             borrowed_from: Vec::new(),
             red,
+            relied_on_record: false,
             passed: None,
             total: None,
             title: None,

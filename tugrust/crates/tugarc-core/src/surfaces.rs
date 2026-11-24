@@ -13,11 +13,13 @@
 //! resolution rules below can be stated without their error cases.
 
 use serde::Serialize;
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Instant;
 use tugcore::instance::Paths;
-use tugtool_core::config::{Config, Surface};
+use tugtool_core::config::{Config, Surface, check_inputs};
+use tugtool_core::test_ledger::{self, CheckRun, RecordedCheck, check_status};
 
 use crate::error::ArcError;
 
@@ -266,6 +268,15 @@ pub struct VerifyReport {
     pub checked: usize,
     /// How many surfaces claimed their paths and declared nothing to run.
     pub claimed_unchecked: usize,
+    /// How many surfaces ran nothing because every one of their checks was
+    /// already green on record over the same input bytes. Counted apart from
+    /// `checked`, so a receipt never passes a skip off as a run.
+    pub relied: usize,
+    /// Why the record could not be read or written, when it could not. The
+    /// verify then ran every check and recorded what it could; this says so
+    /// rather than failing a verify over its memo.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub record_note: Option<String>,
     /// The closing `TUG-VERIFY-RECEIPT:` line, verbatim, so the text output
     /// and the JSON cannot say different things.
     pub receipt: String,
@@ -293,6 +304,10 @@ pub struct SurfaceResult {
     pub borrowed_from: Vec<String>,
     /// True when a command in this surface exited non-zero.
     pub red: bool,
+    /// True when the surface ran nothing because every check, own and
+    /// borrowed, had a green row on record over the same command and the same
+    /// input bytes. Its commands read `recorded`, each naming the row.
+    pub relied_on_record: bool,
     /// The tests its checks' children passed, summed over the checks whose
     /// child recorded; `None` when none did.
     pub passed: Option<u64>,
@@ -314,7 +329,8 @@ pub struct CommandResult {
     /// the same surface, or any command after a deadline passed —
     /// `timed-out`, a check that was still running at the run's deadline and
     /// was killed, or `not-started`, the check the deadline had already
-    /// passed before, which ran nothing.
+    /// passed before, which ran nothing — or `recorded`, a check in a surface
+    /// the verify relied on the record for, which carries the record's exit.
     pub status: String,
     /// The process exit code, when it ran.
     pub exit_code: Option<i32>,
@@ -327,6 +343,21 @@ pub struct CommandResult {
     pub total: Option<u64>,
     pub title: Option<String>,
     pub message: Option<String>,
+    /// The recorded green run this check relied on, when its surface was
+    /// skipped: when it ran, at which head, and how long it took.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relied_on: Option<ReliedOn>,
+}
+
+/// The recorded check a skipped one relied on.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ReliedOn {
+    /// When the green run was recorded, in seconds since the epoch.
+    pub recorded_at: i64,
+    /// The head the green run was recorded at.
+    pub head: String,
+    /// How long the green run took.
+    pub wall_secs: f64,
 }
 
 /// A check's verdict as its wrapped child recorded it: tests passed of total,
@@ -350,6 +381,93 @@ pub struct VerifyHooks<'a> {
     pub wrap: &'a dyn Fn(&str) -> String,
     pub verdict: &'a mut dyn FnMut(&str) -> Option<ChildVerdict>,
     pub watch: &'a mut dyn FnMut(VerifyEvent<'_>),
+    /// The record a verify may rely on and writes each check into; `None`
+    /// runs every check and records nothing.
+    pub memo: Option<&'a VerifyMemo>,
+}
+
+/// Where a verify keeps its record of checks, and whether it may rely on it.
+///
+/// A surface is skipped whole, never in part, and only when every one of its
+/// checks, own and borrowed, has a green, completed row in the record with the
+/// same expanded command and the same content key over that check's inputs,
+/// from within [`test_ledger::CHECK_REUSE_SECS`]. A surface that runs is keyed
+/// before and after, and each check is recorded only when the two keys agree,
+/// so a check that rewrote its own inputs never vouches for bytes it did not
+/// read.
+#[derive(Debug, Clone)]
+pub struct VerifyMemo {
+    /// The test results ledger.
+    pub ledger: PathBuf,
+    /// Run every check whatever the record says — `--fresh`. What runs is
+    /// still recorded.
+    pub fresh: bool,
+    /// The Bash call the verify runs under, written beside each check.
+    pub tool_use_id: Option<String>,
+}
+
+/// One verify's use of the record: the open ledger and what it needs to key,
+/// read and write a check.
+struct MemoRun<'a> {
+    worktree: &'a Path,
+    surfaces: &'a [Surface],
+    conn: rusqlite::Connection,
+    head: String,
+    fresh: bool,
+    tool_use_id: Option<String>,
+    note: Option<String>,
+}
+
+impl MemoRun<'_> {
+    fn now() -> i64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0)
+    }
+
+    /// The key over the inputs a check declared by `declared_by` reads, or
+    /// `None` — a miss that also records nothing — when it cannot be computed.
+    fn key(&mut self, declared_by: &str) -> Option<String> {
+        let inputs = check_inputs(self.surfaces, declared_by).to_vec();
+        match crate::input_key::input_key(self.worktree, &inputs) {
+            Ok(key) => Some(key),
+            Err(e) => {
+                self.note
+                    .get_or_insert_with(|| format!("the input key could not be computed: {e}"));
+                None
+            }
+        }
+    }
+
+    fn lookup(&mut self, command: &str, key: &str) -> Option<RecordedCheck> {
+        match test_ledger::reusable_check(&self.conn, self.worktree, command, key, Self::now()) {
+            Ok(found) => found,
+            Err(e) => {
+                self.note
+                    .get_or_insert_with(|| format!("the record could not be read: {e}"));
+                None
+            }
+        }
+    }
+
+    fn record(&mut self, command: &str, key: String, exit_code: Option<i64>, status: &str, secs: f64) {
+        let check = CheckRun {
+            recorded_at: Self::now(),
+            run_root: self.worktree.to_string_lossy().into_owned(),
+            head_sha: self.head.clone(),
+            command: command.to_string(),
+            input_key: key,
+            exit_code,
+            status: status.to_string(),
+            wall_secs: secs,
+            tool_use_id: self.tool_use_id.clone(),
+        };
+        if let Err(e) = test_ledger::record_check(&mut self.conn, &check) {
+            self.note
+                .get_or_insert_with(|| format!("a check could not be recorded: {e}"));
+        }
+    }
 }
 
 /// What a verify run tells whoever watches it, as it goes: the surfaces it
@@ -379,6 +497,13 @@ pub enum VerifyEvent<'a> {
 /// A `deadline` ends the whole run: a check still running when it passes is
 /// killed and reads `timed-out`, and every command after it, in any surface,
 /// is `not-reached`.
+///
+/// With a `memo`, each surface is keyed as it starts: a surface every one of
+/// whose checks is green on record over the same command and key runs nothing
+/// and reads `relied_on_record`; any other runs whole, each check seeing its
+/// key in [`test_ledger::CHECK_INPUT_KEY_ENV`], and each check is recorded
+/// once it ends, when its key after is the key it started from.
+#[allow(clippy::too_many_arguments)]
 fn run_plans(
     worktree: &Path,
     plans: Vec<SurfacePlan>,
@@ -387,6 +512,7 @@ fn run_plans(
     wrap: &dyn Fn(&str) -> String,
     verdict: &mut dyn FnMut(&str) -> Option<ChildVerdict>,
     watch: &mut dyn FnMut(VerifyEvent<'_>),
+    mut memo: Option<&mut MemoRun<'_>>,
 ) -> Vec<SurfaceResult> {
     let planned: Vec<(String, usize)> = plans
         .iter()
@@ -397,9 +523,77 @@ fn run_plans(
     let mut expired = false;
     for plan in plans {
         watch(VerifyEvent::Started(&plan.name));
+
+        // Each check's key as the surface starts, over the inputs of the
+        // surface that declared it; one computation per declaring surface.
+        let keys: Vec<Option<String>> = match memo.as_deref_mut() {
+            Some(m) if !expired => {
+                let mut by_declarer: HashMap<String, Option<String>> = HashMap::new();
+                plan.commands
+                    .iter()
+                    .map(|c| {
+                        by_declarer
+                            .entry(c.declared_by.clone())
+                            .or_insert_with(|| m.key(&c.declared_by))
+                            .clone()
+                    })
+                    .collect()
+            }
+            _ => vec![None; plan.commands.len()],
+        };
+
+        // Rely on the record only when every check, own and borrowed, hits.
+        let relied: Option<Vec<RecordedCheck>> = match memo.as_deref_mut() {
+            Some(m) if !m.fresh && !expired && !plan.commands.is_empty() => plan
+                .commands
+                .iter()
+                .zip(&keys)
+                .map(|(c, key)| key.as_deref().and_then(|k| m.lookup(&c.command, k)))
+                .collect(),
+            _ => None,
+        };
+        if let Some(rows) = relied {
+            let commands: Vec<CommandResult> = plan
+                .commands
+                .into_iter()
+                .zip(rows)
+                .map(|(planned, row)| CommandResult {
+                    command: planned.command,
+                    declared_by: planned.declared_by,
+                    status: "recorded".to_string(),
+                    exit_code: row.exit_code.map(|c| c as i32),
+                    already_run_for: planned.already_run_for,
+                    passed: None,
+                    total: None,
+                    title: None,
+                    message: None,
+                    relied_on: Some(ReliedOn {
+                        recorded_at: row.recorded_at,
+                        head: row.head_sha,
+                        wall_secs: row.wall_secs,
+                    }),
+                })
+                .collect();
+            let result = SurfaceResult {
+                name: plan.name,
+                paths: plan.paths,
+                passed: None,
+                total: None,
+                title: None,
+                message: None,
+                commands,
+                borrowed_from: plan.borrowed_from,
+                red: false,
+                relied_on_record: true,
+            };
+            watch(VerifyEvent::Finished(&result));
+            results.push(result);
+            continue;
+        }
+
         let mut commands = Vec::new();
         let mut red = false;
-        for planned in plan.commands {
+        for (planned, key) in plan.commands.into_iter().zip(keys) {
             if red || expired {
                 commands.push(CommandResult {
                     command: planned.command,
@@ -411,6 +605,7 @@ fn run_plans(
                     total: None,
                     title: None,
                     message: None,
+                    relied_on: None,
                 });
                 continue;
             }
@@ -425,6 +620,7 @@ fn run_plans(
                     total: None,
                     title: None,
                     message: None,
+                    relied_on: None,
                 });
                 continue;
             }
@@ -432,15 +628,43 @@ fn run_plans(
             cmd.arg("-c")
                 .arg(wrap(&planned.command))
                 .current_dir(worktree);
+            // A check this verify did not key carries no key: one inherited
+            // from an outer verify (this verify running inside its checks)
+            // names bytes this check was never keyed over.
+            match &key {
+                Some(key) => cmd.env(test_ledger::CHECK_INPUT_KEY_ENV, key),
+                None => cmd.env_remove(test_ledger::CHECK_INPUT_KEY_ENV),
+            };
             if quiet {
                 cmd.stdout(Stdio::null()).stderr(Stdio::null());
             }
+            let clock = Instant::now();
             let (exit_code, ended) = run_check(cmd, deadline);
+            let secs = clock.elapsed().as_secs_f64();
             let timed_out = ended != CheckEnd::Exited;
             if exit_code != 0 || timed_out {
                 red = true;
             }
             expired |= timed_out;
+            if let (Some(m), Some(before), true) =
+                (memo.as_deref_mut(), key, ended != CheckEnd::NotStarted)
+            {
+                // A check that moved its own inputs vouches for nothing.
+                if m.key(&planned.declared_by).as_deref() == Some(before.as_str()) {
+                    let status = match ended {
+                        CheckEnd::Killed => check_status::TIMED_OUT,
+                        _ if exit_code == 0 => check_status::PASS,
+                        _ => check_status::FAIL,
+                    };
+                    m.record(
+                        &planned.command,
+                        before,
+                        Some(i64::from(exit_code)),
+                        status,
+                        secs,
+                    );
+                }
+            }
             let child = verdict(&planned.command).unwrap_or_default();
             commands.push(CommandResult {
                 command: planned.command,
@@ -457,6 +681,7 @@ fn run_plans(
                 total: child.total,
                 title: child.title,
                 message: child.message,
+                relied_on: None,
             });
         }
         let recorded = commands.iter().filter(|c| c.total.is_some());
@@ -476,6 +701,7 @@ fn run_plans(
             commands,
             borrowed_from: plan.borrowed_from,
             red,
+            relied_on_record: false,
         };
         watch(VerifyEvent::Finished(&result));
         results.push(result);
@@ -583,6 +809,7 @@ pub fn verify_in(
             wrap: &|command| command.to_string(),
             verdict: &mut |_| None,
             watch: &mut |_| {},
+            memo: None,
         },
         None,
     )
@@ -705,6 +932,8 @@ fn verify_run(
             surfaces: Vec::new(),
             checked: 0,
             claimed_unchecked: 0,
+            relied: 0,
+            record_note: None,
         },
         Resolution::DeclaresNone => VerifyReport {
             base,
@@ -714,6 +943,8 @@ fn verify_run(
             surfaces: Vec::new(),
             checked: 0,
             claimed_unchecked: 0,
+            relied: 0,
+            record_note: None,
             receipt: "TUG-VERIFY-RECEIPT: this project declares no surfaces".to_string(),
         },
         Resolution::Unclaimed(paths) => VerifyReport {
@@ -725,8 +956,29 @@ fn verify_run(
             surfaces: Vec::new(),
             checked: 0,
             claimed_unchecked: 0,
+            relied: 0,
+            record_note: None,
         },
         Resolution::Planned(plans) => {
+            let mut record_note = None;
+            let mut memo_run = match hooks.memo {
+                Some(memo) => match test_ledger::open_ledger(&memo.ledger) {
+                    Ok(conn) => Some(MemoRun {
+                        worktree: &worktree,
+                        surfaces: &surfaces,
+                        conn,
+                        head: head.clone(),
+                        fresh: memo.fresh,
+                        tool_use_id: memo.tool_use_id.clone(),
+                        note: None,
+                    }),
+                    Err(e) => {
+                        record_note = Some(format!("the record could not be opened: {e}"));
+                        None
+                    }
+                },
+                None => None,
+            };
             let results = run_plans(
                 &worktree,
                 plans,
@@ -735,9 +987,22 @@ fn verify_run(
                 hooks.wrap,
                 hooks.verdict,
                 hooks.watch,
+                memo_run.as_mut(),
             );
-            let checked = results.iter().filter(|r| !r.commands.is_empty()).count();
+            if let Some(note) = memo_run.and_then(|m| m.note) {
+                record_note.get_or_insert(note);
+            }
+            let relied = results.iter().filter(|r| r.relied_on_record).count();
+            let checked = results
+                .iter()
+                .filter(|r| !r.commands.is_empty() && !r.relied_on_record)
+                .count();
             let claimed_unchecked = results.iter().filter(|r| r.commands.is_empty()).count();
+            let relied_tail = if relied > 0 {
+                format!(" · {relied} relied on the record")
+            } else {
+                String::new()
+            };
             let reds: Vec<&SurfaceResult> = results.iter().filter(|r| r.red).collect();
             let expired = results
                 .iter()
@@ -757,10 +1022,11 @@ fn verify_run(
                 }
             } else if reds.is_empty() {
                 format!(
-                    "TUG-VERIFY-RECEIPT: verified {} · {} surfaces checked · {} claimed unchecked",
+                    "TUG-VERIFY-RECEIPT: verified {} · {} surfaces checked · {} claimed unchecked{}",
                     short(&head),
                     checked,
-                    claimed_unchecked
+                    claimed_unchecked,
+                    relied_tail
                 )
             } else {
                 format!(
@@ -780,7 +1046,7 @@ fn verify_run(
                     name,
                     "verified",
                     &format!(
-                        "{head} onto {fork} · {checked} surfaces checked · {claimed_unchecked} claimed unchecked{scope}"
+                        "{head} onto {fork} · {checked} surfaces checked · {claimed_unchecked} claimed unchecked{relied_tail}{scope}"
                     ),
                 )
                 .map_err(|e| ArcError::arc_log(paths, &repo, e))?;
@@ -800,6 +1066,8 @@ fn verify_run(
                 surfaces: results,
                 checked,
                 claimed_unchecked,
+                relied,
+                record_note,
                 receipt,
             }
         }
@@ -847,6 +1115,7 @@ mod tests {
             checked_by: checked_by.iter().map(|c| c.to_string()).collect(),
             commit_check: Vec::new(),
             commit_check_only: Vec::new(),
+            inputs: Vec::new(),
         }
     }
 
@@ -1165,6 +1434,7 @@ mod fit_tests {
             wrap: &wrap,
             verdict: &mut |_| None,
             watch: &mut |_| {},
+            memo: None,
         };
         let report = verify_watched(&paths, &root, "demo", None, None, hooks).unwrap();
         assert_eq!(
@@ -1214,6 +1484,7 @@ mod fit_tests {
             wrap: &unwrapped,
             verdict: &mut verdict,
             watch: &mut |_| {},
+            memo: None,
         };
         let report = verify_watched(&paths, &root, "demo", None, None, hooks).unwrap();
         assert_eq!(
@@ -1311,6 +1582,7 @@ mod fit_tests {
             wrap: &unwrapped,
             verdict: &mut |_| None,
             watch: &mut watch,
+            memo: None,
         };
         let report = verify_watched(&paths, &root, "demo", None, None, hooks).unwrap();
         assert_eq!(report.verdict, "red");
@@ -1403,6 +1675,7 @@ mod fit_tests {
                 wrap: &|command| command.to_string(),
                 verdict: &mut |_| None,
                 watch: &mut |_| {},
+                memo: None,
             },
         )
         .expect("the verify runs");
@@ -1590,6 +1863,261 @@ mod fit_tests {
                 .is_none(),
             "an unparseable note yields no fact, not a fact with an empty base"
         );
+    }
+
+    // --- the record a verify relies on ---------------------------------------
+
+    /// A verify that may rely on the record kept in `ledger`.
+    fn memo_verify(paths: &Paths, root: &Path, ledger: &Path, fresh: bool) -> VerifyReport {
+        let memo = VerifyMemo {
+            ledger: ledger.to_path_buf(),
+            fresh,
+            tool_use_id: None,
+        };
+        verify_watched(
+            paths,
+            root,
+            "demo",
+            None,
+            None,
+            VerifyHooks {
+                wrap: &|command| command.to_string(),
+                verdict: &mut |_| None,
+                watch: &mut |_| {},
+                memo: Some(&memo),
+            },
+        )
+        .expect("the verify runs")
+    }
+
+    /// How many times a counting check ran: one line per run, in a file
+    /// outside the worktree so the count never moves a key.
+    fn runs(counter: &Path) -> usize {
+        std::fs::read_to_string(counter)
+            .map(|t| t.lines().count())
+            .unwrap_or(0)
+    }
+
+    fn counting(counter: &Path) -> String {
+        format!("echo ran >> {}", shell_quote(&counter.to_string_lossy()))
+    }
+
+    fn surface_of<'a>(report: &'a VerifyReport, name: &str) -> &'a SurfaceResult {
+        report
+            .surfaces
+            .iter()
+            .find(|s| s.name == name)
+            .unwrap_or_else(|| panic!("no surface {name}"))
+    }
+
+    /// An unchanged second verify runs nothing, names the record it relied
+    /// on, still writes the verified line, and the audit's mark goes through.
+    #[test]
+    fn an_unchanged_second_verify_relies_on_the_record_and_the_mark_goes_through() {
+        let state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(state.path());
+        let ledger = state.path().join("test_results.db");
+        let counter = state.path().join("src.count");
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("repo");
+        std::fs::create_dir_all(&root).unwrap();
+        // No `inputs`: keyed by the whole tree.
+        let config = format!(
+            "[[tugtool.arc.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [{:?}]\n",
+            counting(&counter)
+        );
+        let worktree = project(&root, &config, &[("src/a.rs", "a\n")]);
+
+        let first = memo_verify(&paths, &root, &ledger, false);
+        assert_eq!(first.verdict, "verified");
+        assert_eq!((first.checked, first.relied), (1, 0));
+        assert_eq!(runs(&counter), 1);
+
+        let second = memo_verify(&paths, &root, &ledger, false);
+        assert_eq!(second.verdict, "verified");
+        assert_eq!(runs(&counter), 1, "the relied-on check did not run");
+        assert_eq!((second.checked, second.relied), (0, 1));
+        let src = surface_of(&second, "src");
+        assert!(src.relied_on_record && !src.red);
+        let command = &src.commands[0];
+        assert_eq!(command.status, "recorded");
+        assert_eq!(command.exit_code, Some(0));
+        let head = git(&worktree, &["rev-parse", "HEAD"]).trim().to_string();
+        assert_eq!(
+            command.relied_on.as_ref().map(|r| r.head.as_str()),
+            Some(head.as_str()),
+            "the row it relied on names its head"
+        );
+        assert!(
+            second
+                .receipt
+                .ends_with("0 surfaces checked · 0 claimed unchecked · 1 relied on the record"),
+            "{}",
+            second.receipt
+        );
+        let lines = verified_lines(&paths, &root);
+        assert_eq!(lines.len(), 2, "both verifies record the head: {lines:?}");
+        assert!(lines[1].contains("1 relied on the record"), "{}", lines[1]);
+        crate::ops::mark_in(&paths, &root, "demo", crate::log::MarkStage::Audited, None)
+            .expect("a verify that relied on the record still lets the audit mark");
+
+        // Without the memo, nothing is relied on and the check runs.
+        verify_in(&paths, &root, "demo", None, None).unwrap();
+        assert_eq!(runs(&counter), 2);
+    }
+
+    /// A change under one surface's declared inputs runs that surface again
+    /// and relies on the record for the other.
+    #[test]
+    fn a_change_under_one_surfaces_inputs_runs_that_surface_only() {
+        let state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(state.path());
+        let ledger = state.path().join("test_results.db");
+        let src_count = state.path().join("src.count");
+        let docs_count = state.path().join("docs.count");
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("repo");
+        std::fs::create_dir_all(&root).unwrap();
+        let config = format!(
+            "[[tugtool.arc.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [{:?}]\ninputs = [\"src/\"]\n\n\
+             [[tugtool.arc.surface]]\nname = \"docs\"\npaths = [\"docs/\"]\ncheck = [{:?}]\ninputs = [\"docs/\"]\n",
+            counting(&src_count),
+            counting(&docs_count)
+        );
+        let worktree = project(&root, &config, &[("src/a.rs", "a\n"), ("docs/a.md", "a\n")]);
+        assert_eq!(memo_verify(&paths, &root, &ledger, false).verdict, "verified");
+
+        std::fs::write(worktree.join("docs/a.md"), "a, revised\n").unwrap();
+        git(&worktree, &["add", "-A"]);
+        git(&worktree, &["commit", "-m", "a docs round"]);
+        let second = memo_verify(&paths, &root, &ledger, false);
+        assert_eq!(second.verdict, "verified");
+        assert_eq!((runs(&src_count), runs(&docs_count)), (1, 2));
+        assert!(surface_of(&second, "src").relied_on_record);
+        assert!(!surface_of(&second, "docs").relied_on_record);
+        assert_eq!((second.checked, second.relied), (1, 1));
+    }
+
+    /// A red verify, then a fix: the fixed surface runs again, the one that
+    /// was already green relies on the record, and the verified line lands.
+    #[test]
+    fn a_fix_after_a_red_verify_reruns_only_what_moved() {
+        let state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(state.path());
+        let ledger = state.path().join("test_results.db");
+        let docs_count = state.path().join("docs.count");
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("repo");
+        std::fs::create_dir_all(&root).unwrap();
+        let config = format!(
+            "[[tugtool.arc.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"grep -q good src/a.rs\"]\ninputs = [\"src/\"]\n\n\
+             [[tugtool.arc.surface]]\nname = \"docs\"\npaths = [\"docs/\"]\ncheck = [{:?}]\ninputs = [\"docs/\"]\n",
+            counting(&docs_count)
+        );
+        let worktree = project(&root, &config, &[("src/a.rs", "bad\n"), ("docs/a.md", "a\n")]);
+
+        let red = memo_verify(&paths, &root, &ledger, false);
+        assert_eq!(red.verdict, "red");
+        assert!(verified_lines(&paths, &root).is_empty());
+
+        std::fs::write(worktree.join("src/a.rs"), "good\n").unwrap();
+        git(&worktree, &["add", "-A"]);
+        git(&worktree, &["commit", "-m", "the fix"]);
+        let fixed = memo_verify(&paths, &root, &ledger, false);
+        assert_eq!(fixed.verdict, "verified");
+        assert_eq!(runs(&docs_count), 1, "the green surface relied on the record");
+        assert!(surface_of(&fixed, "docs").relied_on_record);
+        let src = surface_of(&fixed, "src");
+        assert!(!src.relied_on_record);
+        assert_eq!(src.commands[0].status, "ran");
+        assert_eq!(verified_lines(&paths, &root).len(), 1);
+
+        // And the red row never answers: break it again, the check runs.
+        std::fs::write(worktree.join("src/a.rs"), "bad\n").unwrap();
+        git(&worktree, &["add", "-A"]);
+        git(&worktree, &["commit", "-m", "broken again"]);
+        let again = memo_verify(&paths, &root, &ledger, false);
+        assert_eq!(again.verdict, "red", "a red key is never relied on");
+    }
+
+    /// `--fresh` runs every check whatever the record says, and still
+    /// records what it ran.
+    #[test]
+    fn a_fresh_verify_runs_every_check() {
+        let state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(state.path());
+        let ledger = state.path().join("test_results.db");
+        let counter = state.path().join("src.count");
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("repo");
+        std::fs::create_dir_all(&root).unwrap();
+        let config = format!(
+            "[[tugtool.arc.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [{:?}]\n",
+            counting(&counter)
+        );
+        project(&root, &config, &[("src/a.rs", "a\n")]);
+
+        memo_verify(&paths, &root, &ledger, false);
+        let fresh = memo_verify(&paths, &root, &ledger, true);
+        assert_eq!(runs(&counter), 2);
+        assert_eq!((fresh.checked, fresh.relied), (1, 0));
+        assert!(!fresh.receipt.contains("relied"), "{}", fresh.receipt);
+        // What the fresh run recorded is relied on next.
+        let after = memo_verify(&paths, &root, &ledger, false);
+        assert_eq!(runs(&counter), 2);
+        assert_eq!(after.relied, 1);
+    }
+
+    /// A check that moves its own inputs while it runs is recorded nowhere,
+    /// so it is never relied on: its key after is not the key it read.
+    #[test]
+    fn a_check_whose_key_moved_while_it_ran_records_nothing() {
+        let state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(state.path());
+        let ledger = state.path().join("test_results.db");
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("repo");
+        std::fs::create_dir_all(&root).unwrap();
+        let config = "[[tugtool.arc.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"echo more >> src/generated.txt\", \"true\"]\ninputs = [\"src/\"]\n";
+        project(&root, config, &[("src/a.rs", "a\n")]);
+
+        let report = memo_verify(&paths, &root, &ledger, false);
+        assert_eq!(report.verdict, "verified");
+        let conn = test_ledger::open_ledger(&ledger).unwrap();
+        let rows: i64 = conn
+            .query_row("SELECT COUNT(*) FROM checks", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(
+            rows, 0,
+            "neither check is recorded: the first moved the key the surface started from"
+        );
+        let second = memo_verify(&paths, &root, &ledger, false);
+        assert_eq!(second.relied, 0);
+    }
+
+    /// The checks a verify runs see their key, which a wrapped runner records
+    /// on its run.
+    #[test]
+    fn a_check_runs_with_its_input_key_in_the_environment() {
+        let state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(state.path());
+        let ledger = state.path().join("test_results.db");
+        let seen = state.path().join("seen-key");
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("repo");
+        std::fs::create_dir_all(&root).unwrap();
+        let check = format!(
+            "printf %s \"${}\" > {}",
+            test_ledger::CHECK_INPUT_KEY_ENV,
+            shell_quote(&seen.to_string_lossy())
+        );
+        let config = format!(
+            "[[tugtool.arc.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [{check:?}]\ninputs = [\"src/\"]\n"
+        );
+        let worktree = project(&root, &config, &[("src/a.rs", "a\n")]);
+        memo_verify(&paths, &root, &ledger, false);
+        let expected = crate::input_key::input_key(&worktree, &["src/".to_string()]).unwrap();
+        assert_eq!(std::fs::read_to_string(&seen).unwrap(), expected);
     }
 
     #[test]

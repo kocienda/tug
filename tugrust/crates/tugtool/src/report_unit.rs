@@ -1092,6 +1092,7 @@ mod tests {
             total: None,
             title: None,
             message: None,
+            relied_on: None,
         };
         let surface = |name: &str, commands: Vec<CommandResult>| SurfaceResult {
             name: name.into(),
@@ -1099,6 +1100,7 @@ mod tests {
             red: commands.iter().any(|c| c.exit_code.is_some_and(|e| e != 0)),
             commands,
             borrowed_from: vec![],
+            relied_on_record: false,
             passed: None,
             total: None,
             title: None,
@@ -1165,9 +1167,11 @@ mod tests {
                 total: Some(748),
                 title: Some("tugtool::hook a_dark_runner_is_refused".into()),
                 message: Some("assertion failed: denied".into()),
+                relied_on: None,
             }],
             borrowed_from: vec![],
             red: true,
+            relied_on_record: false,
             passed: Some(747),
             total: Some(748),
             title: Some("tugtool::hook a_dark_runner_is_refused".into()),

@@ -1230,6 +1230,10 @@ pub enum ArcCommands {
     /// single check — when one resolves to no surface, then runs what the
     /// matched surfaces declare from the worktree root. A green run records
     /// the head it verified and the base it verified onto; it gates nothing.
+    ///
+    /// A surface every one of whose checks is green in the test record over
+    /// the same command and the same bytes of its declared `inputs`, from the
+    /// last day, is not run again: the report names the record it relied on.
     Verify {
         /// Arc name.
         name: String,
@@ -1239,6 +1243,10 @@ pub enum ArcCommands {
         /// Verify up to this commit instead of the arc branch's tip.
         #[arg(long)]
         head: Option<String>,
+        /// Run every check, relying on nothing recorded. What runs is still
+        /// recorded.
+        #[arg(long)]
+        fresh: bool,
     },
     /// Discard an arc: delete its worktree + branch without merging.
     Discard {

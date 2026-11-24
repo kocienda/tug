@@ -165,6 +165,7 @@ fn seed_runs(db: &Path, root: &Path, suite: &str, secs: &[f64]) {
             suite: suite.to_string(),
             session_id: None,
             tool_use_id: None,
+            input_key: None,
             command: "bun test".to_string(),
             exit_code: 0,
             wall_secs: *s,

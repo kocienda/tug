@@ -50,6 +50,10 @@ pub mod doctor;
 /// runner behind `tugtool arc verify`.
 pub mod surfaces;
 
+/// The content key of a worktree's input paths — the bytes a check reads, as
+/// the working tree holds them — which a verify compares against the record.
+pub mod input_key;
+
 /// Crossings: live arcs on one base that touch the same paths, probed against
 /// each other on every round.
 pub mod crossing;

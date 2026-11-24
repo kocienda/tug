@@ -26,7 +26,7 @@ use serde::Serialize;
 use crate::apptest_ledger::resolve_base_root;
 
 /// Current on-disk schema version, stamped into `PRAGMA user_version`.
-pub const TEST_RESULTS_SCHEMA_VERSION: i64 = 2;
+pub const TEST_RESULTS_SCHEMA_VERSION: i64 = 3;
 
 /// Registered migrations, each keyed by the on-disk version it upgrades
 /// *from*. A schema change adds an entry here and bumps
@@ -35,11 +35,31 @@ const TEST_RESULTS_MIGRATIONS: &[(i64, &str)] = &[
     // v1 → v2: a run remembers the Bash call it ran under, so every suite a
     // verify ran is read back together.
     (1, "ALTER TABLE runs ADD COLUMN tool_use_id TEXT;"),
+    // v2 → v3: a run remembers the content key of the check it ran under, and
+    // the `checks` table (created by the DDL that follows every migration)
+    // keeps one row per check a verify ran.
+    (2, "ALTER TABLE runs ADD COLUMN input_key TEXT;"),
 ];
 
 /// How many runs are kept per base root. Older runs are deleted at record
 /// time, and their file and failure rows follow by cascade.
 pub const MAX_RUNS_PER_ROOT: i64 = 200;
+
+/// How many check rows are kept per base root. A verify of every surface is
+/// a dozen checks, so this is some forty verifies — far more than the
+/// [`CHECK_REUSE_SECS`] window ever reads.
+pub const MAX_CHECKS_PER_ROOT: i64 = 500;
+
+/// How old a green check may be and still let a verify rely on it. The key
+/// covers the bytes in the tree, not a compiler, an Xcode or an OS update;
+/// this limit bounds that, and `--fresh` overrides it by hand.
+pub const CHECK_REUSE_SECS: i64 = 24 * 60 * 60;
+
+/// The variable verify sets for each check it runs: the content key of that
+/// check's inputs. `tugtool test run` and `tugtool test record` read it into
+/// the run's `input_key`, so a run can be traced to the check and the bytes it
+/// was part of.
+pub const CHECK_INPUT_KEY_ENV: &str = "TUG_CHECK_INPUT_KEY";
 
 /// A failure's body is kept to this many characters. A panic with a long
 /// backtrace or a snapshot diff says what it needs to in far less.
@@ -58,6 +78,7 @@ const CREATE_TEST_RESULTS_SQL: &str = "
         suite       TEXT    NOT NULL,
         session_id  TEXT,
         tool_use_id TEXT,
+        input_key   TEXT,
         command     TEXT    NOT NULL,
         exit_code   INTEGER NOT NULL,
         wall_secs   REAL    NOT NULL,
@@ -86,6 +107,19 @@ const CREATE_TEST_RESULTS_SQL: &str = "
         detail      TEXT    NOT NULL
     );
     CREATE INDEX IF NOT EXISTS failures_by_run ON failures (run_id);
+    CREATE TABLE IF NOT EXISTS checks (
+        id          INTEGER PRIMARY KEY,
+        recorded_at INTEGER NOT NULL,
+        base_root   TEXT    NOT NULL,
+        head_sha    TEXT    NOT NULL,
+        command     TEXT    NOT NULL,
+        input_key   TEXT    NOT NULL,
+        exit_code   INTEGER,
+        status      TEXT    NOT NULL,
+        wall_secs   REAL    NOT NULL,
+        tool_use_id TEXT
+    );
+    CREATE INDEX IF NOT EXISTS checks_by_command ON checks (base_root, command, input_key, id);
 ";
 
 #[derive(Debug, thiserror::Error)]
@@ -273,6 +307,15 @@ pub fn default_path() -> PathBuf {
     tugcore::instance::test_results_db_path()
 }
 
+/// The content key a verify set for the check this process runs under
+/// ([`CHECK_INPUT_KEY_ENV`]), when one did.
+pub fn input_key_from_env() -> Option<String> {
+    std::env::var(CHECK_INPUT_KEY_ENV)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 /// Open (or create) the ledger, bringing the schema to the current version.
 pub fn open_ledger(path: impl AsRef<Path>) -> Result<Connection, TestLedgerError> {
     if let Some(dir) = path.as_ref().parent() {
@@ -325,6 +368,9 @@ pub struct TestRun {
     /// said so. Every child a verify wraps inherits the same one, which is
     /// what lets [`runs_for_call`] read a whole verify back as one.
     pub tool_use_id: Option<String>,
+    /// The content key of the check the run ran under ([`CHECK_INPUT_KEY_ENV`]),
+    /// when a verify ran it.
+    pub input_key: Option<String>,
     pub command: String,
     pub exit_code: i64,
     pub wall_secs: f64,
@@ -364,10 +410,10 @@ pub fn record_run(
     tx.execute(
         "INSERT INTO runs
             (started_at, ended_at, base_root, run_root, branch, head_sha, dirty,
-             suite, session_id, tool_use_id, command, exit_code, wall_secs,
+             suite, session_id, tool_use_id, input_key, command, exit_code, wall_secs,
              tests, failed, skipped, has_record, verdict)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
-                 ?15, ?16, ?17, ?18)",
+                 ?15, ?16, ?17, ?18, ?19)",
         params![
             run.started_at,
             run.ended_at,
@@ -379,6 +425,7 @@ pub fn record_run(
             run.suite,
             run.session_id,
             run.tool_use_id,
+            run.input_key,
             run.command,
             run.exit_code,
             run.wall_secs,
@@ -424,6 +471,137 @@ pub fn record_run(
     )?;
     tx.commit()?;
     Ok(RecordedRun { run_id, pruned })
+}
+
+/// How a check a verify ran ended, as the `checks` table spells it.
+pub mod check_status {
+    /// Exited 0, and the key over its inputs did not move while it ran.
+    pub const PASS: &str = "pass";
+    /// Exited non-zero.
+    pub const FAIL: &str = "fail";
+    /// Stopped at the verify's deadline.
+    pub const TIMED_OUT: &str = "timed-out";
+    /// Never began, because the deadline had already passed.
+    pub const NOT_STARTED: &str = "not-started";
+}
+
+/// One check a verify ran, ready to record: the unit verify plans and
+/// judges, which a run row cannot stand for (a check may leave six runs, or
+/// none).
+#[derive(Debug, Clone, PartialEq)]
+pub struct CheckRun {
+    pub recorded_at: i64,
+    /// The checkout the verify ran in; its base root is resolved here, so an
+    /// arc worktree and its base share one record.
+    pub run_root: String,
+    pub head_sha: String,
+    /// The expanded command, exactly as verify compares and runs it.
+    pub command: String,
+    /// The content key of the check's inputs, the same before and after it ran.
+    pub input_key: String,
+    /// `None` when the check never started.
+    pub exit_code: Option<i64>,
+    /// One of [`check_status`].
+    pub status: String,
+    pub wall_secs: f64,
+    pub tool_use_id: Option<String>,
+}
+
+/// A recorded check, as the read that lets a verify rely on it returns it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordedCheck {
+    pub id: i64,
+    pub recorded_at: i64,
+    pub head_sha: String,
+    pub command: String,
+    pub input_key: String,
+    pub exit_code: Option<i64>,
+    pub status: String,
+    pub wall_secs: f64,
+    pub tool_use_id: Option<String>,
+}
+
+/// Record one check, then prune this base root's checks back to
+/// [`MAX_CHECKS_PER_ROOT`]. Returns the row's id.
+pub fn record_check(conn: &mut Connection, check: &CheckRun) -> Result<i64, TestLedgerError> {
+    let base_root = resolve_base_root(Path::new(&check.run_root));
+    let tx = conn.transaction()?;
+    tx.execute(
+        "INSERT INTO checks
+            (recorded_at, base_root, head_sha, command, input_key, exit_code,
+             status, wall_secs, tool_use_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![
+            check.recorded_at,
+            base_root,
+            check.head_sha,
+            check.command,
+            check.input_key,
+            check.exit_code,
+            check.status,
+            check.wall_secs,
+            check.tool_use_id,
+        ],
+    )?;
+    let id = tx.last_insert_rowid();
+    tx.execute(
+        "DELETE FROM checks
+          WHERE base_root = ?1
+            AND id NOT IN (
+                SELECT id FROM checks WHERE base_root = ?1
+                 ORDER BY id DESC LIMIT ?2
+            )",
+        params![base_root, MAX_CHECKS_PER_ROOT],
+    )?;
+    tx.commit()?;
+    Ok(id)
+}
+
+/// The newest check a verify may rely on instead of running `command`: green
+/// and completed, the same expanded command, the same content key, under the
+/// same base root, and recorded within [`CHECK_REUSE_SECS`] of `now`. A red,
+/// timed-out or not-started row never answers, however recent.
+pub fn reusable_check(
+    conn: &Connection,
+    run_root: &Path,
+    command: &str,
+    input_key: &str,
+    now: i64,
+) -> Result<Option<RecordedCheck>, TestLedgerError> {
+    let base_root = resolve_base_root(run_root);
+    let mut stmt = conn.prepare(
+        "SELECT id, recorded_at, head_sha, command, input_key, exit_code, status,
+                wall_secs, tool_use_id
+           FROM checks
+          WHERE base_root = ?1 AND command = ?2 AND input_key = ?3
+            AND status = ?4 AND exit_code = 0 AND recorded_at >= ?5
+          ORDER BY id DESC
+          LIMIT 1",
+    )?;
+    let mut rows = stmt.query_map(
+        params![
+            base_root,
+            command,
+            input_key,
+            check_status::PASS,
+            now - CHECK_REUSE_SECS
+        ],
+        |row| {
+            Ok(RecordedCheck {
+                id: row.get(0)?,
+                recorded_at: row.get(1)?,
+                head_sha: row.get(2)?,
+                command: row.get(3)?,
+                input_key: row.get(4)?,
+                exit_code: row.get(5)?,
+                status: row.get(6)?,
+                wall_secs: row.get(7)?,
+                tool_use_id: row.get(8)?,
+            })
+        },
+    )?;
+    Ok(rows.next().transpose()?)
 }
 
 /// A suite's latest recorded run, as `test last` reads it.
@@ -762,6 +940,7 @@ assertion `left == right` failed
             suite: suite.into(),
             session_id: None,
             tool_use_id: None,
+            input_key: None,
             command: "bun test".into(),
             exit_code,
             wall_secs: 10.0,
@@ -1036,6 +1215,7 @@ assertion `left == right` failed
             conn.execute_batch(
                 &CREATE_TEST_RESULTS_SQL
                     .replace("        tool_use_id TEXT,\n", "")
+                    .replace("        input_key   TEXT,\n", "")
                     .replace(
                         "    CREATE INDEX IF NOT EXISTS runs_by_call ON runs (tool_use_id, id);\n",
                         "",
@@ -1076,6 +1256,193 @@ assertion `left == right` failed
             )
             .unwrap();
         assert_eq!(old, None, "the row from before the column has none");
+    }
+
+    fn check(root: &str, key: &str, status: &str, exit_code: Option<i64>, at: i64) -> CheckRun {
+        CheckRun {
+            recorded_at: at,
+            run_root: root.to_string(),
+            head_sha: "abc1234".into(),
+            command: "cd tugrust && cargo nextest run".into(),
+            input_key: key.to_string(),
+            exit_code,
+            status: status.to_string(),
+            wall_secs: 66.0,
+            tool_use_id: Some("toolu_01A".into()),
+        }
+    }
+
+    /// A ledger written before checks were kept opens at the current version,
+    /// gains the check table and the run's key column, and keeps its rows.
+    #[test]
+    fn a_v2_ledger_gains_the_check_table_and_the_key_column_on_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test_results.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            let (v2, _) = CREATE_TEST_RESULTS_SQL
+                .split_once("    CREATE TABLE IF NOT EXISTS checks")
+                .unwrap();
+            conn.execute_batch(&v2.replace("        input_key   TEXT,\n", ""))
+                .unwrap();
+            conn.pragma_update(None, "user_version", 2).unwrap();
+            conn.execute(
+                "INSERT INTO runs (started_at, ended_at, base_root, run_root, branch,
+                    head_sha, dirty, suite, tool_use_id, command, exit_code, wall_secs,
+                    tests, failed, skipped, has_record, verdict)
+                 VALUES (1, 2, 'r', 'r', 'main', 'abc', 0, 'old', 't', 'x', 0, 1.0, 1, 0, 0, 1, 'PASS')",
+                [],
+            )
+            .unwrap();
+        }
+        let mut conn = open_ledger(&path).unwrap();
+        assert_eq!(
+            count(&conn, "PRAGMA user_version"),
+            TEST_RESULTS_SCHEMA_VERSION
+        );
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM runs"), 1);
+        let root = dir.path().to_string_lossy().into_owned();
+        record_run(
+            &mut conn,
+            &TestRun {
+                input_key: Some("k1".into()),
+                ..run(&root, "rust", 1_000, 0)
+            },
+            None,
+        )
+        .unwrap();
+        let keys: Vec<Option<String>> = conn
+            .prepare("SELECT input_key FROM runs ORDER BY id")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(keys, vec![None, Some("k1".to_string())]);
+        record_check(
+            &mut conn,
+            &check(&root, "k1", check_status::PASS, Some(0), 1_000),
+        )
+        .unwrap();
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM checks"), 1);
+    }
+
+    /// Only a green, completed check over the same command and the same key
+    /// answers, and the newest such row is the one returned.
+    #[test]
+    fn only_a_green_check_over_the_same_command_and_key_is_reusable() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_string_lossy().into_owned();
+        let mut conn = ledger(dir.path());
+        let now = 10_000;
+        let cmd = "cd tugrust && cargo nextest run";
+        let reuse = |conn: &Connection, cmd: &str, key: &str| {
+            reusable_check(conn, Path::new(&root), cmd, key, now).unwrap()
+        };
+
+        assert_eq!(reuse(&conn, cmd, "k"), None, "an empty ledger answers nothing");
+
+        for (status, exit) in [
+            (check_status::FAIL, Some(1)),
+            (check_status::TIMED_OUT, Some(137)),
+            (check_status::NOT_STARTED, None),
+            // A row that says pass over a non-zero exit is not green either.
+            (check_status::PASS, Some(1)),
+        ] {
+            record_check(&mut conn, &check(&root, "k", status, exit, now - 10)).unwrap();
+        }
+        assert_eq!(reuse(&conn, cmd, "k"), None, "no red row answers");
+
+        let first = record_check(
+            &mut conn,
+            &check(&root, "k", check_status::PASS, Some(0), now - 20),
+        )
+        .unwrap();
+        let second = record_check(
+            &mut conn,
+            &check(&root, "k", check_status::PASS, Some(0), now - 5),
+        )
+        .unwrap();
+        assert!(first < second);
+        let hit = reuse(&conn, cmd, "k").expect("a green row answers");
+        assert_eq!(hit.id, second, "the newest green row");
+        assert_eq!(hit.head_sha, "abc1234");
+
+        assert_eq!(reuse(&conn, cmd, "other-key"), None, "a moved key misses");
+        assert_eq!(
+            reuse(&conn, "cd tugrust && cargo nextest run -p x", "k"),
+            None,
+            "another command misses"
+        );
+        let elsewhere = dir.path().join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        assert_eq!(
+            reusable_check(&conn, &elsewhere, cmd, "k", now).unwrap(),
+            None,
+            "another checkout misses"
+        );
+    }
+
+    /// A green row older than the reuse window never answers.
+    #[test]
+    fn an_old_green_check_is_not_reusable() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_string_lossy().into_owned();
+        let mut conn = ledger(dir.path());
+        let now = 1_000_000;
+        let cmd = "cd tugrust && cargo nextest run";
+        record_check(
+            &mut conn,
+            &check(&root, "k", check_status::PASS, Some(0), now - CHECK_REUSE_SECS - 1),
+        )
+        .unwrap();
+        assert_eq!(
+            reusable_check(&conn, Path::new(&root), cmd, "k", now).unwrap(),
+            None
+        );
+        record_check(
+            &mut conn,
+            &check(&root, "k", check_status::PASS, Some(0), now - CHECK_REUSE_SECS),
+        )
+        .unwrap();
+        assert!(
+            reusable_check(&conn, Path::new(&root), cmd, "k", now)
+                .unwrap()
+                .is_some(),
+            "a row exactly at the limit still answers"
+        );
+    }
+
+    #[test]
+    fn check_retention_keeps_the_newest_per_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("a");
+        let other = dir.path().join("b");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        let (root, other) = (
+            root.to_string_lossy().into_owned(),
+            other.to_string_lossy().into_owned(),
+        );
+        let mut conn = ledger(dir.path());
+        record_check(&mut conn, &check(&other, "k", check_status::PASS, Some(0), 1)).unwrap();
+        for idx in 0..=MAX_CHECKS_PER_ROOT {
+            record_check(
+                &mut conn,
+                &check(&root, &format!("k{idx}"), check_status::PASS, Some(0), idx),
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            count(&conn, "SELECT COUNT(*) FROM checks"),
+            MAX_CHECKS_PER_ROOT + 1,
+            "the root keeps its newest, the other root keeps its own"
+        );
+        assert_eq!(
+            count(&conn, "SELECT COUNT(*) FROM checks WHERE input_key = 'k0'"),
+            0,
+            "the oldest went"
+        );
     }
 
     #[test]

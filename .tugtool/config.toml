@@ -190,6 +190,45 @@ check = [
   "cd tugrust && cargo clippy --workspace --all-targets -- -D warnings",
   "cd tugrust && cargo nextest run",
 ]
+# What those two checks read, so verify can rely on a green record when
+# nothing here moved (`inputs` in Surface, tugtool-core/src/config.rs). Read
+# from the workspace's `include_str!`/`include_bytes!` and every test that
+# climbs from `CARGO_MANIFEST_DIR` to the checkout; a new read outside this
+# list widens a hole the 24 h reuse limit and the push gate bound.
+inputs = [
+  "tugrust/",
+  # tugcast's build.rs compiles tugcode with bun; parity fixtures; the
+  # quiesce mirror pins `tugcode/src/main.ts`.
+  "tugcode/",
+  ".bun-version",
+  # tugcode imports it; bus and render parity fixtures; `control.ts` and
+  # `outbound.ts` mirror tests.
+  "tugproto/",
+  # Chart fonts and palette are compiled in; the tugmark corpus and policy;
+  # protocol, changeset and find parity fixtures; lexicon and atom mirrors.
+  "tugdeck/",
+  # The devise skeleton, the chart forms reference, the hook script the gate
+  # tests drive.
+  "tugplug/",
+  # The help documents are compiled in and read; release notes sit beside
+  # them; `scripts/release.py` holds the seed markers a test pins.
+  "docs/",
+  "release-notes/",
+  "scripts/release.py",
+  # The stream-json catalog's snapshots.
+  "capabilities/",
+  # The classifier corpus, the Operator's eval set and history, and the
+  # harness constants the quiesce mirror pins.
+  "tests/model-eval/",
+  "tests/operator-eval/",
+  "tests/app-test/_harness/",
+  # The quiesce mirror, and the tugembed helper the embedder tests compile.
+  "tugapp/Sources/InstanceConfig.swift",
+  "tugapp/tugembed/",
+  "tugapp/Info.plist",
+  # A test loads this project's own surface table.
+  ".tugtool/",
+]
 
 [[tugtool.arc.surface]]
 name  = "deck"
@@ -205,6 +244,12 @@ paths = ["tugdeck/"]
 # contrast, notices) — about seven seconds. It sits in the fit so an arc that
 # adds or moves a `tug-*` file under another arc's feet is refused at the
 # re-audit rather than landing a red `main`.
+#
+# No `inputs`: the surface keys the whole tree. `just app-test-changed` drives
+# a Tug.app built from every product directory, and the deck's own sources
+# read into `tugrust/`, `tugproto/`, `tugcode/`, `tugapp/`, `tests/` and
+# `tuglaws/`, so an honest list would leave out only prose — too little to
+# be worth a list that can drift.
 check = [
   "cd tugdeck && bunx tsc --noEmit",
   "cd tugdeck && bunx vite build",
