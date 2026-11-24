@@ -39,6 +39,15 @@ describe("RateMeter", () => {
   it("has no held raw value", () => {
     expect(new RateMeter(B, 3).raw()).toBeNull();
   });
+
+  it("drops a bin older than its window rather than filing it in a newer bin's slot", () => {
+    const m = new RateMeter(B, 4);
+    m.record(7, 10 * B);
+    m.record(99, 6 * B); // four bins back: the slot bin 10 now holds
+    m.record(3, 7 * B); // three bins back: still in the window
+    const s = m.series(10 * B);
+    expect(s).toEqual([3, 0, 0, 7]);
+  });
 });
 
 describe("GaugeMeter", () => {

@@ -1540,17 +1540,22 @@ export function parseDigestFrame(payload: Uint8Array): DigestFramePayload | null
 }
 
 /**
- * Decoded `ACTIVITY` feed frame — one binned per-session channel sample
- * (Spec S02). tugcode emits `activity_delta` with the stream-derived rate
- * channels; the cast sampler adds the OS gauge channels; tugcast splices
- * `tug_session_id` and re-tags `FeedId::ACTIVITY`. `channels` is keyed by
- * the deck's canonical channel names — the gauge wire keys (`cpu_pct`,
- * `rss_bytes`, `disk_read_bps`/`disk_write_bps`) are normalized here so the
- * store records one `disk` (read+write summed), `cpu`, `memory`.
+ * Decoded `ACTIVITY` feed frame — one per-session channel sample (Spec S02).
+ * Rate channels arrive only in **bin frames**: tugcast holds each session's
+ * activity tape and, as each 250 ms bin closes, publishes the rate channels
+ * that did work in it with the bin's index on tugcast's clock (`bin`). The
+ * cast sampler's OS gauges arrive in frames with no `bin`, as levels that
+ * hold. `channels` is keyed by the deck's canonical channel names — the
+ * gauge wire keys (`cpu_pct`, `rss_bytes`, `disk_read_bps`/`disk_write_bps`)
+ * are normalized here so the store records one `disk` (read+write summed),
+ * `cpu`, `memory`.
  */
 export interface ActivityFramePayload {
   tug_session_id: string;
   channels: Record<string, number>;
+  /** The index of the bin a bin frame describes, on tugcast's clock; absent
+   *  on a gauge frame. */
+  bin?: number;
 }
 
 /** Wire channel key → canonical store channel; unlisted keys are dropped. */
@@ -1594,7 +1599,70 @@ export function parseActivityFrame(
     channels[canonical] = (channels[canonical] ?? 0) + v;
   }
   if (Object.keys(channels).length === 0) return null;
-  return { tug_session_id: sessionId, channels };
+  const frame: ActivityFramePayload = { tug_session_id: sessionId, channels };
+  if (typeof p.bin === "number" && Number.isSafeInteger(p.bin) && p.bin >= 0) {
+    frame.bin = p.bin;
+  }
+  return frame;
+}
+
+/**
+ * Decoded `ACTIVITY` window frame: what tugcast sends a page that starts
+ * listening to a session — the session's tape whole. `rates` holds each
+ * rate channel that did work, its bins oldest to newest starting at bin
+ * index `base` and ending at `through`, the newest bin tugcast has published
+ * (`null` when it has published none, and `rates` is empty). Every bin after
+ * `through` arrives as a bin frame. `gauges` is each gauge's current level,
+ * normalized like a gauge frame's channels.
+ */
+export interface ActivityWindowPayload {
+  tug_session_id: string;
+  base: number;
+  through: number | null;
+  rates: Record<string, number[]>;
+  gauges: Record<string, number>;
+}
+
+/** Parse an `ACTIVITY` window frame; null for any other frame or a
+ *  malformed one. Rate rows keep only finite numbers (anything else reads
+ *  as zero); unknown channel keys are dropped. */
+export function parseActivityWindow(
+  payload: Uint8Array,
+): ActivityWindowPayload | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(payload));
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const p = parsed as Record<string, unknown>;
+  if (p.type !== "activity_window") return null;
+  const sessionId = p.tug_session_id;
+  if (typeof sessionId !== "string" || sessionId.length === 0) return null;
+  if (typeof p.base !== "number" || !Number.isSafeInteger(p.base) || p.base < 0) return null;
+  const through =
+    typeof p.through === "number" && Number.isSafeInteger(p.through) ? p.through : null;
+  const rates: Record<string, number[]> = {};
+  if (through !== null && typeof p.rates === "object" && p.rates !== null) {
+    for (const [wireKey, row] of Object.entries(p.rates as Record<string, unknown>)) {
+      const canonical = ACTIVITY_WIRE_CHANNELS[wireKey];
+      if (canonical === undefined || !Array.isArray(row)) continue;
+      rates[canonical] = row.map((v) =>
+        typeof v === "number" && Number.isFinite(v) ? v : 0,
+      );
+    }
+  }
+  const gauges: Record<string, number> = {};
+  if (typeof p.gauges === "object" && p.gauges !== null) {
+    const wire = p.gauges as Record<string, unknown>;
+    for (const [wireKey, canonical] of Object.entries(ACTIVITY_WIRE_CHANNELS)) {
+      const v = wire[wireKey];
+      if (typeof v !== "number" || !Number.isFinite(v)) continue;
+      gauges[canonical] = (gauges[canonical] ?? 0) + v;
+    }
+  }
+  return { tug_session_id: sessionId, base: p.base, through, rates, gauges };
 }
 
 /**

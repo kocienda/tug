@@ -30,7 +30,13 @@ import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 
 import type { TugConnection } from "@/connection";
-import { FeedId, parseActivityFrame } from "@/protocol";
+import {
+  FeedId,
+  parseActivityFrame,
+  parseActivityWindow,
+  type ActivityFramePayload,
+  type ActivityWindowPayload,
+} from "@/protocol";
 import {
   GaugeMeter,
   RateMeter,
@@ -243,6 +249,18 @@ export class SessionActivityStore extends Subscribable {
     string,
     { channel: ActivityChannel; since: number }
   >();
+  /** The newest tugcast bin index this store has been told about; -1 until
+   *  the first bin frame. */
+  private newestBin = -1;
+  /** Deck bins minus tugcast bins: where a tugcast bin is drawn on this
+   *  page's own grid. Rate meters are kept in tugcast's bins and read
+   *  through it, so moving it moves the whole picture at once. Set by
+   *  {@link anchor}; zero until the first bin frame. */
+  private binOffset = 0;
+  /** Per session, the newest bin the last window held: a bin frame at or
+   *  before it is already on the meters, queued behind the window on the
+   *  wire, and is dropped. */
+  private readonly windowThrough = new Map<string, number>();
 
   constructor(conn: TugConnection | null) {
     super();
@@ -254,21 +272,118 @@ export class SessionActivityStore extends Subscribable {
       // filters to one.
       this.disposers.push(conn.onFrame(FeedId.ACTIVITY, (payload) => {
         const frame = parseActivityFrame(payload);
-        if (frame === null) return;
-        // Bin by receipt time — frames arrive ~real-time (≤250 ms) and
-        // tugcode does not stamp a deck-clock timestamp, matching the
-        // former local-derivation behavior.
-        const at = Date.now();
-        for (const [channel, units] of Object.entries(frame.channels)) {
-          this.record(
-            frame.tug_session_id,
-            channel as ActivityChannel,
-            units,
-            at,
-          );
+        if (frame !== null) {
+          this.ingestFrame(frame, Date.now());
+          return;
         }
+        const window = parseActivityWindow(payload);
+        if (window !== null) this.applyWindow(window, Date.now());
       }));
     }
+  }
+
+  /**
+   * File one ACTIVITY frame. A bin frame's rate channels go in the bin its
+   * index names, in tugcast's own bins, so transit delay moves nothing and
+   * frames that arrive together do not pile into one bin. A gauge frame
+   * carries no index: it is a level, recorded as of `nowMs`.
+   */
+  ingestFrame(frame: ActivityFramePayload, nowMs: number): void {
+    if (frame.bin !== undefined) this.anchor(frame.bin, nowMs);
+    const held = this.windowThrough.get(frame.tug_session_id);
+    const inWindow = frame.bin !== undefined && held !== undefined && frame.bin <= held;
+    for (const [key, units] of Object.entries(frame.channels)) {
+      const channel = key as ActivityChannel;
+      if (frame.bin !== undefined && RATE_CHANNEL_SET.has(channel)) {
+        if (!inWindow) {
+          this.file(frame.tug_session_id, channel, units, frame.bin * ACTIVITY_BIN_MS);
+        }
+      } else {
+        this.record(frame.tug_session_id, channel, units, nowMs);
+      }
+    }
+  }
+
+  /**
+   * Take a session's window: the tape tugcast holds for it, sent when this
+   * page starts listening. The store is a replica of that tape, so every
+   * rate meter the session has is replaced outright — by the window's bins
+   * where it carries the channel, by an empty meter where it does not — and
+   * a page revealed mid-turn draws the real recent past at once. Gauges
+   * publish on change and hold, so they are not replaced: each takes the
+   * window's current level as a sample, as a gauge frame would give it.
+   * Every rate channel the window carries work on wakes its listeners, so
+   * the instruments redraw from the replica.
+   */
+  applyWindow(window: ActivityWindowPayload, nowMs: number): void {
+    const session = window.tug_session_id;
+    if (session.length === 0) return;
+    if (window.through !== null) {
+      this.anchor(window.through, nowMs);
+      this.windowThrough.set(session, window.through);
+    }
+    let channels = this.meters.get(session);
+    let membershipChanged = false;
+    if (channels === undefined) {
+      channels = new Map();
+      this.meters.set(session, channels);
+      membershipChanged = true;
+    }
+    const replaced = new Set<ActivityChannel>();
+    for (const channel of channels.keys()) {
+      if (RATE_CHANNEL_SET.has(channel)) replaced.add(channel);
+    }
+    for (const key of Object.keys(window.rates)) {
+      if (RATE_CHANNEL_SET.has(key)) replaced.add(key as ActivityChannel);
+    }
+    const woken: ActivityChannel[] = [];
+    for (const channel of replaced) {
+      const meter = new RateMeter();
+      const row = window.rates[channel] ?? [];
+      for (let i = 0; i < row.length; i++) {
+        meter.record(row[i], (window.base + i) * ACTIVITY_BIN_MS);
+      }
+      if (!channels.has(channel)) membershipChanged = true;
+      channels.set(channel, meter);
+      if (row.some((v) => v > 0)) woken.push(channel);
+    }
+    if (membershipChanged) this.recomputeMembership();
+    for (const channel of woken) this.wake(session, channel);
+    for (const [key, level] of Object.entries(window.gauges)) {
+      if (RATE_CHANNEL_SET.has(key)) continue;
+      this.record(session, key as ActivityChannel, level, nowMs);
+    }
+  }
+
+  /**
+   * Fix where tugcast's bins are drawn on this page's grid. The two clocks
+   * are never compared: the newest index this store has heard of is placed
+   * at its own present, and every bin keeps its distance from that one.
+   * Between frames the meters advance by this page's clock, so an empty bin
+   * needs no frame to draw as zero.
+   *
+   * The offset is re-taken only when a newer index would land more than one
+   * bin from the present. A frame's arrival jitters across a bin edge, and
+   * following every jitter would shift the whole picture a bin back and
+   * forth; a larger move — the deck asleep, a clock stepped — re-anchors at
+   * once. Because the rate meters hold tugcast's bins, a re-anchor shifts
+   * every bin together and never puts two in one cell.
+   */
+  private anchor(bin: number, nowMs: number): void {
+    if (bin <= this.newestBin) return;
+    const offset = Math.floor(nowMs / ACTIVITY_BIN_MS) - bin;
+    if (this.newestBin < 0 || Math.abs(offset - this.binOffset) > 1) {
+      this.binOffset = offset;
+    }
+    this.newestBin = bin;
+  }
+
+  /** The clock a channel's meter keeps, for a moment on this page's clock:
+   *  tugcast's bins for a rate, this page's own for a gauge. */
+  private meterMs(channel: ActivityChannel, deckMs: number): number {
+    return RATE_CHANNEL_SET.has(channel)
+      ? deckMs - this.binOffset * ACTIVITY_BIN_MS
+      : deckMs;
   }
 
   dispose(): void {
@@ -310,12 +425,23 @@ export class SessionActivityStore extends Subscribable {
 
   getSnapshot = (): ActivitySnapshot => this.snapshot;
 
-  /** 1:1 with an `ACTIVITY` frame channel sample ([P15]). */
+  /** One channel sample as of `atMs` on this page's clock ([P15]). */
   record(
     session: string,
     channel: ActivityChannel,
     units: number,
     atMs: number,
+  ): void {
+    if (!(channel in ACTIVITY_DESCRIPTORS)) return;
+    this.file(session, channel, units, this.meterMs(channel, atMs));
+  }
+
+  /** One channel sample at `meterAtMs` on the clock its meter keeps. */
+  private file(
+    session: string,
+    channel: ActivityChannel,
+    units: number,
+    meterAtMs: number,
   ): void {
     if (session.length === 0) return;
     if (!(channel in ACTIVITY_DESCRIPTORS)) return;
@@ -332,27 +458,29 @@ export class SessionActivityStore extends Subscribable {
       channels.set(channel, meter);
       membershipChanged = true;
     }
-    meter.record(units, atMs);
+    meter.record(units, meterAtMs);
     // Only a new session / new channel ticks React ([P03]); samples don't.
     if (membershipChanged) this.recomputeMembership();
-    if (this.passesChangeGate(session, channel, units)) {
-      const wakers = this.activityListeners.get(session);
-      if (wakers !== undefined) {
-        // Wakers do DOM work downstream (tape rebuild, WAAPI restart).
-        // One throwing listener must not abort the remaining wakers or
-        // propagate into the frame handler and drop this ACTIVITY
-        // frame's remaining channels.
-        for (const wake of [...wakers]) {
-          try {
-            wake(channel);
-          } catch (err) {
-            tugDevLogStore.error("session-activity-store", "waker threw", {
-              session,
-              channel,
-              error: String(err),
-            });
-          }
-        }
+    if (this.passesChangeGate(session, channel, units)) this.wake(session, channel);
+  }
+
+  /** Run `session`'s activity listeners for `channel`. */
+  private wake(session: string, channel: ActivityChannel): void {
+    const wakers = this.activityListeners.get(session);
+    if (wakers === undefined) return;
+    // Wakers do DOM work downstream (tape rebuild, WAAPI restart). One
+    // throwing listener must not abort the remaining wakers or propagate
+    // into the frame handler and drop this ACTIVITY frame's remaining
+    // channels.
+    for (const wake of [...wakers]) {
+      try {
+        wake(channel);
+      } catch (err) {
+        tugDevLogStore.error("session-activity-store", "waker threw", {
+          session,
+          channel,
+          error: String(err),
+        });
       }
     }
   }
@@ -387,7 +515,7 @@ export class SessionActivityStore extends Subscribable {
   /** Per-bin window for one channel; empty when the channel is absent. */
   series(session: string, channel: ActivityChannel, nowMs: number): number[] {
     const meter = this.meters.get(session)?.get(channel);
-    return meter ? meter.series(nowMs) : [];
+    return meter ? meter.series(this.meterMs(channel, nowMs)) : [];
   }
 
   /** Latest held value + unit for a gauge channel; null for absent/rate. */
@@ -421,7 +549,7 @@ export class SessionActivityStore extends Subscribable {
     for (const channel of RATE_CHANNELS) {
       const meter = channels.get(channel);
       if (meter === undefined) continue;
-      const s = meter.series(nowMs);
+      const s = meter.series(this.meterMs(channel, nowMs));
       if (out === null) {
         out = s.slice();
       } else {
@@ -461,7 +589,7 @@ export class SessionActivityStore extends Subscribable {
     for (const channel of RATE_CHANNELS) {
       const meter = channels.get(channel);
       if (meter === undefined) continue;
-      const sum = trailingSum(meter.series(nowMs), RATE_WINDOW_BINS);
+      const sum = trailingSum(meter.series(this.meterMs(channel, nowMs)), RATE_WINDOW_BINS);
       if (sum > leaderSum) {
         leaderSum = sum;
         leader = channel;
@@ -504,6 +632,7 @@ export class SessionActivityStore extends Subscribable {
     this.meters.delete(session);
     this.dominantHeld.delete(session);
     this.dominantPending.delete(session);
+    this.windowThrough.delete(session);
     // A revived session id must publish its first gauge sample again.
     this.gaugePublished.delete(session);
     // activityListeners survive: registrations belong to the subscribing

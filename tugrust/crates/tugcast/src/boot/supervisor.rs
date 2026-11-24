@@ -599,6 +599,16 @@ pub(crate) async fn supervisor(
         .await;
     });
 
+    // Spawn the activity tape publisher: at each 250 ms bin edge it closes
+    // the bin just ended on every session's tape and publishes the ones that
+    // held work, stamped with their bin index, onto the ACTIVITY feed.
+    let tape_tapes = supervisor.activity_tapes.clone();
+    let tape_activity = supervisor.activity.clone();
+    let tape_cancel = cancel.clone();
+    tokio::spawn(async move {
+        feeds::activity::tape::run_tape_publisher(tape_tapes, tape_activity, tape_cancel).await;
+    });
+
     // Build feed router with dynamic registration
     let mut feed_router = FeedRouter::new(
         cli.session.clone(),

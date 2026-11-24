@@ -222,3 +222,140 @@ describe("SessionActivityStore", () => {
     expect(store.raw(S, "text")).toBeNull();
   });
 });
+
+describe("SessionActivityStore bin frames", () => {
+  const BIN = 250;
+  /** A deck time `k` bins into an arbitrary grid, mid-bin. */
+  const deckAt = (k: number): number => (40_000 + k) * BIN + 100;
+  /** tugcast's clock is far from the deck's: the two are never compared. */
+  const T = 9_000_000;
+
+  it("places the newest bin at the page's present and files the rest by index", () => {
+    const store = newStore();
+    store.ingestFrame({ tug_session_id: S, channels: { text: 5 }, bin: T }, deckAt(0));
+    // A bin that was late in transit arrives after a newer one: it is filed
+    // where its index says, not where it landed.
+    store.ingestFrame({ tug_session_id: S, channels: { text: 7 }, bin: T + 2 }, deckAt(2));
+    store.ingestFrame({ tug_session_id: S, channels: { text: 3 }, bin: T + 1 }, deckAt(2));
+    const series = store.series(S, "text", deckAt(2));
+    expect(series.slice(-3)).toEqual([5, 3, 7]);
+  });
+
+  it("frames that arrive together do not pile into one bin", () => {
+    const store = newStore();
+    for (let i = 0; i < 4; i++) {
+      store.ingestFrame({ tug_session_id: S, channels: { tools: 1 }, bin: T + i }, deckAt(3));
+    }
+    expect(store.series(S, "tools", deckAt(3)).slice(-4)).toEqual([1, 1, 1, 1]);
+  });
+
+  it("an arrival that jitters across a bin edge keeps consecutive bins apart", () => {
+    const store = newStore();
+    store.ingestFrame({ tug_session_id: S, channels: { text: 1 }, bin: T }, deckAt(0));
+    // The next bin arrives a hair late, in the deck's next-but-one bin.
+    store.ingestFrame({ tug_session_id: S, channels: { text: 2 }, bin: T + 1 }, deckAt(2));
+    store.ingestFrame({ tug_session_id: S, channels: { text: 4 }, bin: T + 2 }, deckAt(2));
+    const series = store.series(S, "text", deckAt(2));
+    expect(series.slice(-3)).toEqual([1, 2, 4]);
+  });
+
+  it("a long gap re-anchors the newest bin at the present", () => {
+    const store = newStore();
+    store.ingestFrame({ tug_session_id: S, channels: { text: 1 }, bin: T }, deckAt(0));
+    store.ingestFrame({ tug_session_id: S, channels: { text: 9 }, bin: T + 1 }, deckAt(50));
+    const series = store.series(S, "text", deckAt(50));
+    expect(series[series.length - 1]).toBe(9);
+  });
+
+  it("the page's own clock advances between frames, so silence draws as zero", () => {
+    const store = newStore();
+    store.ingestFrame({ tug_session_id: S, channels: { text: 6 }, bin: T }, deckAt(0));
+    const series = store.series(S, "text", deckAt(3));
+    expect(series.slice(-4)).toEqual([6, 0, 0, 0]);
+  });
+
+  it("a gauge frame carries no index and records its level now", () => {
+    const store = newStore();
+    store.ingestFrame({ tug_session_id: S, channels: { text: 2 }, bin: T }, deckAt(0));
+    store.ingestFrame({ tug_session_id: S, channels: { cpu: 37 } }, deckAt(1));
+    const cpu = store.series(S, "cpu", deckAt(1));
+    expect(cpu[cpu.length - 1]).toBe(37);
+  });
+});
+
+describe("SessionActivityStore windows", () => {
+  const BIN = 250;
+  const N = 80;
+  const deckAt = (k: number): number => (40_000 + k) * BIN + 100;
+  const T = 9_000_000;
+  /** An 80-bin row with `values` at its newest end. */
+  const row = (...values: number[]): number[] => [
+    ...new Array<number>(N - values.length).fill(0),
+    ...values,
+  ];
+  const window = (
+    rates: Record<string, number[]>,
+    gauges: Record<string, number> = {},
+    through: number | null = T,
+  ) => ({
+    tug_session_id: S,
+    base: through === null ? 0 : through - (N - 1),
+    through,
+    rates,
+    gauges,
+  });
+
+  it("a page that starts listening draws the session's past at once", () => {
+    const store = newStore();
+    store.applyWindow(window({ text: row(4, 0, 9) }), deckAt(0));
+    expect(store.series(S, "text", deckAt(0)).slice(-3)).toEqual([4, 0, 9]);
+    expect(store.compositeSeries(S, deckAt(0)).slice(-3)).toEqual([4, 0, 9]);
+  });
+
+  it("a window replaces the session's rate meters outright", () => {
+    const store = newStore();
+    // What this page heard before it went dormant, now stale.
+    store.ingestFrame({ tug_session_id: S, channels: { text: 50, tools: 3 }, bin: T - 40 }, deckAt(-40));
+    store.applyWindow(window({ text: row(7) }), deckAt(0));
+    expect(store.series(S, "text", deckAt(0)).slice(-1)).toEqual([7]);
+    expect(store.series(S, "text", deckAt(0)).reduce((a, b) => a + b, 0)).toBe(7);
+    // A channel the window does not carry is replaced by an empty meter,
+    // and keeps its place in the session's channels.
+    expect(store.series(S, "tools", deckAt(0)).every((v) => v === 0)).toBe(true);
+    expect(store.channels(S)).toContain("tools");
+  });
+
+  it("a bin the window already holds is not counted twice", () => {
+    const store = newStore();
+    store.applyWindow(window({ text: row(5) }), deckAt(0));
+    // The tape published bin T before the window went out; its frame was
+    // queued behind it.
+    store.ingestFrame({ tug_session_id: S, channels: { text: 5 }, bin: T }, deckAt(0));
+    store.ingestFrame({ tug_session_id: S, channels: { text: 2 }, bin: T + 1 }, deckAt(1));
+    expect(store.series(S, "text", deckAt(1)).slice(-2)).toEqual([5, 2]);
+  });
+
+  it("gauges take the window's current level and are not replaced", () => {
+    const store = newStore();
+    store.record(S, "memory", 1000, deckAt(-2));
+    store.applyWindow(window({}, { memory: 3000, cpu: 20 }), deckAt(0));
+    const memory = store.series(S, "memory", deckAt(0));
+    expect(memory.slice(-3)).toEqual([1000, 1000, 3000]);
+    expect(store.raw(S, "cpu")?.value).toBe(20);
+  });
+
+  it("a window from a tape that published nothing anchors nothing and draws no rate", () => {
+    const store = newStore();
+    store.applyWindow(window({}, { cpu: 5 }, null), deckAt(0));
+    store.ingestFrame({ tug_session_id: S, channels: { text: 3 }, bin: T }, deckAt(0));
+    expect(store.series(S, "text", deckAt(0)).slice(-1)).toEqual([3]);
+  });
+
+  it("a window wakes the listeners of every channel it carries work on", () => {
+    const store = newStore();
+    const woke: string[] = [];
+    store.subscribeActivity(S, (channel) => woke.push(channel));
+    store.applyWindow(window({ text: row(1), tokens: row(0) }), deckAt(0));
+    expect(woke).toEqual(["text"]);
+  });
+});

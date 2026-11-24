@@ -49,6 +49,7 @@ use super::session_metadata::{
     is_session_capabilities, is_stop_all_work_done, is_system_metadata, is_task_edge,
     is_task_progress, is_tool_result, is_tool_use, is_turn_end, is_wake_started,
 };
+use super::activity::tape::ActivityTapes;
 use super::session_scoped::SessionScopedFeed;
 use super::workspace_registry::{WorkspaceError, WorkspaceKey, WorkspaceRegistry};
 use crate::background_session::background_card_id;
@@ -415,6 +416,10 @@ pub struct AgentSupervisor {
     /// without riding the high-churn CODE_OUTPUT transcript. Broadcast with
     /// `LagPolicy::Warn` ([P17]): a dropped sample bin is a negligible gap.
     pub activity: SessionScopedFeed,
+    /// Every session's activity tape. The merger records tugcode's diverted
+    /// `activity_delta` frames into it and a report that moved records its
+    /// beat; the tape publisher closes each bin onto [`Self::activity`].
+    pub activity_tapes: ActivityTapes,
     /// Outbound CONTROL broadcast sender — used for `session_unknown`,
     /// `session_backpressure`, and other supervisor-emitted error frames.
     pub control_tx: broadcast::Sender<Frame>,
@@ -1423,18 +1428,13 @@ fn rekey_moved_run(
     entry.touch_turn();
 }
 
-/// The ACTIVITY frame a progress report that moved publishes for `live`: one
-/// beat of [`AgentSupervisor::REPORT_BEAT_UNITS`] on `tools`, in the shape
-/// tugcode's `activity_delta` has after the session splice, so the deck sums
-/// it with tugcode's own samples in the bin it lands in.
-fn report_beat_payload(live: &str) -> Vec<u8> {
-    let bytes = serde_json::to_vec(&serde_json::json!({
-        "type": "activity_delta",
-        "channels": { "tools": AgentSupervisor::REPORT_BEAT_UNITS },
-        "ipc_version": 2,
-    }))
-    .expect("a json object of plain values serializes");
-    splice_tug_session_id(&bytes, live)
+/// The channels a progress report that moved records on its session's tape:
+/// one beat of [`AgentSupervisor::REPORT_BEAT_UNITS`] on `tools`, summed with
+/// tugcode's own samples in the bin it lands in.
+fn report_beat_channels() -> serde_json::Map<String, serde_json::Value> {
+    let mut channels = serde_json::Map::new();
+    channels.insert("tools".into(), serde_json::json!(AgentSupervisor::REPORT_BEAT_UNITS));
+    channels
 }
 
 /// The `report` CODE_OUTPUT payload for `live`, with `tug_session_id`
@@ -2163,6 +2163,7 @@ impl AgentSupervisor {
             client_sessions: Arc::new(Mutex::new(HashMap::new())),
             code_output,
             activity,
+            activity_tapes: ActivityTapes::default(),
             control_tx,
             sessions_recorder,
             session_ledger,
@@ -4162,10 +4163,11 @@ impl AgentSupervisor {
         self.code_output
             .publish_tagged(Frame::new(FeedId::CODE_OUTPUT, payload));
         if advanced {
-            self.activity.publish_tagged(Frame::new(
-                FeedId::ACTIVITY,
-                report_beat_payload(card.as_str()),
-            ));
+            self.activity_tapes.record_channels(
+                card.as_str(),
+                &report_beat_channels(),
+                std::time::SystemTime::now(),
+            );
         }
         Some((attached.is_some(), attached))
     }
@@ -4599,19 +4601,20 @@ impl AgentSupervisor {
                 }
                 maybe_frame = streams.next(), if !streams.is_empty() => {
                     let Some((id, mut frame)) = maybe_frame else { continue };
-                    // Divert `activity_delta` frames off CODE_OUTPUT onto the
-                    // ACTIVITY feed ([P13], [P15]). The payload already carries
-                    // its `tug_session_id` (spliced in `relay_session_io`), so
-                    // we only re-tag `FeedId::ACTIVITY` — mirroring the
-                    // SESSION_SIDEBAND rewrap below, but a DIVERT not a copy:
-                    // the sample must never ride the CODE_OUTPUT transcript
-                    // stream or its shared ReplayBuffer (a replayed activity
-                    // sample would strobe the deck's live meter). Skipping the
-                    // journal gate is correct too — activity frames are not
-                    // turn-completion markers.
+                    // Divert `activity_delta` frames off CODE_OUTPUT into the
+                    // session's activity tape ([P13], [P15]). The payload
+                    // already carries its `tug_session_id` (spliced in
+                    // `relay_session_io`), and the tape files it in the bin
+                    // tugcast's clock is in as it passes; the tape publisher,
+                    // not this frame, is what reaches the ACTIVITY feed. A
+                    // DIVERT, not a copy: the sample must never ride the
+                    // CODE_OUTPUT transcript stream or its shared ReplayBuffer
+                    // (a replayed sample would strobe the deck's meter).
+                    // Skipping the journal gate is correct too — activity
+                    // frames are not turn-completion markers.
                     if is_activity_delta(&frame.payload) {
-                        self.activity
-                            .publish_tagged(Frame::new(FeedId::ACTIVITY, frame.payload));
+                        self.activity_tapes
+                            .record_payload(&frame.payload, std::time::SystemTime::now());
                         continue;
                     }
                     // The turn latch moves *before* the frame that moves it is
@@ -8423,12 +8426,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_merger_diverts_activity_delta_to_activity_feed() {
-        // Pins Step 7 ([P13]/[P15]): an `activity_delta` line arriving on a
-        // session's stdout is DIVERTED onto the ACTIVITY feed — re-tagged
-        // `FeedId::ACTIVITY`, session tag preserved — and never rides the
-        // CODE_OUTPUT broadcast. A following ordinary frame proves the
-        // stream keeps flowing on CODE_OUTPUT after the divert.
+    async fn test_merger_diverts_activity_delta_into_the_sessions_tape() {
+        // An `activity_delta` line arriving on a session's stdout is
+        // DIVERTED into that session's activity tape ([P13]/[P15]) — the
+        // tape, not the frame, is what reaches the ACTIVITY feed — and never
+        // rides the CODE_OUTPUT broadcast. A following ordinary frame proves
+        // the stream keeps flowing on CODE_OUTPUT after the divert.
         let ((sup, _state_rx, _meta_rx, _control_rx), register_rx) =
             make_supervisor_with_spawner(stall_spawner_factory());
         let sup = Arc::new(sup);
@@ -8456,14 +8459,6 @@ mod tests {
         tx.send(activity_frame.clone()).await.unwrap();
         tx.send(ordinary_frame.clone()).await.unwrap();
 
-        // The diverted frame lands on ACTIVITY, re-tagged, splice intact.
-        let diverted = tokio::time::timeout(Duration::from_millis(500), activity_rx.recv())
-            .await
-            .expect("activity frame timeout")
-            .expect("activity frame recv err");
-        assert_eq!(diverted.feed_id, FeedId::ACTIVITY);
-        assert_eq!(diverted.payload, activity_frame.payload);
-
         // CODE_OUTPUT sees ONLY the ordinary frame — the activity_delta was
         // diverted, not copied, so the very first CODE_OUTPUT frame is the
         // ordinary one.
@@ -8475,6 +8470,12 @@ mod tests {
             on_code.payload, ordinary_frame.payload,
             "activity_delta must not ride CODE_OUTPUT"
         );
+
+        // The merger handles a session's frames in order, so by the time the
+        // ordinary frame is out the delta is on the session's tape, and the
+        // feed has heard nothing from the merger itself.
+        assert_eq!(sup.activity_tapes.window_total("sess-act", "text"), Some(42.0));
+        assert!(activity_rx.try_recv().is_err(), "the merger publishes no ACTIVITY frame");
 
         cancel.cancel();
         let _ = merger_handle.await;
@@ -9389,26 +9390,19 @@ mod tests {
         assert!(frame["at_ms"].as_i64().is_some());
     }
 
-    /// The one ACTIVITY frame a report's publish put on the feed, or `None`
-    /// when it put none.
-    fn next_beat(rx: &mut broadcast::Receiver<Frame>, live: &str) -> Option<serde_json::Value> {
-        let frame = rx.try_recv().ok()?;
-        assert_eq!(frame.feed_id, FeedId::ACTIVITY);
-        let lead = format!("{{\"tug_session_id\":\"{live}\"");
-        assert!(
-            frame.payload.starts_with(lead.as_bytes()),
-            "{}",
-            String::from_utf8_lossy(&frame.payload)
-        );
-        assert!(crate::feeds::session_metadata::is_activity_delta(&frame.payload));
-        Some(serde_json::from_slice(&frame.payload).unwrap())
+    /// How many report beats `live`'s activity tape holds on `tools`. A
+    /// test's beats all land inside one window, so the count only grows.
+    fn beats(sup: &AgentSupervisor, live: &str) -> u64 {
+        let total = sup.activity_tapes.window_total(live, "tools").unwrap_or(0.0);
+        (total / AgentSupervisor::REPORT_BEAT_UNITS as f64) as u64
     }
 
-    /// A report that moved credits one beat on `tools` for the card's
-    /// session, in tugcode's `activity_delta` shape; one that repeats its
-    /// last state credits nothing, and a later move credits again.
+    /// A report that moved records one beat on `tools` on the card's
+    /// session's tape, and nothing on the ACTIVITY feed itself; one that
+    /// repeats its last state records nothing, and a later move records
+    /// again.
     #[tokio::test]
-    async fn an_advancing_report_publishes_one_activity_beat_and_a_repeat_none() {
+    async fn an_advancing_report_records_one_activity_beat_and_a_repeat_none() {
         let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
         let id = TugSessionId::new("sess-beat");
         insert_ledger_entry(&sup, &id).await;
@@ -9418,17 +9412,16 @@ mod tests {
             .await;
         let answer = sup.publish_report("sess-beat", report(&[])).await;
         assert_eq!(answer, Some((true, Some("toolu_B".to_owned()))));
-        let beat = next_beat(&mut activity_rx, "sess-beat").expect("an advancing report beats");
-        assert_eq!(beat["type"], "activity_delta");
-        assert_eq!(
-            beat["channels"],
-            serde_json::json!({ "tools": AgentSupervisor::REPORT_BEAT_UNITS })
+        assert_eq!(beats(&sup, "sess-beat"), 1, "an advancing report beats once");
+        assert!(
+            activity_rx.try_recv().is_err(),
+            "the tape publishes the beat, not the report"
         );
-        assert!(next_beat(&mut activity_rx, "sess-beat").is_none(), "one beat, not two");
 
         sup.publish_report("sess-beat", report(&[])).await;
-        assert!(
-            next_beat(&mut activity_rx, "sess-beat").is_none(),
+        assert_eq!(
+            beats(&sup, "sess-beat"),
+            1,
             "a report that repeats its last state credits nothing"
         );
 
@@ -9437,7 +9430,7 @@ mod tests {
             ..report(&[])
         };
         sup.publish_report("sess-beat", moved).await;
-        assert!(next_beat(&mut activity_rx, "sess-beat").is_some());
+        assert_eq!(beats(&sup, "sess-beat"), 2);
 
         let rows = |cells: serde_json::Value| Report {
             units: Some(cells),
@@ -9448,26 +9441,23 @@ mod tests {
         };
         sup.publish_report("sess-beat", rows(serde_json::json!([{ "name": "a", "status": "running" }])))
             .await;
-        assert!(next_beat(&mut activity_rx, "sess-beat").is_some(), "unit rows that moved beat");
+        assert_eq!(beats(&sup, "sess-beat"), 3, "unit rows that moved beat");
         sup.publish_report("sess-beat", rows(serde_json::json!([{ "name": "a", "status": "running" }])))
             .await;
-        assert!(next_beat(&mut activity_rx, "sess-beat").is_none(), "the same rows do not");
+        assert_eq!(beats(&sup, "sess-beat"), 3, "the same rows do not");
     }
 
     /// A card-level report — no call attached — is still the session's work,
     /// so it beats when it moves.
     #[tokio::test]
-    async fn an_unattached_advancing_report_publishes_one_activity_beat() {
+    async fn an_unattached_advancing_report_records_one_activity_beat() {
         let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
         let id = TugSessionId::new("sess-card");
         insert_ledger_entry(&sup, &id).await;
-        let mut activity_rx = sup.activity.subscribe();
 
         let answer = sup.publish_report("sess-card", report(&[])).await;
         assert_eq!(answer, Some((false, None)));
-        let beat = next_beat(&mut activity_rx, "sess-card").expect("an unattached report beats");
-        assert_eq!(beat["channels"]["tools"], AgentSupervisor::REPORT_BEAT_UNITS);
-        assert!(next_beat(&mut activity_rx, "sess-card").is_none());
+        assert_eq!(beats(&sup, "sess-card"), 1, "an unattached report beats");
     }
 
     /// An attached report goes out as its run in the call's fold: its id, its

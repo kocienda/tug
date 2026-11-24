@@ -15,6 +15,8 @@ use tokio_util::sync::CancellationToken;
 use crate::feeds::agent_supervisor::AgentSupervisor;
 use crate::feeds::session_scoped::SessionScopedFeed;
 
+use super::tape::ActivityTapes;
+
 /// The sampler's tick: the activity tape's 250 ms bin. See [`cadence`] for
 /// what each tick does, and why only every fourth one walks the whole table.
 const TAPE_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
@@ -482,16 +484,14 @@ impl MachineSampler {
         out
     }
 
-    /// Read every session and publish what each has to say.
-    fn sample_and_publish(&mut self, activity: &SessionScopedFeed) {
+    /// Read every session and record what each has to say on its tape,
+    /// which publishes it with the bin it falls in.
+    fn sample_and_record(&mut self, tapes: &ActivityTapes) {
         for (id, units) in self.sample(std::time::Instant::now()) {
             let Some(channels) = machine_channels(units) else {
                 continue;
             };
-            let payload = serde_json::json!({ "channels": channels });
-            if let Ok(bytes) = serde_json::to_vec(&payload) {
-                activity.publish(id.as_str(), &bytes);
-            }
+            tapes.record_channels(id.as_str(), &channels, std::time::SystemTime::now());
         }
     }
 }
@@ -611,16 +611,22 @@ fn zeroed_gauge_channels() -> serde_json::Map<String, serde_json::Value> {
 /// contract — an idle session costs the wire, and every client downstream
 /// of it, nothing.
 ///
-/// Beside the gauges it publishes one rate channel, `machine`: what each
+/// Every level it publishes is also recorded on the session's activity tape,
+/// so a page that starts listening can be told the current levels, and the
+/// departed session's final zeros are what let the tape go.
+///
+/// Beside the gauges it reads one rate channel, `machine`: what each
 /// session's tool processes (everything below its `claude`) consumed over
 /// each tick, as units on the tape's scale ([`machine`]). It is read on every
-/// walk and every tool tick, whether or not a turn is open, and a tick whose
-/// units round to nothing sends nothing.
+/// walk and every tool tick, whether or not a turn is open, and recorded on
+/// the session's tape, which publishes it in its bin; a tick whose units
+/// round to nothing records nothing.
 pub async fn run_resource_sampler(
     supervisor: Arc<AgentSupervisor>,
     activity: SessionScopedFeed,
     cancel: CancellationToken,
 ) {
+    let tapes = supervisor.activity_tapes.clone();
     let mut system = System::new();
     // The `machine` channel's reading, at the tape's grain; see [`cadence`]
     // for why its processes have a `System` of their own.
@@ -642,7 +648,7 @@ pub async fn run_resource_sampler(
                 tick = tick.wrapping_add(1);
                 if plan != cadence::TickPlan::Walk {
                     if plan == cadence::TickPlan::Tools {
-                        machine_sampler.sample_and_publish(&activity);
+                        machine_sampler.sample_and_record(&tapes);
                     }
                     continue;
                 }
@@ -658,8 +664,9 @@ pub async fn run_resource_sampler(
                     .collect();
                 for id in departed {
                     published.remove(&id);
-                    let payload =
-                        serde_json::json!({ "channels": zeroed_gauge_channels() });
+                    let channels = zeroed_gauge_channels();
+                    tapes.record_channels(id.as_str(), &channels, std::time::SystemTime::now());
+                    let payload = serde_json::json!({ "channels": channels });
                     if let Ok(bytes) = serde_json::to_vec(&payload) {
                         activity.publish(id.as_str(), &bytes);
                     }
@@ -758,6 +765,11 @@ pub async fn run_resource_sampler(
                         continue;
                     }
                     published.insert(session.tug_session_id.to_string(), next);
+                    tapes.record_channels(
+                        session.tug_session_id.as_str(),
+                        &channels,
+                        std::time::SystemTime::now(),
+                    );
                     let payload = serde_json::json!({ "channels": channels });
                     if let Ok(bytes) = serde_json::to_vec(&payload) {
                         activity.publish(session.tug_session_id.as_str(), &bytes);
@@ -768,7 +780,7 @@ pub async fn run_resource_sampler(
                 #[cfg(target_os = "macos")]
                 disk_last.retain(|pid, _| disk_seen.contains(pid));
                 machine_sampler.learn(walked);
-                machine_sampler.sample_and_publish(&activity);
+                machine_sampler.sample_and_record(&tapes);
             }
         }
     }

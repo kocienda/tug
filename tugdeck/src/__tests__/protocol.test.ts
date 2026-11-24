@@ -20,12 +20,69 @@ import {
   isControlFrame,
   normalizeSessionRow,
   parseActivityFrame,
+  parseActivityWindow,
   parseDigestFrame,
   sessionTurnEndUnseen,
 } from "../protocol";
 
 const encode = (obj: unknown): Uint8Array =>
   new TextEncoder().encode(JSON.stringify(obj));
+
+describe("parseActivityWindow", () => {
+  test("reads a window whole, normalizing gauge keys", () => {
+    const w = parseActivityWindow(
+      encode({
+        tug_session_id: "s",
+        type: "activity_window",
+        base: 100,
+        through: 179,
+        rates: { text: [0, 2, null], machine: [5] },
+        gauges: { cpu_pct: 12, disk_read_bps: 10, disk_write_bps: 5 },
+      }),
+    );
+    expect(w).toEqual({
+      tug_session_id: "s",
+      base: 100,
+      through: 179,
+      rates: { text: [0, 2, 0], machine: [5] },
+      gauges: { cpu: 12, disk: 15 },
+    });
+  });
+
+  test("a window with nothing published carries its gauges alone", () => {
+    const w = parseActivityWindow(
+      encode({
+        tug_session_id: "s",
+        type: "activity_window",
+        base: 0,
+        through: null,
+        rates: { text: [1] },
+        gauges: { rss_bytes: 8 },
+      }),
+    );
+    expect(w?.through).toBeNull();
+    expect(w?.rates).toEqual({});
+    expect(w?.gauges).toEqual({ memory: 8 });
+  });
+
+  test("is null for a bin frame, a gauge frame, or a window without a session", () => {
+    expect(
+      parseActivityWindow(encode({ tug_session_id: "s", bin: 3, channels: { text: 1 } })),
+    ).toBeNull();
+    expect(parseActivityWindow(encode({ tug_session_id: "s", channels: { cpu_pct: 1 } }))).toBeNull();
+    expect(
+      parseActivityWindow(encode({ type: "activity_window", base: 0, through: 1, rates: {}, gauges: {} })),
+    ).toBeNull();
+  });
+
+  test("a window is not a frame of channels", () => {
+    expect(
+      parseActivityFrame(
+        encode({ tug_session_id: "s", type: "activity_window", base: 0, through: 1, rates: {}, gauges: {} }),
+      ),
+    ).toBeNull();
+  });
+});
 
 describe("parseActivityFrame", () => {
   test("maps rate channels 1:1 and keeps the session id", () => {
@@ -39,6 +96,26 @@ describe("parseActivityFrame", () => {
       tug_session_id: "sess-abc",
       channels: { text: 312, tokens: 47, tools: 1 },
     });
+  });
+
+  test("keeps a bin frame's index and leaves a gauge frame without one", () => {
+    const bin = parseActivityFrame(
+      encode({
+        tug_session_id: "s",
+        type: "activity_bin",
+        bin: 6_912_345_678,
+        channels: { text: 4 },
+      }),
+    );
+    expect(bin?.bin).toBe(6_912_345_678);
+    const gauge = parseActivityFrame(
+      encode({ tug_session_id: "s", channels: { cpu_pct: 3 } }),
+    );
+    expect(gauge?.bin).toBeUndefined();
+    const bad = parseActivityFrame(
+      encode({ tug_session_id: "s", bin: -1, channels: { text: 1 } }),
+    );
+    expect(bad?.bin).toBeUndefined();
   });
 
   test("reads tugcast's machine rate channel under its own name", () => {

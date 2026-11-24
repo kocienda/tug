@@ -69,6 +69,11 @@ export class RateMeter implements ActivityMeterLike {
   record(units: number, atMs: number): void {
     if (!(units > 0)) return;
     const bin = Math.floor(atMs / this.binMs);
+    // A bin the window has already passed has no slot of its own: its ring
+    // slot now holds a newer bin. A store that files bins by tugcast's index
+    // can be handed one, a page whose script was suspended draining frames
+    // queued behind a read that moved the head on.
+    if (this.headBin >= 0 && this.headBin - bin >= this.bins.length) return;
     this.advanceTo(bin);
     this.bins[this.indexFor(bin)] += units;
   }

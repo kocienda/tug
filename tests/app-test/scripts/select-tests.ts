@@ -462,7 +462,12 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     // 92 → 42 when `isSource` stopped counting `tugcode/probes/`: the
     // slash-parity captures (`66946039a`) had pushed it to 104 without a line
     // of the bridge changing. Debt paid down, not refinanced.
-    "tugcode/": 42,
+    //
+    // 42 → 43 for `activity-accumulator.ts` (`22056d686`), the per-channel
+    // counters moved off `active-turn.ts` into one the session owns. The same
+    // code in one more file; the bridge is still one unit to the tests that
+    // name it.
+    "tugcode/": 43,
 
     // Cards and editors, where the directory genuinely IS the unit — the card is what the
     // test drives, and naming one module inside it would be the narrower fiction.

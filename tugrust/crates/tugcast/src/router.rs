@@ -39,8 +39,9 @@ use tugcast_core::{
 };
 
 use crate::auth::{self, SharedAuthState};
+use crate::feeds::activity::tape::{ActivityTapes, window_payload};
 use crate::feeds::agent_supervisor::{AgentSupervisor, ControlError, ControlOutcome};
-use crate::feeds::code::parse_tug_session_id;
+use crate::feeds::code::{parse_tug_session_id, splice_tug_session_id};
 use crate::feeds::terminal;
 use crate::pages::{AddressedFrame, ClientFrame, PageRegistry, PageTarget, SessionSubscription};
 
@@ -1119,6 +1120,49 @@ fn admits_while_dormant(session_feeds: &HashSet<FeedId>, frame: &Frame) -> bool 
     !session_feeds.contains(&frame.feed_id) || session_of(&frame.payload).is_none()
 }
 
+/// Does a connection with these scopes hear `session`'s activity? It must
+/// take the ACTIVITY feed, not be a body declared dormant, and either be
+/// bound to the session or watch it on a feed the router watches — the
+/// same gates [`ClientSink::send_frame`] puts an ACTIVITY frame through.
+fn listens_to_activity(
+    subscription: Option<&HashSet<FeedId>>,
+    sessions: &SessionSubscription,
+    watch: &SessionSubscription,
+    watch_feeds: &HashSet<FeedId>,
+    dormant: bool,
+    session: &str,
+) -> bool {
+    admits(subscription, FeedId::ACTIVITY)
+        && !dormant
+        && (sessions.admits(session)
+            || (watch_feeds.contains(&FeedId::ACTIVITY) && watch.admits(session)))
+}
+
+/// Which sessions with a tape a connection is owed a window for, and the
+/// set it has heard once they are sent. A page that starts listening to a
+/// session — connecting, a scope that newly admits it, waking from
+/// dormancy — is sent the session's window whole; one already listening is
+/// sent nothing, and one that stops listening leaves the heard set, so it
+/// is sent the window again when it starts once more.
+fn activity_windows_due(
+    heard: &HashSet<String>,
+    tapes: Vec<String>,
+    listens: impl Fn(&str) -> bool,
+) -> (Vec<String>, HashSet<String>) {
+    let mut due = Vec::new();
+    let mut now_heard = HashSet::new();
+    for session in tapes {
+        if !listens(&session) {
+            continue;
+        }
+        if !heard.contains(&session) {
+            due.push(session.clone());
+        }
+        now_heard.insert(session);
+    }
+    (due, now_heard)
+}
+
 /// The card a `request_replay` wakes: a body's own catch-up ask (`reason:
 /// "catch-up"`), which it sends only on its reveal ([B05]). Any other ask, or
 /// one from a page that is not a body with a card, wakes nothing.
@@ -1422,6 +1466,9 @@ struct ClientSink {
     /// The body's newest catch-up ask, until the bracket answering it closes
     /// ([`CatchUpTally`]). A newer ask replaces it.
     catch_up: Option<CatchUpTally>,
+    /// The sessions this connection has been sent an activity window for
+    /// and still listens to ([`activity_windows_due`]).
+    activity_heard: HashSet<String>,
 }
 
 impl ClientSink {
@@ -1448,6 +1495,7 @@ impl ClientSink {
             global_counters,
             retained_watches: Vec::new(),
             catch_up: None,
+            activity_heard: HashSet::new(),
         }
     }
 
@@ -1534,6 +1582,37 @@ impl ClientSink {
                 .card_id
                 .as_deref()
                 .is_some_and(|card| self.dormant_cards.borrow().contains(card))
+    }
+
+    /// Send the window of every session this connection has started to
+    /// listen to since it was last asked, as one ACTIVITY frame each through
+    /// [`Self::send_frame`]. Called when the connection goes live, after
+    /// every `subscribe_feeds`, and when a body's dormancy may have moved.
+    /// Returns true when the socket closed under it.
+    async fn send_activity_windows(&mut self, tapes: Option<&ActivityTapes>) -> bool {
+        let Some(tapes) = tapes else {
+            return false;
+        };
+        let dormant = self.declared_dormant();
+        let (due, heard) = activity_windows_due(&self.activity_heard, tapes.sessions(), |s| {
+            listens_to_activity(
+                self.subscription.as_ref(),
+                &self.sessions,
+                &self.watch,
+                &self.watch_feeds,
+                dormant,
+                s,
+            )
+        });
+        self.activity_heard = heard;
+        for session in due {
+            let Some(window) = tapes.window(&session) else { continue };
+            let payload = splice_tug_session_id(&window_payload(&window), &session);
+            if self.send_frame(Frame::new(FeedId::ACTIVITY, payload)).await.is_disconnected() {
+                return true;
+            }
+        }
+        false
     }
 
     /// Send a JSON control frame (flags=CONTROL) to the client.
@@ -1901,6 +1980,10 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id
 
     // Build the StreamMap for output fan-in
     let (mut stream_map, lag_policies) = build_stream_map(&router.stream_outputs);
+    // The tapes a page that starts listening is sent a window from, and the
+    // dormancy declarations that move whether a body is listening.
+    let activity_tapes = router.supervisor.as_ref().map(|sup| sup.activity_tapes.clone());
+    let mut dormancy = router.pages.dormant_cards();
 
     let mut state = ClientState::Live;
 
@@ -2033,6 +2116,17 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id
 
                 drop(snap_tx);
 
+                // A page that connects — a reconnect is a connect — starts
+                // listening to every session its scope admits. The stream
+                // receivers are already subscribed, so a bin published while
+                // the window goes out is queued behind it, and the deck drops
+                // any bin the window already holds.
+                if sink.send_activity_windows(activity_tapes.as_ref()).await {
+                    info!(client_id, "Client disconnected during activity windows");
+                    teardown_client(&router, client_id).await;
+                    return;
+                }
+
                 let mut heartbeat_interval = time::interval(HEARTBEAT_INTERVAL);
                 let mut liveness = ClientLiveness::new(Instant::now());
 
@@ -2042,6 +2136,15 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id
                     tokio::select! {
                         Some(frame) = snap_rx.recv() => {
                             if sink.send_frame(frame).await.is_disconnected() {
+                                info!(client_id, "Client disconnected");
+                                teardown_client(&router, client_id).await;
+                                return;
+                            }
+                        }
+
+                        // A body woken from dormancy starts listening again.
+                        Ok(()) = dormancy.changed() => {
+                            if sink.send_activity_windows(activity_tapes.as_ref()).await {
                                 info!(client_id, "Client disconnected");
                                 teardown_client(&router, client_id).await;
                                 return;
@@ -2251,6 +2354,14 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id
                                                                         teardown_client(&router, client_id).await;
                                                                         return;
                                                                     }
+                                                                }
+                                                                // A scope that newly admits a
+                                                                // session starts the page listening
+                                                                // to it.
+                                                                if sink.send_activity_windows(activity_tapes.as_ref()).await {
+                                                                    info!(client_id, "Client disconnected during activity windows");
+                                                                    teardown_client(&router, client_id).await;
+                                                                    return;
                                                                 }
                                                             }
                                                             None => {
@@ -4420,6 +4531,64 @@ mod tests {
             !admits_while_dormant(&activity, &sample),
             "a dormant body watching all is still refused a session's activity"
         );
+    }
+
+    /// A connection hears a session's activity when it takes the feed, is
+    /// bound to or watches the session, and is not a dormant body.
+    #[test]
+    fn who_listens_to_a_sessions_activity() {
+        let watch_feeds: HashSet<FeedId> = [FeedId::ACTIVITY].into();
+        let only = |ids: &[&str]| {
+            SessionSubscription::Only(ids.iter().map(|s| s.to_string()).collect())
+        };
+        let none = SessionSubscription::none();
+        let all = SessionSubscription::All;
+        let activity: HashSet<FeedId> = [FeedId::ACTIVITY].into();
+        let no_activity: HashSet<FeedId> = [FeedId::CODE_OUTPUT].into();
+
+        // A page that never subscribed takes everything.
+        assert!(listens_to_activity(None, &all, &none, &watch_feeds, false, "s-a"));
+        // Bound to the session, or watching it.
+        assert!(listens_to_activity(Some(&activity), &only(&["s-a"]), &none, &watch_feeds, false, "s-a"));
+        assert!(listens_to_activity(Some(&activity), &none, &only(&["s-a"]), &watch_feeds, false, "s-a"));
+        assert!(!listens_to_activity(Some(&activity), &only(&["s-b"]), &only(&["s-c"]), &watch_feeds, false, "s-a"));
+        // Watching counts only on a feed the router watches.
+        assert!(!listens_to_activity(Some(&activity), &none, &only(&["s-a"]), &HashSet::new(), false, "s-a"));
+        // Not taking the feed, or dormant, hears nothing.
+        assert!(!listens_to_activity(Some(&no_activity), &all, &none, &watch_feeds, false, "s-a"));
+        assert!(!listens_to_activity(None, &all, &all, &watch_feeds, true, "s-a"));
+    }
+
+    /// A window is owed when a page starts listening to a session — at
+    /// connect, when its scope admits the session, when it wakes — and not
+    /// again while it keeps listening; stopping and starting again owes one.
+    #[test]
+    fn a_window_is_owed_each_time_a_page_starts_listening() {
+        let tapes = || vec!["s-a".to_string(), "s-b".to_string()];
+        let sorted = |mut v: Vec<String>| {
+            v.sort();
+            v
+        };
+
+        // Connect, scoped to s-a: one window.
+        let (due, heard) = activity_windows_due(&HashSet::new(), tapes(), |s| s == "s-a");
+        assert_eq!(due, vec!["s-a".to_string()]);
+
+        // Nothing moved: nothing owed.
+        let (due, heard) = activity_windows_due(&heard, tapes(), |s| s == "s-a");
+        assert!(due.is_empty());
+
+        // The scope widens to s-b: only the newcomer is owed.
+        let (due, heard) = activity_windows_due(&heard, tapes(), |_| true);
+        assert_eq!(due, vec!["s-b".to_string()]);
+
+        // Dormant: nothing is heard, nothing owed.
+        let (due, heard) = activity_windows_due(&heard, tapes(), |_| false);
+        assert!(due.is_empty() && heard.is_empty());
+
+        // Awake again: both windows are owed once more.
+        let (due, _) = activity_windows_due(&heard, tapes(), |_| true);
+        assert_eq!(sorted(due), vec!["s-a".to_string(), "s-b".to_string()]);
     }
 
     /// The reveal's catch-up ask withdraws the host's declaration in band, so
