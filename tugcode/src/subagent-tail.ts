@@ -34,7 +34,9 @@
  * On a deck reconnect the owning session calls `resetForReplay()` so
  * the tailer re-streams the full child set from offset 0 into the
  * re-hydrated job; the deck's id-keyed dedup absorbs the overlap with
- * the replay's turn-attached children.
+ * the replay's turn-attached children. Frames re-read from bytes already
+ * streamed before the reset go out through `emitReplay`, not `emit`, so
+ * the session can tell a re-read of old work from new work.
  *
  * @module subagent-tail
  */
@@ -60,8 +62,17 @@ export interface SubagentTailerOptions {
   agentId: string;
   /** Absolute path of the live-growing transcript (`tasks/<agentId>.output`). */
   outputFile: string;
-  /** Frame sink — the session passes `writeLine`. */
+  /**
+   * Live frame sink — the session passes its accounted emit, so each newly
+   * appended entry counts as the agent's activity.
+   */
   emit: (frame: OutboundMessage) => void;
+  /**
+   * Sink for frames re-read from bytes already streamed before a
+   * {@link SubagentTailer.resetForReplay} — the replay's re-stream, which
+   * is old work and must not be counted again. Defaults to `emit`.
+   */
+  emitReplay?: (frame: OutboundMessage) => void;
   /** Shared live-sequence source, threaded into the synthesized frames. */
   nextSeq: () => number;
   /** Poll cadence override (tests drive `poll()` directly instead). */
@@ -79,11 +90,18 @@ export class SubagentTailer {
   readonly outputFile: string;
 
   private readonly emit: (frame: OutboundMessage) => void;
+  private readonly emitReplay: (frame: OutboundMessage) => void;
   private readonly nextSeq: () => number;
   private readonly intervalMs: number;
 
   /** Byte offset of the next unread byte in `outputFile`. */
   private offset = 0;
+  /**
+   * Highest byte offset streamed before the last rewind. A line ending at
+   * or below it is a re-read of something already emitted live, so its
+   * frames go to {@link emitReplay}.
+   */
+  private replayedThrough = 0;
   /** Raw bytes after the last newline — an incomplete trailing line. */
   private pending: Buffer = Buffer.alloc(0);
   /** Every entry parsed so far — the compose input on completion. */
@@ -99,6 +117,7 @@ export class SubagentTailer {
     this.agentId = options.agentId;
     this.outputFile = options.outputFile;
     this.emit = options.emit;
+    this.emitReplay = options.emitReplay ?? options.emit;
     this.nextSeq = options.nextSeq;
     this.intervalMs = options.intervalMs ?? DEFAULT_TAIL_INTERVAL_MS;
   }
@@ -118,6 +137,7 @@ export class SubagentTailer {
    * turn-attached children.
    */
   resetForReplay(): void {
+    this.replayedThrough = Math.max(this.replayedThrough, this.offset);
     this.offset = 0;
     this.pending = Buffer.alloc(0);
     this.entries = [];
@@ -222,6 +242,9 @@ export class SubagentTailer {
       await fh.close();
     }
     if (bytesRead <= 0) return false;
+    // Absolute byte offset of the first byte of `data` (the carried
+    // remainder precedes the chunk just read).
+    const dataStart = this.offset - this.pending.length;
     this.offset += bytesRead;
 
     const data = Buffer.concat([this.pending, chunk.subarray(0, bytesRead)]);
@@ -232,19 +255,33 @@ export class SubagentTailer {
     }
     this.pending = Buffer.from(data.subarray(lastNewline + 1));
 
+    // Lines re-read from below the last rewind's high-water mark are a
+    // replay of frames already emitted; offsets only grow, so every
+    // replayed line precedes every fresh one.
+    const replayed: JsonlEntry[] = [];
     const fresh: JsonlEntry[] = [];
-    for (const rawLine of data.subarray(0, lastNewline).toString("utf8").split("\n")) {
-      const line = rawLine.trim();
+    let lineStart = 0;
+    while (lineStart <= lastNewline) {
+      const lineEnd = data.indexOf(0x0a, lineStart);
+      const line = data.subarray(lineStart, lineEnd).toString("utf8").trim();
+      const isReplay = dataStart + lineEnd + 1 <= this.replayedThrough;
+      lineStart = lineEnd + 1;
       if (line.length === 0) continue;
       try {
-        fresh.push(JSON.parse(line) as JsonlEntry);
+        (isReplay ? replayed : fresh).push(JSON.parse(line) as JsonlEntry);
       } catch {
         // Skip the malformed line; later lines still stream.
       }
     }
-    if (fresh.length === 0) return true;
-    this.entries.push(...fresh);
+    if (replayed.length === 0 && fresh.length === 0) return true;
+    this.entries.push(...replayed, ...fresh);
 
+    for (const frame of synthesizeSubagentChildFrames(
+      this.transcript(replayed),
+      this.nextSeq,
+    )) {
+      this.emitReplay(frame);
+    }
     for (const frame of synthesizeSubagentChildFrames(
       this.transcript(fresh),
       this.nextSeq,

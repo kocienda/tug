@@ -72,6 +72,7 @@ describe("respawn timers", () => {
         keys(): string[];
         clearAll(): void;
         setTimeout(...args: unknown[]): void;
+        setInterval(...args: unknown[]): void;
       };
       ensureActivityFlush(): void;
       armInterruptEscalation(turn: ActiveTurn): void;
@@ -109,14 +110,22 @@ describe("respawn timers", () => {
       events.push(`arm:${String(args[0])}`);
       arm(...args);
     };
+    // The activity flush is an interval armed with each process's stdout
+    // drain, so the respawn's own flush is recorded the same way.
+    const armInterval = m.timers.setInterval.bind(m.timers);
+    m.timers.setInterval = (...args: unknown[]) => {
+      events.push(`arm:${String(args[0])}`);
+      armInterval(...args);
+    };
 
     await quietIpc(() => m.forceTerminateAndRespawn("result_timeout"));
 
     expect(events).toEqual([
       "clearAll:activity-flush,interrupt-escalation,result-watchdog,resume-handshake",
+      "arm:activity-flush",
       "arm:resume-handshake",
     ]);
-    expect(m.timers.keys()).toEqual(["resume-handshake"]);
+    expect(m.timers.keys().sort()).toEqual(["activity-flush", "resume-handshake"]);
 
     m.timers.clearAll();
   });

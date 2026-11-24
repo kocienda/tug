@@ -1287,6 +1287,17 @@ mod gap_tests {
 /// The most open runs one session keeps; the oldest goes first.
 pub const OPEN_RUNS_CAP: usize = 64;
 
+/// The most progress-report labels one session remembers the last state of.
+pub const REPORT_MARKS_CAP: usize = 64;
+
+/// The last state a progress report label showed, for telling a report that
+/// moved from one that repeats ([`LedgerEntry::report_advanced`]).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ReportMark {
+    pub done: Option<u64>,
+    pub units: Option<serde_json::Value>,
+}
+
 /// A progress report a running command posted about itself, as the
 /// `/api/session` `report` op received it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -1410,6 +1421,20 @@ fn rekey_moved_run(
             kind: JobKind::Bash,
         });
     entry.touch_turn();
+}
+
+/// The ACTIVITY frame a progress report that moved publishes for `live`: one
+/// beat of [`AgentSupervisor::REPORT_BEAT_UNITS`] on `tools`, in the shape
+/// tugcode's `activity_delta` has after the session splice, so the deck sums
+/// it with tugcode's own samples in the bin it lands in.
+fn report_beat_payload(live: &str) -> Vec<u8> {
+    let bytes = serde_json::to_vec(&serde_json::json!({
+        "type": "activity_delta",
+        "channels": { "tools": AgentSupervisor::REPORT_BEAT_UNITS },
+        "ipc_version": 2,
+    }))
+    .expect("a json object of plain values serializes");
+    splice_tug_session_id(&bytes, live)
 }
 
 /// The `report` CODE_OUTPUT payload for `live`, with `tug_session_id`
@@ -4073,6 +4098,12 @@ impl AgentSupervisor {
         }
     }
 
+    /// The activity a progress report that moved credits on `tools`: one beat
+    /// the size of a tool-call burst. A test run reporting its progress is
+    /// work moving even while the model is silent, and this is the one knob
+    /// for how loud it draws.
+    pub const REPORT_BEAT_UNITS: u64 = 250;
+
     /// Attach a running command's progress report to its block and publish
     /// it on CODE_OUTPUT as a Spec S03 `report` frame.
     ///
@@ -4094,8 +4125,11 @@ impl AgentSupervisor {
     ) -> Option<(bool, Option<String>)> {
         let (card, entry_arc) = self.card_entry_for_segment(segment).await?;
         let at_ms = crate::session_ledger::now_millis();
-        let (attached, unattached, run) = {
+        let (attached, unattached, run, advanced) = {
             let mut entry = entry_arc.lock().await;
+            // Read before anything else moves: a card-level report with no
+            // call attached is still the session's work.
+            let advanced = entry.report_advanced(&report);
             let attached = entry.attach_run(report.tool_use_id.as_deref(), &report.needles);
             // An attached report folds into its call's runs, and the frame is
             // the run as the fold now holds it. A report with a unit is the
@@ -4114,7 +4148,7 @@ impl AgentSupervisor {
                 Some(_) => String::new(),
                 None => entry.unattached_reason(&report.needles),
             };
-            (attached, unattached, run)
+            (attached, unattached, run, advanced)
         };
         let folded = run.is_some();
         let run = run.unwrap_or_else(|| super::report_fold::RunState::unfolded(&report, at_ms));
@@ -4127,6 +4161,12 @@ impl AgentSupervisor {
         );
         self.code_output
             .publish_tagged(Frame::new(FeedId::CODE_OUTPUT, payload));
+        if advanced {
+            self.activity.publish_tagged(Frame::new(
+                FeedId::ACTIVITY,
+                report_beat_payload(card.as_str()),
+            ));
+        }
         Some((attached.is_some(), attached))
     }
 
@@ -9347,6 +9387,87 @@ mod tests {
             "a report without units is the one line, as before: {frame}"
         );
         assert!(frame["at_ms"].as_i64().is_some());
+    }
+
+    /// The one ACTIVITY frame a report's publish put on the feed, or `None`
+    /// when it put none.
+    fn next_beat(rx: &mut broadcast::Receiver<Frame>, live: &str) -> Option<serde_json::Value> {
+        let frame = rx.try_recv().ok()?;
+        assert_eq!(frame.feed_id, FeedId::ACTIVITY);
+        let lead = format!("{{\"tug_session_id\":\"{live}\"");
+        assert!(
+            frame.payload.starts_with(lead.as_bytes()),
+            "{}",
+            String::from_utf8_lossy(&frame.payload)
+        );
+        assert!(crate::feeds::session_metadata::is_activity_delta(&frame.payload));
+        Some(serde_json::from_slice(&frame.payload).unwrap())
+    }
+
+    /// A report that moved credits one beat on `tools` for the card's
+    /// session, in tugcode's `activity_delta` shape; one that repeats its
+    /// last state credits nothing, and a later move credits again.
+    #[tokio::test]
+    async fn an_advancing_report_publishes_one_activity_beat_and_a_repeat_none() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        let id = TugSessionId::new("sess-beat");
+        insert_ledger_entry(&sup, &id).await;
+        let mut activity_rx = sup.activity.subscribe();
+
+        sup.record_run_open(&id, &bash_use("toolu_B", "just test", false))
+            .await;
+        let answer = sup.publish_report("sess-beat", report(&[])).await;
+        assert_eq!(answer, Some((true, Some("toolu_B".to_owned()))));
+        let beat = next_beat(&mut activity_rx, "sess-beat").expect("an advancing report beats");
+        assert_eq!(beat["type"], "activity_delta");
+        assert_eq!(
+            beat["channels"],
+            serde_json::json!({ "tools": AgentSupervisor::REPORT_BEAT_UNITS })
+        );
+        assert!(next_beat(&mut activity_rx, "sess-beat").is_none(), "one beat, not two");
+
+        sup.publish_report("sess-beat", report(&[])).await;
+        assert!(
+            next_beat(&mut activity_rx, "sess-beat").is_none(),
+            "a report that repeats its last state credits nothing"
+        );
+
+        let moved = Report {
+            done: Some(4),
+            ..report(&[])
+        };
+        sup.publish_report("sess-beat", moved).await;
+        assert!(next_beat(&mut activity_rx, "sess-beat").is_some());
+
+        let rows = |cells: serde_json::Value| Report {
+            units: Some(cells),
+            ..Report {
+                done: Some(4),
+                ..report(&[])
+            }
+        };
+        sup.publish_report("sess-beat", rows(serde_json::json!([{ "name": "a", "status": "running" }])))
+            .await;
+        assert!(next_beat(&mut activity_rx, "sess-beat").is_some(), "unit rows that moved beat");
+        sup.publish_report("sess-beat", rows(serde_json::json!([{ "name": "a", "status": "running" }])))
+            .await;
+        assert!(next_beat(&mut activity_rx, "sess-beat").is_none(), "the same rows do not");
+    }
+
+    /// A card-level report — no call attached — is still the session's work,
+    /// so it beats when it moves.
+    #[tokio::test]
+    async fn an_unattached_advancing_report_publishes_one_activity_beat() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        let id = TugSessionId::new("sess-card");
+        insert_ledger_entry(&sup, &id).await;
+        let mut activity_rx = sup.activity.subscribe();
+
+        let answer = sup.publish_report("sess-card", report(&[])).await;
+        assert_eq!(answer, Some((false, None)));
+        let beat = next_beat(&mut activity_rx, "sess-card").expect("an unattached report beats");
+        assert_eq!(beat["channels"]["tools"], AgentSupervisor::REPORT_BEAT_UNITS);
+        assert!(next_beat(&mut activity_rx, "sess-card").is_none());
     }
 
     /// An attached report goes out as its run in the call's fold: its id, its

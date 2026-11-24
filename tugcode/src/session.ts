@@ -137,6 +137,7 @@ export {
   terseWakeSummary,
 } from "./event-mapping.ts";
 import { ActiveTurn } from "./active-turn.ts";
+import { ActivityAccumulator } from "./activity-accumulator.ts";
 
 // ActiveTurn lives in its own module; re-exported so importers of
 // `session.ts` are unchanged.
@@ -271,7 +272,7 @@ async function settlesWithin(
 
 /**
  * Activity-flush cadence ([Q06]). 250 ms matches the deck meter's bin so the
- * consumer math is unchanged: one `activity_delta` per bin per live turn.
+ * consumer math is unchanged: at most one `activity_delta` per bin per session.
  */
 const ACTIVITY_FLUSH_MS = 250;
 
@@ -402,17 +403,22 @@ export class SessionManager {
    */
   private lastFinishedTurn: ActiveTurn | null = null;
   /**
+   * The session's activity count ([Q06]): every live frame's work is folded
+   * in, and the 250 ms flush drains it into an `activity_delta`. It belongs
+   * to the session rather than a turn, so work between turns is counted.
+   */
+  private readonly activity = new ActivityAccumulator();
+  /**
    * Every timer armed on behalf of the live claude process, cleared in one
    * call by {@link killAndCleanup} so a respawn inherits none of them:
    *
    * - `activity-flush` — the 250 ms activity-flush interval ([Q06], [P13]).
-   *   Started lazily the first time a turn dispatches an event and left
-   *   running (unref'd, so it never blocks process exit) until the process
-   *   is torn down; each tick flushes the live turn's accumulator as an
-   *   `activity_delta`, a no-op between turns. The final decaying bin is
-   *   emitted by an explicit trailing flush at turn end (before
-   *   `activeTurn` is cleared), so a short turn that ends within a bin
-   *   still reports its work.
+   *   Started with each claude process's stdout drain and left running
+   *   (unref'd, so it never blocks process exit) until the process is torn
+   *   down; each tick flushes the session's accumulator as an
+   *   `activity_delta` whenever a channel is non-zero, with or without an
+   *   open turn. A trailing flush at turn end keeps a turn's last bin with
+   *   the turn it belongs to.
    * - `interrupt-escalation` — armed by {@link handleInterrupt} after the
    *   in-band interrupt control-request; fires
    *   {@link forceTerminateAndRespawn} if a wedged claude doesn't end the
@@ -1136,8 +1142,8 @@ export class SessionManager {
     this.isShuttingDown = true;
     // A deliberate teardown cancels every timer armed for this process — the
     // cancel-escalation, the result watchdog, the resume handshake gate, and
-    // the activity-flush heartbeat (a respawn re-arms it on its first turn
-    // event via `ensureActivityFlush`).
+    // the activity-flush heartbeat (a respawn re-arms it when its stdout
+    // drain starts, via `ensureActivityFlush`).
     this.timers.clearAll();
     // The session is changing (respawn / fork / truncate) — drop the cached
     // `/rewind` preview JSONL so the next preview re-reads ([#step-7-3]).
@@ -2127,6 +2133,9 @@ export class SessionManager {
     // spent on the last episode must not be held against the next.
     this.eofReattachAttempted = false;
     this.claude.startStdoutDrain(claudeProcess);
+    // The activity flush runs for the session, not for a turn: work that
+    // lands between turns is counted and flushed like work inside one.
+    this.ensureActivityFlush();
   }
 
   /**
@@ -2337,7 +2346,7 @@ export class SessionManager {
         // Trailing flush ([Q06]): emit the final bin's accumulated work
         // before the turn's slot clears, so a turn that ends within a bin
         // still reports its last decaying sample.
-        this.flushActivity(turn);
+        this.flushActivity();
         this.lastFinishedTurn = turn;
         this.activeTurn = null;
         if (this.isInWake) {
@@ -2370,9 +2379,10 @@ export class SessionManager {
    *
    *  - **Launch** — the async-launch echo ({@link extractAsyncLaunch})
    *    starts a {@link SubagentTailer} on the echo's `outputFile`,
-   *    keyed by `agentId`. The tailer's frames go straight to
-   *    `writeLine` with seqs from the shared live counter, exactly like
-   *    any other live frame.
+   *    keyed by `agentId`. The tailer's frames go out through the
+   *    accounted emit with seqs from the shared live counter, exactly
+   *    like any other live frame; its re-read after a replay rewind goes
+   *    out uncounted.
    *  - **Genuine completion** — a terminal `system/task_updated`
    *    (`completed` / `failed` / `stopped`) or a
    *    `system/task_notification` (the wake trigger) for the agent's
@@ -2391,7 +2401,10 @@ export class SessionManager {
           parentToolUseId: launch.parentToolUseId,
           agentId: launch.agentId,
           outputFile: launch.outputFile,
-          emit: (frame) => writeLine(frame),
+          // New entries are the agent's live work and are counted; the
+          // re-read after a replay rewind is old work and is not.
+          emit: (frame) => this.emitCounted(frame),
+          emitReplay: (frame) => writeLine(frame),
           nextSeq: () => this.nextSeq(),
         });
         this.subagentTailers.set(launch.agentId, tailer);
@@ -2719,7 +2732,7 @@ export class SessionManager {
     }
     if (event.type === "system" && event.subtype === "init") {
       const sessionId = sessionIdOr(event, "unknown");
-      writeLine({ type: "session_init", session_id: sessionId, ipc_version: IPC_VERSION });
+      this.emitCounted({ type: "session_init", session_id: sessionId, ipc_version: IPC_VERSION });
     }
     if (event.type === "system" && event.subtype === "task_notification") {
       this.handleTaskNotification(event);
@@ -2734,14 +2747,14 @@ export class SessionManager {
         event,
         sessionIdOr(event, this.sessionId),
       );
-      if (frame !== null) writeLine(frame);
+      if (frame !== null) this.emitCounted(frame);
     }
     if (event.type === "system" && event.subtype === "task_updated") {
       const frame = buildTaskUpdatedMessage(
         event,
         sessionIdOr(event, this.sessionId),
       );
-      if (frame !== null) writeLine(frame);
+      if (frame !== null) this.emitCounted(frame);
     }
     // A backgrounded agent emits its `task_progress` ticks concurrently
     // with the launching turn, so they too can land in the inter-turn
@@ -2752,7 +2765,7 @@ export class SessionManager {
         event,
         sessionIdOr(event, this.sessionId),
       );
-      if (frame !== null) writeLine(frame);
+      if (frame !== null) this.emitCounted(frame);
     }
     // The roster fires at the wake as well as at the launch, and the wake's
     // one lands in this drain — so it is forwarded from both tiers for the
@@ -2765,7 +2778,7 @@ export class SessionManager {
         event,
         sessionIdOr(event, this.sessionId),
       );
-      if (frame !== null) writeLine(frame);
+      if (frame !== null) this.emitCounted(frame);
     }
     // `system/status` (the 2.1.197 heartbeat) is intentionally not
     // forwarded from either tier — see the in-turn `routeTopLevelEvent`
@@ -2791,16 +2804,17 @@ export class SessionManager {
    */
   /**
    * Ensure the 250 ms activity-flush interval is running ([Q06]). Idempotent
-   * — created on the first turn's first event and left running until
-   * {@link killAndCleanup} tears the process down. The timer is unref'd so a quiescent tugcode still exits cleanly
-   * (the drain / stdin loops own liveness, not this heartbeat).
+   * — created when a claude process's stdout drain starts and left running
+   * until {@link killAndCleanup} tears the process down. The timer is
+   * unref'd so a quiescent tugcode still exits cleanly (the drain / stdin
+   * loops own liveness, not this heartbeat).
    */
   private ensureActivityFlush(): void {
     if (this.timers.has(TIMER.activityFlush)) return;
     this.timers.setInterval(
       TIMER.activityFlush,
       () => {
-        this.flushActivity(this.activeTurn);
+        this.flushActivity();
       },
       ACTIVITY_FLUSH_MS,
       { unref: true },
@@ -2808,14 +2822,28 @@ export class SessionManager {
   }
 
   /**
-   * Drain `turn`'s accumulated activity and emit one `activity_delta` frame
-   * for the bin (behind `!suppressEmit` — a replay bracket emits nothing).
-   * A no-op for a null / idle / suppressed turn. tugcast splices the
-   * `tug_session_id` and diverts the frame onto `FeedId::ACTIVITY`.
+   * The one accounted emit ([B02]): fold a live frame into the session's
+   * activity count, then write it. Every live path — the turn dispatcher,
+   * the between-turn drain, a background agent's tailer — writes through
+   * here, so a new emit path is counted by construction. A frame re-emitted
+   * for a replay bracket goes out through plain `writeLine` instead, so
+   * replayed history is never counted ([B03]).
    */
-  private flushActivity(turn: ActiveTurn | null): void {
-    if (turn === null || turn.suppressEmit) return;
-    const channels = turn.drainActivity();
+  private emitCounted(frame: OutboundMessage): void {
+    this.activity.accountActivity(frame);
+    writeLine(frame);
+  }
+
+  /**
+   * Drain the session's accumulated activity and emit one `activity_delta`
+   * frame for the bin, with or without an open turn. A no-op for an idle
+   * bin, and while a replay bracket holds the live turn's emission back
+   * (`suppressEmit`). tugcast splices the `tug_session_id` and diverts the
+   * frame onto `FeedId::ACTIVITY`.
+   */
+  private flushActivity(): void {
+    if (this.activeTurn?.suppressEmit === true) return;
+    const channels = this.activity.drainActivity();
     if (channels === null) return;
     const frame: ActivityDelta = {
       type: "activity_delta",
@@ -2902,10 +2930,6 @@ export class SessionManager {
     turn: ActiveTurn,
     event: Record<string, unknown>,
   ): void {
-    // Keep the per-turn activity heartbeat alive (idempotent). Started here
-    // so every turn-open path (handleUserMessage, buffered follow-on,
-    // compact/wake re-inits) is covered by construction.
-    this.ensureActivityFlush();
     // Resolve the event's lane BEFORE any mapping: a turn's stdout
     // multiplexes the main loop with background subagents' streams,
     // and each runs its own message cycle with its own `message.id`s.
@@ -2968,7 +2992,7 @@ export class SessionManager {
     if (routeResult.promptUuid !== undefined && turn.promptUuid === null) {
       turn.promptUuid = routeResult.promptUuid;
       if (!turn.suppressEmit) {
-        writeLine({
+        this.emitCounted({
           type: "prompt_anchor",
           promptUuid: routeResult.promptUuid,
           ipc_version: IPC_VERSION,
@@ -2987,8 +3011,7 @@ export class SessionManager {
       // them. Activity accounting rides the same gate so a replay
       // bracket's re-emitted frames never generate a sample ([Q06]).
       if (!turn.suppressEmit) {
-        turn.accountActivity(ipcMsg);
-        writeLine(ipcMsg);
+        this.emitCounted(ipcMsg);
       }
     }
     // Mirror routed messages onto the lane's per-block state for
@@ -3052,8 +3075,7 @@ export class SessionManager {
         // append via (msg_id, block_index) match against Messages the
         // snapshot already minted.
         if (!turn.suppressEmit) {
-          turn.accountActivity(ipcMsg);
-          writeLine(ipcMsg);
+          this.emitCounted(ipcMsg);
         }
       }
       // Mirror streamed messages onto the lane's per-block state. Same
@@ -3091,8 +3113,7 @@ export class SessionManager {
               Object.assign(progress, { parent_tool_use_id: routeResult.parentToolUseId });
             }
             if (!turn.suppressEmit) {
-              turn.accountActivity(progress);
-              writeLine(progress);
+              this.emitCounted(progress);
             }
           }
         }
@@ -3171,7 +3192,7 @@ export class SessionManager {
         // mid-window — a request that lands here would deadlock on
         // tugdeck's side until claude retries. Acceptable for v1;
         // see [#roadmap].
-        if (!turn.suppressEmit) writeLine(forward);
+        if (!turn.suppressEmit) this.emitCounted(forward);
       } else {
         console.log(`Unhandled control_request subtype=${request?.subtype ?? "unknown"}`);
       }
@@ -3229,7 +3250,7 @@ export class SessionManager {
         if (turn.suppressEmit) continue;
         const completeSeq = this.nextSeq();
         if (block.kind === "text") {
-          writeLine({
+          this.emitCounted({
             type: "assistant_text",
             msg_id: turn.currentMessageId ?? "",
             block_index: block.index,
@@ -3241,7 +3262,7 @@ export class SessionManager {
             ipc_version: IPC_VERSION,
           });
         } else {
-          writeLine({
+          this.emitCounted({
             type: "thinking_text",
             msg_id: turn.currentMessageId ?? "",
             block_index: block.index,
@@ -3261,7 +3282,7 @@ export class SessionManager {
       // emitInflightTurnFromActiveTurn (turn_complete branch when
       // gotResult).
       if (!turn.suppressEmit) {
-        writeLine({
+        this.emitCounted({
           type: "turn_complete",
           // Fall back to the turn's opener id, never "": a no-content
           // turn (`/compact`, `/model`) has no claude message id, and an
@@ -3655,7 +3676,7 @@ export class SessionManager {
     // Trailing activity flush ([Q06]) before the slot clears — the final
     // bin's work (including a turn that ends within a bin via EOF/interrupt)
     // still reports.
-    this.flushActivity(turn);
+    this.flushActivity();
     // A turn that ended here is the one a `request_inflight` describes next,
     // if its snapshot has an end to carry (an interrupt's `turn_cancelled`, a
     // result). One that died with claude has none, so nothing is kept: the

@@ -375,6 +375,13 @@ pub struct LedgerEntry {
     /// and attaches it to a block only when exactly one run fits. Capped at
     /// [`OPEN_RUNS_CAP`], oldest out first.
     pub open_runs: std::collections::BTreeMap<String, OpenRun>,
+    /// The last state each progress report label showed — its `done` count
+    /// and its unit rows — kept on the session rather than on a run, because
+    /// a card-level report with no call attached is still the session's
+    /// work. [`LedgerEntry::report_advanced`] reads and moves it, so a report
+    /// that moved credits an activity beat and one that repeats credits
+    /// nothing. Capped at [`REPORT_MARKS_CAP`] labels.
+    pub report_marks: std::collections::HashMap<String, ReportMark>,
     /// Notified at exactly the edges where [`LedgerEntry::is_quiet`] can
     /// become true, so a waiter watches the session rather than polling it
     /// ([P05]).
@@ -547,6 +554,7 @@ impl LedgerEntry {
             step_closed_this_turn: None,
             open_jobs: std::collections::BTreeMap::new(),
             open_runs: std::collections::BTreeMap::new(),
+            report_marks: std::collections::HashMap::new(),
             quiesced: Arc::new(tokio::sync::Notify::new()),
             input_tx: None,
             cancel: CancellationToken::new(),
@@ -619,6 +627,33 @@ impl LedgerEntry {
     /// `task_started` that confirms it.
     pub fn is_quiet(&self) -> bool {
         !self.turn_active && self.open_jobs.is_empty()
+    }
+
+    /// Whether `report` moved since the last report under its label — its
+    /// `done` count rose, or its unit rows changed — and record its state as
+    /// the label's last. A report that repeats its last state answers
+    /// `false`, so a waiting loop that re-posts one line credits nothing.
+    pub fn report_advanced(&mut self, report: &Report) -> bool {
+        let label = report.label.clone().unwrap_or_default();
+        let last = self.report_marks.get(&label);
+        let last_done = last.and_then(|m| m.done);
+        let done_rose = report.done.unwrap_or(0) > last_done.unwrap_or(0);
+        let units_moved =
+            report.units.is_some() && last.map(|m| &m.units) != Some(&report.units);
+        if !self.report_marks.contains_key(&label) && self.report_marks.len() >= REPORT_MARKS_CAP {
+            // A forgotten label costs at most one beat when it reports again.
+            self.report_marks.clear();
+        }
+        self.report_marks.insert(
+            label,
+            ReportMark {
+                // A count that went down is a new run under the label, and
+                // the next rise from there is progress.
+                done: report.done.or(last_done),
+                units: report.units.clone(),
+            },
+        );
+        done_rose || units_moved
     }
 
     /// Which open run a progress report belongs to, by Spec S05's rules:

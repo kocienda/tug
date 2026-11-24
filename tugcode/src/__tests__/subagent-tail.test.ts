@@ -250,6 +250,48 @@ describe("reset-for-replay", () => {
       frames.slice(0, firstPass).map(withoutSeq),
     );
   });
+
+  test("after a rewind, re-read lines go to emitReplay and lines past the old offset stay live", async () => {
+    const body = await Bun.file(FIXTURE_BODY).text();
+    const lines = body.split("\n").filter((l) => l.trim().length > 0);
+    const half = Math.floor(lines.length / 2);
+    const outputFile = await makeTempFile("agent.output");
+    await writeFile(outputFile, lines.slice(0, half).join("\n") + "\n");
+
+    const live: OutboundMessage[] = [];
+    const replayed: OutboundMessage[] = [];
+    let seq = 0;
+    const tailer = new SubagentTailer({
+      parentToolUseId: PARENT_TOOL_USE_ID,
+      agentId: "aa523090963dd46d9",
+      outputFile,
+      emit: (frame) => live.push(frame),
+      emitReplay: (frame) => replayed.push(frame),
+      nextSeq: () => seq++,
+    });
+    await tailer.poll();
+    const firstPass = live.map(withoutSeq);
+    expect(firstPass.length).toBeGreaterThan(0);
+    expect(replayed.length).toBe(0);
+
+    // Rewind, then let the agent write the rest before the next poll: the
+    // re-read of the first half is a replay, the second half is new work.
+    tailer.resetForReplay();
+    await appendFile(outputFile, lines.slice(half).join("\n") + "\n");
+    live.length = 0;
+    await tailer.poll();
+    expect(replayed.map(withoutSeq)).toEqual(firstPass);
+
+    let refSeq = 0;
+    const secondHalf = synthesizeSubagentChildFrames(
+      {
+        meta: { toolUseId: PARENT_TOOL_USE_ID },
+        entries: lines.slice(half).map((l) => JSON.parse(l)),
+      },
+      () => refSeq++,
+    );
+    expect(live.map(withoutSeq)).toEqual(secondHalf.map(withoutSeq));
+  });
 });
 
 describe("best-effort guards", () => {
