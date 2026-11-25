@@ -16,7 +16,7 @@ import Foundation
 /// of the validator therefore cannot flip its splash-screen posture
 /// from disabled to enabled.
 struct MenuState: Decodable {
-    /// One pane entry, z-order topmost first.
+    /// One pane entry, in stable creation order; `focused` marks the key pane.
     struct Pane: Decodable {
         let id: String
         let title: String

@@ -425,7 +425,7 @@ export function editUndoLabelsWithin(scope: Element): EditUndoLabels {
   return { undo: "", redo: "" };
 }
 
-/** One pane entry, z-order topmost first (matches the Swift reader). */
+/** One pane entry, in stable creation order (see {@link projectDeckState}). */
 export interface MenuStatePaneEntry {
   id: string;
   title: string;
@@ -778,9 +778,9 @@ export type MenuStateBodyPayload = Pick<
  * workspace's worth of nothing, which is what a caller with no spaces store —
  * every unit test of the pane projection — should see.
  *
- * Exported for unit tests. The pane projection (focused = last pane in
- * z-order, reverse to topmost-first) carries the exact semantics the host's
- * close-item validation and pane-list menu were built against.
+ * Exported for unit tests. The pane projection marks the focused pane (the
+ * last in z-order) and lists every pane in creation order, so the Window
+ * menu's rows hold still as the user raises one after another.
  *
  * Pane names come from {@link paneTitleBarTextFor} — the same string the
  * pane's own title bar renders — so the Window menu, the slot-stack picker,
@@ -799,18 +799,40 @@ export function projectDeckState(
   const cardsById = new Map(state.cards.map((c) => [c.id, c]));
   const focusedStack = stacks.length > 0 ? stacks[stacks.length - 1] : null;
   const focusedId = focusedStack ? focusedStack.id : null;
+  // The Window menu lists panes in a STABLE order, never z-order: choosing a
+  // row raises its pane, and a list sorted by z-order would then move the row
+  // the user just chose to the top — the reader chases the entry they want.
+  // The key is creation order: `state.cards` only ever grows by appending
+  // (and serializes in that order), while a raise reorders `state.panes` and
+  // leaves `cards` alone. A pane sorts by the earliest card it holds, so it
+  // keeps its row however often it is raised. The focused pane is still
+  // marked by `focused`, which is all the checkmark reads.
+  const cardOrder = new Map(state.cards.map((c, i) => [c.id, i]));
+  const creationRank = (s: (typeof stacks)[number]): number => {
+    let rank = Number.POSITIVE_INFINITY;
+    for (const cid of s.cardIds) {
+      const i = cardOrder.get(cid);
+      if (i !== undefined && i < rank) rank = i;
+    }
+    return rank;
+  };
   const panes = stacks
-    .map((s) => {
+    .map((s, zIndex) => {
       const activeCard = cardsById.get(s.activeCardId);
       return {
-        id: s.id,
-        title: paneTitleBarTextFor(s, cardsById),
-        focused: s.id === focusedId,
-        cardCount: s.cardIds.length,
-        closable: activeCard?.closable ?? false,
+        entry: {
+          id: s.id,
+          title: paneTitleBarTextFor(s, cardsById),
+          focused: s.id === focusedId,
+          cardCount: s.cardIds.length,
+          closable: activeCard?.closable ?? false,
+        },
+        rank: creationRank(s),
+        zIndex,
       };
     })
-    .reverse();
+    .sort((a, b) => a.rank - b.rank || a.zIndex - b.zIndex)
+    .map(({ entry }) => entry);
 
   const focusedActiveCard = focusedStack
     ? cardsById.get(focusedStack.activeCardId)

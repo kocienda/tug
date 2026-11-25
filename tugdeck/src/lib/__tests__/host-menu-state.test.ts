@@ -109,15 +109,29 @@ describe("projectDeckState", () => {
     expect(projection.activeCard).toBeNull();
   });
 
-  test("focused pane is the last in z-order; list is reversed to topmost-first", () => {
+  test("focused pane is the last in z-order; the list keeps creation order", () => {
     const state = deck(
       [card("a"), card("b")],
       [pane("p1", ["a"]), pane("p2", ["b"])],
     );
     const projection = projectDeckState(state);
-    expect(projection.panes.map((p) => p.id)).toEqual(["p2", "p1"]);
-    expect(projection.panes[0].focused).toBe(true);
-    expect(projection.panes[1].focused).toBe(false);
+    expect(projection.panes.map((p) => p.id)).toEqual(["p1", "p2"]);
+    expect(projection.panes[0].focused).toBe(false);
+    expect(projection.panes[1].focused).toBe(true);
+  });
+
+  test("raising a pane moves the checkmark, never the row", () => {
+    const cards = [card("a"), card("b"), card("c")];
+    const before = projectDeckState(
+      deck(cards, [pane("p1", ["a"]), pane("p2", ["b"]), pane("p3", ["c"])]),
+    );
+    // p1 raised: it moves to the end of the z-ordered panes array.
+    const after = projectDeckState(
+      deck(cards, [pane("p2", ["b"]), pane("p3", ["c"]), pane("p1", ["a"])]),
+    );
+    expect(before.panes.map((p) => p.id)).toEqual(["p1", "p2", "p3"]);
+    expect(after.panes.map((p) => p.id)).toEqual(["p1", "p2", "p3"]);
+    expect(after.panes.map((p) => p.focused)).toEqual([true, false, false]);
   });
 
   test("no spaces snapshot projects an empty workspace list", () => {
