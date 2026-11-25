@@ -1,0 +1,702 @@
+/* @tug-pairings: none — spike scaffolding; the rows, the panels, the cells, the
+ * atoms and the buttons draw from their own stylesheets [L20] */
+
+/* spike-cycle-band — the Session card stand-in the cycle shade sits in, the
+   shade's header, map, rows and footer, and the sidebar frame. Nothing here is
+   production styling. */
+
+.sp-cycle-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tug-space-sm);
+}
+
+.sp-cycle-caption {
+  margin: 0;
+  font-size: var(--tug-font-size-xs);
+  line-height: 1.5;
+  color: var(--tug7-element-field-text-normal-label-rest);
+}
+
+.sp-cycle-readout {
+  font-family: var(--tug-font-family-mono);
+  color: var(--tugx-block-text-color-muted);
+}
+
+.sp-cycle-spacer {
+  flex: 1 1 0;
+}
+
+/* ---- The card stand-in -------------------------------------------------- */
+
+.sp-cycle-width[data-width="slim"] {
+  width: 420px;
+}
+
+.sp-cycle-width[data-width="wide"] {
+  width: 100%;
+  max-width: 780px;
+}
+
+.sp-cycle-card {
+  --sp-cycle-footer-height: 72px;
+  display: flex;
+  flex-direction: column;
+  height: 780px;
+  border: 1px solid var(--tugx-block-hairline);
+  border-radius: var(--tugx-block-radius);
+  background: var(--tug7-surface-global-primary-normal-content-rest);
+  overflow: hidden;
+  container-type: inline-size;
+  container-name: sp-cycle-card;
+}
+
+/* The stage holds the transcript slot and the shade's footer. Another shade
+   is laid against the stage, so it can cover the footer or stand on it. */
+.sp-cycle-stage {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sp-cycle-slot {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sp-cycle-transcript {
+  height: 100%;
+  box-sizing: border-box;
+  overflow-y: auto;
+  padding: var(--tug-space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-sm);
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.5;
+}
+
+.sp-cycle-transcript > p {
+  margin: 0;
+}
+
+/* A user's turn, set apart from the replies around it. */
+.sp-cycle-turn[data-who="user"] {
+  align-self: flex-end;
+  max-width: 80%;
+  margin-top: var(--tug-space-sm);
+  padding: var(--tug-space-xs) var(--tug-space-sm);
+  border-radius: var(--tugx-block-radius);
+  background: var(--tugx-block-well-bg);
+}
+
+/* ---- The shade ---------------------------------------------------------- */
+
+/* Rooted at the bottom of the transcript slot, over as much of it as it needs
+   up to four fifths, moved by transform alone, always mounted. */
+.sp-cycle-body {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  max-height: 80%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  /* A press on the map opens content beneath it; the scroller must not
+     answer by moving the map. */
+  overflow-anchor: none;
+  background: var(--tug7-surface-global-primary-normal-content-rest);
+  border-top: 1px solid var(--tug7-element-global-border-normal-default-rest);
+  transform: translateY(100%);
+  transition: transform calc(240ms * var(--tug-timing, 1)) ease-out;
+}
+
+/* A cycle of several arcs keeps one height, so the shade's top edge, and the
+   map under it, hold still while content opens and closes beneath the map. */
+.sp-cycle-body[data-many] {
+  height: 80%;
+}
+
+.sp-cycle-body[data-raised="true"] {
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sp-cycle-body {
+    transition: none;
+  }
+}
+
+/* The header stays at the shade's top while its content scrolls. */
+.sp-cycle-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  min-height: 44px;
+  padding-inline: var(--tug-space-sm) var(--tug-space-md);
+  background: var(--tugx-block-chrome-bg);
+  border-bottom: 1px solid var(--tugx-block-hairline);
+}
+
+.sp-cycle-eyebrow {
+  font-size: 11px;
+  font-weight: var(--tug-font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tugx-block-text-color-muted);
+}
+
+.sp-cycle-name {
+  font-size: 16px;
+  font-weight: var(--tug-font-weight-semibold);
+  white-space: nowrap;
+}
+
+.sp-cycle-name[data-in="footer"] {
+  font-size: var(--tug-font-size-sm);
+}
+
+.sp-cycle-landed {
+  font-size: var(--tug-font-size-sm);
+  color: var(--tugx-block-text-color-muted);
+  white-space: nowrap;
+}
+
+/* ---- The sketches ------------------------------------------------------- */
+
+.sp-cycle-sketch {
+  flex: none;
+  border-bottom: 1px solid var(--tugx-block-hairline);
+}
+
+.sp-cycle-sketch-head {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-xs);
+  min-height: 32px;
+  padding-inline: var(--tug-space-sm) var(--tug-space-md);
+}
+
+.sp-cycle-sketch-label {
+  flex: none;
+  font-size: var(--tug-font-size-xs);
+  font-weight: var(--tug-font-weight-semibold);
+}
+
+.sp-cycle-sketch-want {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--tug-font-size-xs);
+  color: var(--tugx-block-text-color-muted);
+}
+
+.sp-cycle-sketch-body {
+  padding: 0 var(--tug-space-md) var(--tug-space-sm) calc(var(--tug-space-md) + 24px);
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.5;
+}
+
+/* ---- The map ------------------------------------------------------------ */
+
+.sp-cycle-map-scroll {
+  flex: none;
+  overflow-x: auto;
+  padding: var(--tug-space-sm) var(--tug-space-md);
+  background: var(--tugx-block-well-bg);
+  border-bottom: 1px solid var(--tugx-block-hairline);
+}
+
+.sp-cycle-map {
+  position: relative;
+}
+
+.sp-cycle-wires {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* A wire still waited on: dashed and quiet. */
+.sp-cycle-wire-line {
+  fill: none;
+  stroke: var(--tugx-block-text-color-muted);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+  opacity: 0.7;
+}
+
+.sp-cycle-wire-head {
+  fill: var(--tugx-block-text-color-muted);
+  opacity: 0.7;
+}
+
+/* A wire out of an arc that has landed: solid, in the success tone. */
+.sp-cycle-wire[data-met] > .sp-cycle-wire-line {
+  stroke: var(--tug7-element-tone-border-normal-success-rest);
+  stroke-dasharray: none;
+  opacity: 1;
+}
+
+.sp-cycle-wire[data-met] > .sp-cycle-wire-head {
+  fill: var(--tug7-element-tone-border-normal-success-rest);
+  opacity: 1;
+}
+
+/* The wires into the tile under the pointer, or the chosen one. */
+.sp-cycle-wire[data-hot] > .sp-cycle-wire-line {
+  stroke: var(--tug7-element-tone-border-normal-accent-rest);
+  stroke-width: 2.5;
+  opacity: 1;
+}
+
+.sp-cycle-wire[data-hot] > .sp-cycle-wire-head {
+  fill: var(--tug7-element-tone-border-normal-accent-rest);
+  opacity: 1;
+}
+
+/* A tile: the entry's number, and under it how it stands. */
+.sp-cycle-tile {
+  position: absolute;
+  box-sizing: border-box;
+  width: 64px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 0 8px;
+  border: 1.5px solid var(--tugx-block-hairline);
+  border-radius: 8px;
+  background: var(--tugx-block-chrome-bg);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.sp-cycle-tile-number {
+  font-size: 16px;
+  font-weight: var(--tug-font-weight-semibold);
+  line-height: 1;
+}
+
+.sp-cycle-tile-mark {
+  display: inline-flex;
+  align-items: center;
+}
+
+.sp-cycle-tile[data-state="waiting"] {
+  border-style: dashed;
+  color: var(--tugx-block-text-color-muted);
+}
+
+.sp-cycle-tile[data-state="ready"] {
+  border-color: var(--tug7-element-tone-border-normal-accent-rest);
+}
+
+.sp-cycle-tile[data-state="ready"] > .sp-cycle-tile-mark {
+  color: var(--tug7-element-tone-icon-normal-accent-rest);
+}
+
+.sp-cycle-tile[data-state="running"] {
+  border-color: var(--tug7-element-tone-border-normal-active-rest);
+}
+
+.sp-cycle-tile[data-state="joined"] {
+  border-color: var(--tug7-element-tone-border-normal-success-rest);
+}
+
+.sp-cycle-tile[data-state="joined"] > .sp-cycle-tile-mark {
+  color: var(--tug7-element-tone-icon-normal-success-rest);
+}
+
+.sp-cycle-tile[data-chosen] {
+  outline: 2px solid var(--tug7-element-tone-border-normal-accent-rest);
+  outline-offset: 2px;
+}
+
+/* Running in another session: a dot on the tile's corner, in the agent tone. */
+.sp-cycle-tile[data-elsewhere]::after {
+  content: "";
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--tug7-element-tone-fill-normal-agent-rest);
+}
+
+.sp-cycle-tile-tag {
+  position: absolute;
+  top: -8px;
+  left: 6px;
+  padding: 0 4px;
+  border-radius: 6px;
+  font-size: 9px;
+  font-weight: var(--tug-font-weight-semibold);
+  line-height: 14px;
+  background: var(--tug7-element-tone-fill-normal-data-rest);
+  color: var(--tug7-surface-global-primary-normal-content-rest);
+}
+
+.sp-cycle-pips {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.sp-cycle-pips > span {
+  width: 4px;
+  height: 10px;
+  border-radius: 1px;
+  background: var(--tugx-block-hairline);
+}
+
+.sp-cycle-pips > span[data-pip="done"] {
+  background: var(--tug7-element-tone-fill-normal-success-rest);
+}
+
+.sp-cycle-pips > span[data-pip="now"] {
+  background: var(--tug7-element-tone-fill-normal-active-rest);
+}
+
+/* A sketch's seal, in the map's gutter: it opens and folds the sketch. */
+.sp-cycle-sketch-seal {
+  position: absolute;
+  box-sizing: border-box;
+  width: 42px;
+  height: 42px;
+  border: 1.5px solid var(--tug7-element-tone-border-normal-data-rest);
+  border-radius: 50%;
+  background: var(--tugx-block-chrome-bg);
+  color: inherit;
+  font: inherit;
+  font-size: var(--tug-font-size-sm);
+  font-weight: var(--tug-font-weight-semibold);
+  cursor: pointer;
+}
+
+.sp-cycle-sketch-seal[data-pressed] {
+  outline: 2px solid var(--tug7-element-tone-border-normal-data-rest);
+  outline-offset: 2px;
+}
+
+/* ---- The entry rows ----------------------------------------------------- */
+
+.sp-cycle-entries {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The number sits at the top of its row, level with the arc's name. */
+.sp-cycle-entries .tug-list-row-leading {
+  align-self: flex-start;
+}
+
+.sp-cycle-number {
+  display: inline-block;
+  min-width: 1.5em;
+  padding-top: 2px;
+  text-align: end;
+  font-size: 16px;
+  font-weight: var(--tug-font-weight-semibold);
+  line-height: 1.2;
+}
+
+.sp-cycle-title {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tug-space-sm);
+}
+
+.sp-cycle-elsewhere {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-2xs);
+}
+
+/* The brief and what the entry waits on, set in under the arc's name. */
+.sp-cycle-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--tug-space-md);
+  row-gap: var(--tug-space-2xs);
+  padding-inline-start: var(--tug-space-lg);
+  padding-top: var(--tug-space-2xs);
+  font-size: var(--tug-font-size-sm);
+}
+
+.sp-cycle-waits {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-2xs);
+}
+
+/* A wait wears the number its tile wears on the map. */
+.sp-cycle-wait {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 20px;
+  box-sizing: border-box;
+  justify-content: center;
+  padding: 0 5px;
+  border: 1.5px dashed var(--tugx-block-text-color-muted);
+  border-radius: 6px;
+  font-weight: var(--tug-font-weight-semibold);
+  line-height: 18px;
+}
+
+.sp-cycle-wait[data-met] {
+  border-style: solid;
+  border-color: var(--tug7-element-tone-border-normal-success-rest);
+  color: var(--tugx-block-text-color-muted);
+}
+
+.sp-cycle-note {
+  color: var(--tug7-element-global-text-normal-caution-rest);
+}
+
+.sp-cycle-trailing {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-xs);
+  white-space: nowrap;
+}
+
+.sp-cycle-appended {
+  padding: var(--tug-space-xs) var(--tug-space-md);
+  border-top: 1px dashed var(--tugx-block-hairline);
+}
+
+.sp-cycle-steps {
+  padding-inline-start: calc(var(--tug-space-lg) + 1.5em);
+}
+
+/* What a press on a tile shows, directly under the map. */
+.sp-cycle-detail {
+  flex: none;
+  padding-bottom: var(--tug-space-sm);
+  border-bottom: 1px solid var(--tugx-block-hairline);
+  background: var(--tugx-block-chrome-bg);
+}
+
+.sp-cycle-detail-line {
+  margin: 0;
+  padding-inline: calc(var(--tug-space-lg) + 3em) var(--tug-space-md);
+  font-size: var(--tug-font-size-sm);
+  color: var(--tug7-element-field-text-normal-label-rest);
+}
+
+/* ---- A cycle of one, and no cycle --------------------------------------- */
+
+.sp-cycle-panels {
+  padding: var(--tug-space-sm);
+}
+
+.sp-cycle-decisions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-2xs);
+}
+
+.sp-cycle-arc-head {
+  padding: var(--tug-space-xs) var(--tug-space-sm);
+}
+
+.sp-cycle-none {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-sm);
+  padding: var(--tug-space-md);
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.5;
+}
+
+.sp-cycle-none > p {
+  margin: 0;
+  color: var(--tug7-element-field-text-normal-label-rest);
+}
+
+.sp-cycle-none-doors {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+}
+
+/* ---- The footer --------------------------------------------------------- */
+
+/* In the card's layout, at the bottom of the stage: two lines, what this
+   session is doing now and what is ready next. It holds still whether the
+   shade is up or down. */
+.sp-cycle-footer {
+  flex: none;
+  box-sizing: border-box;
+  height: var(--sp-cycle-footer-height);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--tug-space-xs);
+  padding-inline: var(--tug-space-md);
+  border-top: 1px solid var(--tug7-element-global-border-normal-default-rest);
+  background: var(--tugx-block-chrome-bg);
+  font-size: var(--tug-font-size-sm);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.sp-cycle-footer-line {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  min-height: 26px;
+  min-width: 0;
+}
+
+/* The line's word, in a column of its own so the two lines' content starts on
+   one edge. */
+.sp-cycle-footer-word {
+  flex: none;
+  width: 3.2em;
+  font-size: 11px;
+  font-weight: var(--tug-font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tugx-block-text-color-muted);
+}
+
+.sp-cycle-footer-what,
+.sp-cycle-footer-else {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  min-width: 0;
+}
+
+.sp-cycle-footer-else,
+.sp-cycle-footer-quiet {
+  color: var(--tugx-block-text-color-muted);
+}
+
+/* What the footer gives up as the card narrows: the other sessions' count.
+   Each line's arc and Start are kept. */
+@container sp-cycle-card (max-width: 520px) {
+  .sp-cycle-footer-else {
+    display: none;
+  }
+}
+
+/* Another shade. `covers` lays it over the footer; `stands` leaves the footer
+   showing beneath it. */
+.sp-cycle-cover {
+  position: absolute;
+  z-index: 3;
+  inset-inline: 0;
+  bottom: 0;
+  height: 190px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--tug-space-xs);
+  padding: var(--tug-space-sm);
+  background: var(--tugx-block-well-bg);
+  border-top: 1px solid var(--tug7-element-global-border-normal-default-rest);
+}
+
+.sp-cycle-stage[data-cover="stands"] > .sp-cycle-cover[data-footed] {
+  bottom: var(--sp-cycle-footer-height);
+}
+
+/* ---- Status row and prompt ---------------------------------------------- */
+
+.sp-cycle-status {
+  flex: none;
+  padding: var(--tug-space-xs) var(--tug-space-sm);
+  border-top: 1px solid var(--tugx-block-hairline);
+  container-type: inline-size;
+  container-name: session-status;
+}
+
+.sp-cycle-prompt {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--tug-space-sm);
+  margin: var(--tug-space-sm);
+  padding: var(--tug-space-sm);
+  border: 1px solid var(--tugx-block-hairline);
+  border-radius: var(--tugx-block-radius);
+  background: var(--tugx-block-well-bg);
+}
+
+.sp-cycle-prompt-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--tug-font-size-sm);
+  color: var(--tugx-block-text-color-muted);
+}
+
+.sp-cycle-prompt[data-filled] > .sp-cycle-prompt-text {
+  font-family: var(--tug-font-family-mono);
+  color: inherit;
+}
+
+/* ---- The sidebar card --------------------------------------------------- */
+
+.sp-cycle-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-2xs);
+  width: 360px;
+  padding: var(--tug-space-sm) var(--tug-space-md);
+  border: 1px solid var(--tugx-block-hairline);
+  border-radius: var(--tugx-block-radius);
+  background: var(--tugx-block-chrome-bg);
+}
+
+.sp-cycle-sidebar-head {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-xs);
+  min-height: 24px;
+}
+
+.sp-cycle-sidebar-name {
+  font-size: var(--tug-font-size-xs);
+  font-weight: var(--tug-font-weight-semibold);
+}
+
+.sp-cycle-sidebar-number {
+  display: inline-block;
+  min-width: 1.5em;
+  text-align: end;
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-xs);
+  color: var(--tugx-block-text-color-muted);
+}
+
+.sp-cycle-sidebar-holds {
+  padding-inline-start: var(--tug-space-lg);
+}
+
+.sp-cycle-sidebar-rule {
+  height: 1px;
+  margin-block: var(--tug-space-xs);
+  background: var(--tugx-block-hairline);
+}
