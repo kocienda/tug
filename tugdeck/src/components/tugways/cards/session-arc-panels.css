@@ -337,12 +337,6 @@ body {
   border-top: 1px solid var(--tugx-arc-panel-rule);
 }
 
-/* The Brief panel's revision notice takes the foot's full width beside the
-   Open in Docket door, so its buttons wrap under its line. */
-.session-arc-panel-foot [data-slot="arc-revision-notice"] {
-  flex-basis: 100%;
-}
-
 /* ---- A full panel -------------------------------------------------------- */
 
 /* A full panel's body is a whole surface of its own, the popup list, which

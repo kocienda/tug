@@ -2648,9 +2648,6 @@ mod tests {
             resume: None,
             dispatched: None,
             owner: None,
-            brief_kept: None,
-            park: None,
-            succeeds: None,
             done,
             last_activity: None,
         };

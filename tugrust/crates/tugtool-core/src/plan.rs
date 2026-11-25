@@ -211,10 +211,6 @@ pub struct PlanDoc {
     /// Every round the Review Record declares, in source order — so the newest
     /// is last, which is the one a verdict is derived from.
     pub review_rounds: Vec<ReviewRound>,
-    /// Every `[P##]` decision heading, its line, and the brief decisions the
-    /// first `**Brief:**` line in its section names — `Some(empty)` for
-    /// `**Brief:** none`, `None` when the section carries no such line.
-    pub decision_briefs: Vec<(String, usize, Option<Vec<String>>)>,
 }
 
 /// Returned when a document is not a plan at all — a brief, a note, or a
@@ -287,7 +283,6 @@ pub fn parse(source: &str) -> Result<PlanDoc, NotAPlan> {
         ledger_rows: Vec::new(),
         review_record_span: review_record_span(source, &headings),
         review_rounds: Vec::new(),
-        decision_briefs: Vec::new(),
     };
     doc.review_rounds = collect_review_rounds(source, doc.review_record_span);
 
@@ -312,9 +307,6 @@ pub fn parse(source: &str) -> Result<PlanDoc, NotAPlan> {
     let mut current_field: Option<String> = None;
     let mut in_ledger = false;
     let mut in_fence = false;
-    // The `[P##]` decision whose section the scan is in: its index into
-    // `decision_briefs` and its heading level.
-    let mut current_decision: Option<(usize, usize)> = None;
 
     for (index, raw) in source.lines().enumerate() {
         let line_no = index + 1;
@@ -344,15 +336,6 @@ pub fn parse(source: &str) -> Result<PlanDoc, NotAPlan> {
                 .iter()
                 .find(|h| h.line == line_no)
                 .expect("every heading line was collected");
-            if current_decision.is_some_and(|(_, at)| level <= at) {
-                current_decision = None;
-            }
-            if let Some(Label::Plan { id, .. }) = read_label(&heading.text) {
-                if id.starts_with('P') {
-                    doc.decision_briefs.push((id, line_no, None));
-                    current_decision = Some((doc.decision_briefs.len() - 1, level));
-                }
-            }
             in_ledger = heading.anchor.as_deref() == Some("step-status-ledger");
             if in_ledger {
                 doc.ledger_line = Some(line_no);
@@ -386,15 +369,6 @@ pub fn parse(source: &str) -> Result<PlanDoc, NotAPlan> {
                 doc.labels.push((id.clone(), line_no));
                 if !two_digits {
                     doc.malformed_labels.push((id, line_no));
-                }
-            }
-        }
-
-        if let Some((index, _)) = current_decision {
-            if let Some(rest) = line.trim_start().strip_prefix("**Brief:**") {
-                let entry = &mut doc.decision_briefs[index].2;
-                if entry.is_none() {
-                    *entry = Some(brief_labels(rest));
                 }
             }
         }
@@ -773,25 +747,6 @@ pub fn lint(doc: &PlanDoc) -> Vec<Diagnostic> {
             Severity::Error,
             "no step in this plan carries a Tests block — a plan says how it will be checked",
         ));
-    }
-
-    // PL028 — a plan decision that names no brief decision. A revised brief
-    // is judged against finished steps by what they carry from it, and a step
-    // reaches the brief through the decisions it cites. A warning, because
-    // every plan written before the rule lacks the line.
-    if !is_task_list(doc) {
-        for (id, line, briefs) in &doc.decision_briefs {
-            if briefs.is_none() {
-                out.push(Diagnostic::at(
-                    "PL028",
-                    Severity::Warning,
-                    format!(
-                        "decision [{id}] names no brief decision; add **Brief:** [B##] … or **Brief:** none"
-                    ),
-                    *line,
-                ));
-            }
-        }
     }
 
     // PL023 — the Review Record.
@@ -1212,97 +1167,6 @@ fn untick(line: &str) -> String {
 /// is the only thing that tells them apart — and it is the author's own
 /// structure rather than a guess about who wrote it.
 const DEVISED_FRAME: &[&str] = &["plan-metadata", "phase-overview", "deliverables"];
-
-/// Every `[B##]` label on a line, in order, without repeats. `none` and any
-/// other text name nothing, so `**Brief:** none` reads as an empty list.
-fn brief_labels(text: &str) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    let mut rest = text;
-    while let Some(open) = rest.find("[B") {
-        let after = &rest[open + 1..];
-        let Some(close) = after.find(']') else {
-            break;
-        };
-        let id = &after[..close];
-        if id.len() > 1
-            && id[1..].chars().all(|c| c.is_ascii_digit())
-            && !out.iter().any(|o| o == id)
-        {
-            out.push(id.to_string());
-        }
-        rest = &after[close..];
-    }
-    out
-}
-
-/// Which brief decisions each step carries, by step number.
-///
-/// In a plan, a step's set is the union of the `**Brief:**` sets of the
-/// `[P##]` decisions its `**References:**` line cites, and any `[B##]` it
-/// names there directly; it is `None` when the line reaches no `**Brief:**`
-/// line and names no `[B##]`. In a task list, it is the labels on the step's
-/// `Carries:` line, `Carries: none.` being the empty set and no such line
-/// `None`. `None` means nobody said, which is not the same as "carries nothing".
-pub fn step_brief_citations(
-    source: &str,
-) -> Result<BTreeMap<u32, Option<BTreeSet<String>>>, NotAPlan> {
-    let doc = parse(source)?;
-    let mut out = BTreeMap::new();
-    if is_task_list(&doc) {
-        let lines: Vec<&str> = source.lines().collect();
-        for step in &doc.steps {
-            let Some(number) = step.number else { continue };
-            let level = doc
-                .headings
-                .iter()
-                .find(|h| h.line == step.line)
-                .map_or(4, |h| h.level);
-            let end = doc
-                .headings
-                .iter()
-                .find(|h| h.line > step.line && h.level <= level)
-                .map_or(lines.len(), |h| h.line - 1);
-            let carries = lines
-                .get(step.line..end)
-                .unwrap_or_default()
-                .iter()
-                .find_map(|l| {
-                    let l = l.trim_start().trim_start_matches(['-', '*', ' ']);
-                    l.strip_prefix("Carries:")
-                })
-                .map(|rest| brief_labels(rest).into_iter().collect::<BTreeSet<_>>());
-            out.insert(number as u32, carries);
-        }
-        return Ok(out);
-    }
-
-    let decisions: BTreeMap<&str, &Option<Vec<String>>> = doc
-        .decision_briefs
-        .iter()
-        .map(|(id, _, briefs)| (id.as_str(), briefs))
-        .collect();
-    for step in &doc.steps {
-        let Some(number) = step.number else { continue };
-        let Some((_, references)) = &step.references else {
-            out.insert(number as u32, None);
-            continue;
-        };
-        let mut set: BTreeSet<String> = brief_labels(references).into_iter().collect();
-        let mut reached = !set.is_empty();
-        let mut rest = references.as_str();
-        while let Some(open) = rest.find("[P") {
-            let after = &rest[open + 1..];
-            let Some(close) = after.find(']') else { break };
-            if let Some(Some(briefs)) = decisions.get(&after[..close]) {
-                reached = true;
-                set.extend(briefs.iter().cloned());
-            }
-            rest = &after[close..];
-        }
-        out.insert(number as u32, reached.then_some(set));
-    }
-    Ok(out)
-}
 
 /// Whether this document is a task list rather than a devised plan.
 ///
@@ -2906,110 +2770,5 @@ Some context.
             1,
             "only the round's lead-in line moves: {diff:?}"
         );
-    }
-
-    /// MINIMAL with three decisions — one carrying brief decisions, one
-    /// carrying none, one saying nothing — and three steps that cite them.
-    fn with_decisions() -> String {
-        MINIMAL
-            .replace(
-                "### Phase Overview {#phase-overview}",
-                "### Design Decisions {#design-decisions}\n\n\
-                 #### [P01] Carries two (DECIDED) {#p01}\n\n\
-                 **Decision:** one.\n\n**Brief:** [B01], [B04]\n\n\
-                 #### [P02] Carries nothing (DECIDED) {#p02}\n\n\
-                 **Decision:** two.\n\n**Brief:** none\n\n\
-                 #### [P03] Says nothing (DECIDED) {#p03}\n\n\
-                 **Decision:** three.\n\n**Rationale:**\n- because.\n\n\
-                 ### Phase Overview {#phase-overview}",
-            )
-            .replace(
-                "| #step-1 | The only step | pending | — |",
-                "| #step-1 | The only step | pending | — |\n\
-                 | #step-2 | Second | pending | — |\n\
-                 | #step-3 | Third | pending | — |",
-            )
-            .replace(
-                "### Deliverables and Checkpoints {#deliverables}",
-                "#### Step 2: Second {#step-2}\n\n\
-                 **References:** [P02], [B07] directly\n\n\
-                 **Tasks:**\n- [ ] x\n\n**Tests:**\n- [ ] Unit: y\n\n**Checkpoint:**\n- [ ] z\n\n\
-                 #### Step 3: Third {#step-3}\n\n\
-                 **References:** [P03] only\n\n\
-                 **Tasks:**\n- [ ] x\n\n**Tests:**\n- [ ] Unit: y\n\n**Checkpoint:**\n- [ ] z\n\n\
-                 ### Deliverables and Checkpoints {#deliverables}",
-            )
-    }
-
-    #[test]
-    fn pl028_warns_on_a_decision_with_no_brief_line_only() {
-        let source = with_decisions();
-        let hits: Vec<Diagnostic> = diagnose(&source)
-            .into_iter()
-            .filter(|d| d.code == "PL028")
-            .collect();
-        assert_eq!(hits.len(), 1, "{hits:#?}");
-        assert_eq!(hits[0].severity, Severity::Warning);
-        assert!(hits[0].message.contains("[P03]"), "{}", hits[0].message);
-        assert!(!codes(MINIMAL).contains(&"PL028".to_string()));
-    }
-
-    #[test]
-    fn decision_briefs_read_the_first_brief_line_in_each_section() {
-        let doc = parse(&with_decisions()).unwrap();
-        let briefs: Vec<(String, Option<Vec<String>>)> = doc
-            .decision_briefs
-            .into_iter()
-            .map(|(id, _, b)| (id, b))
-            .collect();
-        assert_eq!(
-            briefs,
-            vec![
-                (
-                    "P01".to_string(),
-                    Some(vec!["B01".to_string(), "B04".to_string()])
-                ),
-                ("P02".to_string(), Some(vec![])),
-                ("P03".to_string(), None),
-            ]
-        );
-    }
-
-    #[test]
-    fn step_citations_union_decisions_and_direct_labels() {
-        let cited = step_brief_citations(&with_decisions()).unwrap();
-        let set = |labels: &[&str]| -> Option<BTreeSet<String>> {
-            Some(labels.iter().map(|s| s.to_string()).collect())
-        };
-        // Step 1 cites [P01].
-        assert_eq!(cited[&1], set(&["B01", "B04"]));
-        // Step 2 cites [P02] (none) and names [B07] directly.
-        assert_eq!(cited[&2], set(&["B07"]));
-        // Step 3 cites only a decision with no Brief line: nobody said.
-        assert_eq!(cited[&3], None);
-    }
-
-    #[test]
-    fn a_task_list_step_carries_what_its_carries_line_names() {
-        let source = TASK_LIST
-            .replace(
-                "Give the empty row the same grid the populated one has.\n",
-                "Give the empty row the same grid the populated one has.\n\nCarries: [B02], [B03].\n",
-            )
-            .replace(
-                "One assertion on the centred box.\n",
-                "One assertion on the centred box.\n\nCarries: none.\n",
-            );
-        let cited = step_brief_citations(&source).unwrap();
-        assert_eq!(
-            cited[&1],
-            Some(["B02", "B03"].iter().map(|s| s.to_string()).collect())
-        );
-        assert_eq!(cited[&2], Some(BTreeSet::new()));
-        // A step with no Carries line at all is `None`.
-        let bare = step_brief_citations(TASK_LIST).unwrap();
-        assert_eq!(bare[&1], None);
-        // And a task list never warns PL028.
-        assert!(!codes(&source).contains(&"PL028".to_string()));
     }
 }

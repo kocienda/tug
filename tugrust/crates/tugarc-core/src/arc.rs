@@ -242,15 +242,6 @@ pub enum ArcStopReason {
     /// out loud. Resumable, because whatever took the seat away is usually
     /// repairable and the work is untouched.
     SeatLost,
-    /// The user asked for a successor to start from this arc's finished
-    /// steps, and the arc was stopped at its step boundary so it could.
-    ///
-    /// Written as the park request's answer: at once on an arc already
-    /// stopped, or by the wheel at the first idle boundary with no step open
-    /// on one still running. Resumable, because a parked arc is stopped and
-    /// not discarded: its worktree and branch stand until the user discards
-    /// them, and a resume runs it on with the request marked answered.
-    Parked,
 }
 
 impl ArcStopReason {
@@ -286,7 +277,6 @@ impl ArcStopReason {
         ArcStopReason::RecordsDisagree,
         ArcStopReason::SeatUnavailable,
         ArcStopReason::SeatLost,
-        ArcStopReason::Parked,
     ];
 
     /// The word written into `arc-stop`'s note.
@@ -320,7 +310,6 @@ impl ArcStopReason {
             ArcStopReason::RecordsDisagree => "records disagree",
             ArcStopReason::SeatUnavailable => "seat unavailable",
             ArcStopReason::SeatLost => "seat lost",
-            ArcStopReason::Parked => "parked",
         }
     }
 
@@ -422,9 +411,6 @@ impl ArcStopReason {
             }
             ArcStopReason::SeatUnavailable => "its worktree could not be made",
             ArcStopReason::SeatLost => "its seat left the sweep with nothing in the log to say why",
-            ArcStopReason::Parked => {
-                "it was parked so a successor could start from its finished steps"
-            }
         }
     }
 
@@ -479,32 +465,6 @@ pub struct ArcStageLine {
     /// still be read positionally.
     pub model: Option<String>,
     pub at: String,
-}
-
-/// The user's request that this arc be parked so `successor` can start from
-/// `boundary` of its finished work: the `arc-park` line.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ParkRequest {
-    /// The successor arc's name.
-    pub successor: String,
-    /// Where the successor starts: `tip`, `fork` or `step:<K>`.
-    pub boundary: String,
-    /// Whether an `arc-stop … parked` line answered this request. An answered
-    /// request stays on the record, so a surface can still name the
-    /// successor, but it no longer asks the wheel to park the arc.
-    pub honoured: bool,
-}
-
-/// That this arc succeeds another: the `arc-succeeds` line. Its branch is cut
-/// at `from`, inside the old arc's history, and lands on the old arc's base.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Succession {
-    /// The old arc's name.
-    pub arc: String,
-    /// The full sha the successor's branch starts at.
-    pub from: String,
-    /// The old arc's base branch, which the successor lands on.
-    pub base: String,
 }
 
 /// What an arc's *current generation* of arc log lines says about it.
@@ -590,17 +550,6 @@ pub struct ArcRecord {
     /// a name on the seat, "not mine to watch" and "gone silent" are the same
     /// reading — and the second one writes a stop receipt over healthy work.
     pub owner: Option<String>,
-    /// The newest brief version the user chose to keep going past: the arc
-    /// runs on its own brief, and the revision's offer quiets until the brief
-    /// moves again. `None` when no Keep going was pressed this generation.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub brief_kept: Option<u32>,
-    /// The newest park request this generation, answered or not.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub park: Option<ParkRequest>,
-    /// The arc this one succeeds, when it was opened as a successor.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub succeeds: Option<Succession>,
     pub done: bool,
     /// The newest surviving arc line's timestamp.
     pub last_activity: Option<String>,
@@ -659,9 +608,6 @@ pub fn read_arc(paths: &Paths, repo_root: &Path, arc: &str) -> Option<ArcRecord>
             resume: None,
             dispatched: None,
             owner: None,
-            brief_kept: None,
-            park: None,
-            succeeds: None,
             done: false,
             last_activity: None,
         });
@@ -677,46 +623,6 @@ pub fn read_arc(paths: &Paths, repo_root: &Path, arc: &str) -> Option<ArcRecord>
             "arc-kind" => record.kind = ArcKind::parse(note.trim()),
             "arc-plan" => record.plan = Some(note.to_owned()),
             "arc-note" => record.notes.push(note.to_owned()),
-            // **Skew.** A reader older than this marker ignores it, which is
-            // the notice offering again: never a wrong act, only a repeated
-            // offer.
-            "arc-brief-kept" => {
-                if let Ok(version) = note.trim().parse::<u32>() {
-                    record.brief_kept = Some(record.brief_kept.map_or(version, |v| v.max(version)));
-                }
-            }
-            // A new request replaces the last one and stands until an
-            // `arc-stop … parked` answers it.
-            //
-            // **Skew.** A reader older than this marker ignores it, so its
-            // wheel never parks the arc: the request waits, unanswered, until
-            // a newer tugcast reads it. Nothing is stopped that was not asked.
-            "arc-park" => {
-                let mut fields = note.split_whitespace();
-                if let (Some(successor), Some(boundary)) = (fields.next(), fields.next()) {
-                    record.park = Some(ParkRequest {
-                        successor: successor.to_owned(),
-                        boundary: boundary.to_owned(),
-                        honoured: false,
-                    });
-                }
-            }
-            // **Skew.** A reader older than this marker opens the successor
-            // as an ordinary arc on its base: a seat cut from the base tip
-            // rather than the old arc's work. It loses the carried rounds and
-            // invents nothing.
-            "arc-succeeds" => {
-                let mut fields = note.split_whitespace();
-                if let (Some(old), Some(from), Some(base)) =
-                    (fields.next(), fields.next(), fields.next())
-                {
-                    record.succeeds = Some(Succession {
-                        arc: old.to_owned(),
-                        from: from.to_owned(),
-                        base: base.to_owned(),
-                    });
-                }
-            }
             "arc-stage" => {
                 if let Some(stage) = read_stage_line(note, timestamp) {
                     record.stopped = None;
@@ -737,11 +643,6 @@ pub fn read_arc(paths: &Paths, repo_root: &Path, arc: &str) -> Option<ArcRecord>
             }
             "arc-stop" => {
                 if let Some((stage, reason)) = read_stop_line(note) {
-                    if reason == ArcStopReason::Parked.as_str()
-                        && let Some(park) = record.park.as_mut()
-                    {
-                        park.honoured = true;
-                    }
                     record.stopped = Some((stage, reason.clone()));
                     record.last_stop = Some((stage, reason));
                     record.stopping = None;
@@ -942,241 +843,6 @@ pub fn append_arc_plan(
     plan: &str,
 ) -> Result<(), TugError> {
     append_arc_log(paths, repo_root, arc, "arc-plan", plan)
-}
-
-/// Append `arc-brief-kept <version>` — the user chose to keep going on the
-/// arc's own brief past brief version `version`.
-pub fn append_arc_brief_kept(
-    paths: &Paths,
-    repo_root: &Path,
-    arc: &str,
-    version: u32,
-) -> Result<(), TugError> {
-    append_arc_log(
-        paths,
-        repo_root,
-        arc,
-        "arc-brief-kept",
-        &version.to_string(),
-    )
-}
-
-/// Append `arc-park <successor> <boundary>` — the user asked that this arc be
-/// parked so `successor` can start from `boundary` of its work.
-pub fn append_arc_park(
-    paths: &Paths,
-    repo_root: &Path,
-    arc: &str,
-    successor: &str,
-    boundary: &str,
-) -> Result<(), TugError> {
-    let note = format!("{} {}", successor.trim(), boundary.trim());
-    append_arc_log(paths, repo_root, arc, "arc-park", &note)
-}
-
-/// Append `arc-succeeds <old> <from> <base>` — this arc succeeds `old`, its
-/// branch cut at `from` and landing on `base`.
-pub fn append_arc_succeeds(
-    paths: &Paths,
-    repo_root: &Path,
-    arc: &str,
-    succession: &Succession,
-) -> Result<(), TugError> {
-    let note = format!(
-        "{} {} {}",
-        succession.arc.trim(),
-        succession.from.trim(),
-        succession.base.trim()
-    );
-    append_arc_log(paths, repo_root, arc, "arc-succeeds", &note)
-}
-
-/// The follow-ups the newest generation of `arc` records, `(k, line)` in log
-/// order, or `None` when the log names no such arc. A generation opens on the
-/// name's first line, and again on an `arc-start` after a terminal line, as
-/// [`crate::log::arc_generations`] walks it; lines after a join belong to the
-/// ended generation until then.
-pub fn current_follow_ups(log_text: &str, arc: &str) -> Option<Vec<(u32, String)>> {
-    follow_ups_by_generation(log_text, arc)
-        .pop()
-        .map(|(_, follow_ups)| follow_ups)
-}
-
-/// Every generation of `arc` with the follow-ups it records: its start, and
-/// `(k, line)` in log order, oldest generation first.
-pub fn follow_ups_by_generation(log_text: &str, arc: &str) -> Vec<(String, Vec<(u32, String)>)> {
-    let mut found: Vec<(String, Vec<(u32, String)>)> = Vec::new();
-    let mut ended = false;
-    for line in log_text.lines() {
-        let Some((timestamp, name, marker, note)) = split_log_line(line) else {
-            continue;
-        };
-        if name != arc {
-            continue;
-        }
-        if found.is_empty() || (ended && marker == "arc-start") {
-            found.push((timestamp.to_owned(), Vec::new()));
-            ended = false;
-        }
-        if is_terminal(marker, note) {
-            ended = true;
-        }
-        if marker == "follow-up" {
-            if let (Some(entry), Some(last)) = (read_follow_up(note), found.last_mut()) {
-                last.1.push(entry);
-            }
-        }
-    }
-    found
-}
-
-/// Follow-up `k` of the generation of `arc` that started at `created`, while
-/// no decision has settled it: its line, or a sentence saying why not.
-pub fn open_follow_up(log_text: &str, arc: &str, created: &str, k: u32) -> Result<String, String> {
-    let line = follow_ups_by_generation(log_text, arc)
-        .into_iter()
-        .find(|(start, _)| start == created)
-        .and_then(|(_, follow_ups)| follow_ups.into_iter().find(|(seen, _)| *seen == k))
-        .map(|(_, line)| line)
-        .ok_or_else(|| format!("{arc} records no follow-up {k}."))?;
-    let decided = log_text
-        .lines()
-        .filter_map(split_log_line)
-        .filter(|(_, name, marker, _)| {
-            *name == arc && matches!(*marker, "follow-up-accepted" | "follow-up-dismissed")
-        })
-        .filter_map(|(_, _, _, note)| read_follow_up_decision(note))
-        .any(|(start, seen)| start == created && seen == k);
-    if decided {
-        return Err(format!("Follow-up {k} of {arc} was already answered."));
-    }
-    Ok(line)
-}
-
-/// A `follow-up` note, `<k> <line>`.
-pub fn read_follow_up(note: &str) -> Option<(u32, String)> {
-    let (k, line) = note.trim().split_once(char::is_whitespace)?;
-    let k = k.parse::<u32>().ok().filter(|k| *k > 0)?;
-    let line = line.trim();
-    (!line.is_empty()).then(|| (k, line.to_owned()))
-}
-
-/// Append `follow-up <k> <line>` — something the audit found a person would
-/// want done next, outside this arc's brief — and answer its `k`, counted
-/// from 1 within the arc's newest generation.
-///
-/// The line is trimmed and refused when empty, more than one line, or longer
-/// than an idea's line may be, since an accepted follow-up becomes one. A
-/// line the generation already records answers its existing `k` and writes
-/// nothing, so a re-audit cannot double a proposal.
-pub fn append_arc_follow_up(
-    paths: &Paths,
-    repo_root: &Path,
-    arc: &str,
-    line: &str,
-) -> Result<u32, crate::error::ArcError> {
-    use crate::error::ArcError;
-    let line = line.trim();
-    if line.is_empty() {
-        return Err(ArcError::Refused(
-            "A follow-up needs a line of text.".into(),
-        ));
-    }
-    if line.contains(['\n', '\r']) {
-        return Err(ArcError::Refused("A follow-up is one line.".into()));
-    }
-    let limit = crate::idea::IDEA_TEXT_LIMIT;
-    if line.chars().count() > limit {
-        return Err(ArcError::Refused(format!(
-            "A follow-up is at most {limit} characters, the length of an idea's line."
-        )));
-    }
-    let path = tugtool_core::paths::arc_log_path_at(paths, repo_root);
-    let text = std::fs::read_to_string(&path).unwrap_or_default();
-    let Some(recorded) = current_follow_ups(&text, arc) else {
-        return Err(ArcError::NotFound {
-            name: arc.to_owned(),
-        });
-    };
-    if let Some((k, _)) = recorded.iter().find(|(_, l)| l == line) {
-        return Ok(*k);
-    }
-    let k = recorded.iter().map(|(k, _)| *k).max().unwrap_or(0) + 1;
-    append_arc_log(paths, repo_root, arc, "follow-up", &format!("{k} {line}"))
-        .map_err(|e| ArcError::Refused(e.to_string()))?;
-    Ok(k)
-}
-
-/// Append `follow-up-accepted <created> <k> <idea>` — the user accepted
-/// follow-up `k` of the generation that started at `created` as idea `idea`.
-pub fn append_follow_up_accepted(
-    paths: &Paths,
-    repo_root: &Path,
-    arc: &str,
-    created: &str,
-    k: u32,
-    idea: &str,
-) -> Result<(), TugError> {
-    let note = format!("{} {k} {}", created.trim(), idea.trim());
-    append_arc_log(paths, repo_root, arc, "follow-up-accepted", &note)
-}
-
-/// Append `follow-up-dismissed <created> <k>` — the user dismissed follow-up
-/// `k` of the generation that started at `created`.
-pub fn append_follow_up_dismissed(
-    paths: &Paths,
-    repo_root: &Path,
-    arc: &str,
-    created: &str,
-    k: u32,
-) -> Result<(), TugError> {
-    let note = format!("{} {k}", created.trim());
-    append_arc_log(paths, repo_root, arc, "follow-up-dismissed", &note)
-}
-
-/// A follow-up decision's note, `<created> <k> [<idea>]`: the generation it
-/// settles and the follow-up's `k`.
-pub fn read_follow_up_decision(note: &str) -> Option<(String, u32)> {
-    let mut words = note.split_whitespace();
-    let created = words.next()?.to_owned();
-    let k = words.next()?.parse::<u32>().ok()?;
-    Some((created, k))
-}
-
-/// Append `reverted <revert sha> <join sha>` — the user reverted the join
-/// `join` on the base with the commit `revert`. Not terminal: the generation
-/// it names still joined.
-pub fn append_arc_reverted(
-    paths: &Paths,
-    repo_root: &Path,
-    arc: &str,
-    revert: &str,
-    join: &str,
-) -> Result<(), TugError> {
-    let note = format!("{} {}", revert.trim(), join.trim());
-    append_arc_log(paths, repo_root, arc, "reverted", &note)
-}
-
-/// A `reverted` note, `<revert sha> <join sha>`.
-pub fn read_reverted(note: &str) -> Option<(String, String)> {
-    let mut words = note.split_whitespace();
-    let revert = words.next()?.to_owned();
-    let join = words.next()?.to_owned();
-    Some((revert, join))
-}
-
-/// The revert commit a `reverted` line of `arc` names for the join `join`,
-/// wherever in the name's log it falls. Either sha may be short.
-pub fn reverted_by(log_text: &str, arc: &str, join: &str) -> Option<String> {
-    log_text
-        .lines()
-        .filter_map(split_log_line)
-        .filter(|(_, name, marker, _)| *name == arc && *marker == "reverted")
-        .filter_map(|(_, _, _, note)| read_reverted(note))
-        .find(|(_, seen)| {
-            !seen.is_empty() && (seen.starts_with(join) || join.starts_with(seen.as_str()))
-        })
-        .map(|(revert, _)| revert)
 }
 
 /// Append `arc-note` — a runner note, such as the review cap.
@@ -1489,175 +1155,6 @@ mod tests {
             repo,
             paths,
         }
-    }
-
-    /// A Keep going is read back as the newest version kept past, and a
-    /// marker this reader cannot parse declares nothing.
-    #[test]
-    fn brief_kept_folds_the_newest_version_kept_past() {
-        let lines = [
-            log_line_at("2026-08-24T10:00:00Z", "k", "arc-start", "brief.md"),
-            log_line_at("2026-08-24T10:01:00Z", "k", "arc-brief-kept", "3"),
-            log_line_at("2026-08-24T10:02:00Z", "k", "arc-brief-kept", "2"),
-            log_line_at("2026-08-24T10:03:00Z", "k", "arc-brief-kept", "junk"),
-        ]
-        .concat();
-        let f = log_repo(&lines);
-        let record = read_arc(&f.paths, f.root(), "k").unwrap();
-        assert_eq!(record.brief_kept, Some(3));
-
-        let none = log_repo(&log_line("k", "arc-start", "brief.md"));
-        assert_eq!(
-            read_arc(&none.paths, none.root(), "k").unwrap().brief_kept,
-            None
-        );
-    }
-
-    /// A follow-up's k counts from 1 within its generation, a repeated line
-    /// answers its first k without writing, and a bad line is refused.
-    #[test]
-    fn follow_up_counts_per_generation_and_answers_a_repeat() {
-        let f = log_repo(&log_line_at(
-            "2026-08-24T10:00:00Z",
-            "f",
-            "arc-start",
-            "brief.md",
-        ));
-        let log = || {
-            fs::read_to_string(tugtool_core::paths::arc_log_path_at(&f.paths, f.root())).unwrap()
-        };
-        assert_eq!(
-            append_arc_follow_up(&f.paths, f.root(), "f", "  First  ").unwrap(),
-            1
-        );
-        assert_eq!(
-            append_arc_follow_up(&f.paths, f.root(), "f", "Second").unwrap(),
-            2
-        );
-        let lines = log().lines().count();
-        assert_eq!(
-            append_arc_follow_up(&f.paths, f.root(), "f", "First").unwrap(),
-            1
-        );
-        assert_eq!(log().lines().count(), lines, "a repeat writes nothing");
-        for bad in [
-            "",
-            "  ",
-            "one\ntwo",
-            &"x".repeat(crate::idea::IDEA_TEXT_LIMIT + 1),
-        ] {
-            assert!(
-                append_arc_follow_up(&f.paths, f.root(), "f", bad).is_err(),
-                "{bad:?} is refused"
-            );
-        }
-        assert!(append_arc_follow_up(&f.paths, f.root(), "nobody", "x").is_err());
-
-        // A join ends the generation; the next arc-start counts from 1 again.
-        fs::write(
-            tugtool_core::paths::arc_log_path_at(&f.paths, f.root()),
-            format!(
-                "{}{}",
-                log(),
-                [
-                    log_line_at("2026-08-24T11:00:00Z", "f", "abc1234", "joined via card"),
-                    log_line_at("2026-08-24T12:00:00Z", "f", "arc-start", "brief.md"),
-                ]
-                .concat()
-            ),
-        )
-        .unwrap();
-        assert_eq!(
-            append_arc_follow_up(&f.paths, f.root(), "f", "First").unwrap(),
-            1
-        );
-        assert_eq!(
-            current_follow_ups(&log(), "f").unwrap(),
-            vec![(1, "First".to_string())]
-        );
-    }
-
-    #[test]
-    fn parked_round_trips_and_resumes() {
-        assert_eq!(ArcStopReason::parse("parked"), Some(ArcStopReason::Parked));
-        assert!(ArcStopReason::Parked.is_resumable());
-        assert!(!ArcStopReason::Parked.judged_silence());
-    }
-
-    /// A park request stands until a parked stop answers it; the succession
-    /// is read whole.
-    #[test]
-    fn park_and_succession_fold() {
-        let lines = [
-            log_line_at("2026-08-24T10:00:00Z", "k", "arc-start", "brief.md"),
-            log_line_at(
-                "2026-08-24T10:01:00Z",
-                "k",
-                "arc-succeeds",
-                "old abc123 main",
-            ),
-            log_line_at("2026-08-24T10:02:00Z", "k", "arc-park", "k-v3 step:2"),
-        ]
-        .concat();
-        let f = log_repo(&lines);
-        let record = read_arc(&f.paths, f.root(), "k").unwrap();
-        assert_eq!(
-            record.succeeds,
-            Some(Succession {
-                arc: "old".into(),
-                from: "abc123".into(),
-                base: "main".into()
-            })
-        );
-        assert_eq!(
-            record.park,
-            Some(ParkRequest {
-                successor: "k-v3".into(),
-                boundary: "step:2".into(),
-                honoured: false
-            })
-        );
-    }
-
-    /// A parked stop marks the request honoured; a resume clears the stop and
-    /// keeps the honoured request; a new request stands again.
-    #[test]
-    fn a_parked_stop_honours_the_request_and_a_resume_keeps_it() {
-        let mut lines = [
-            log_line_at("2026-08-24T10:00:00Z", "k", "arc-start", "brief.md"),
-            log_line_at("2026-08-24T10:01:00Z", "k", "arc-park", "k-v2 tip"),
-            log_line_at("2026-08-24T10:02:00Z", "k", "arc-stop", "implement parked"),
-        ]
-        .concat();
-        let f = log_repo(&lines);
-        let record = read_arc(&f.paths, f.root(), "k").unwrap();
-        assert!(record.park.as_ref().unwrap().honoured);
-        assert_eq!(
-            record.stopped,
-            Some((ArcStage::Implement, "parked".to_owned()))
-        );
-
-        lines.push_str(&log_line_at(
-            "2026-08-24T10:03:00Z",
-            "k",
-            "arc-resume",
-            "implement",
-        ));
-        let f = log_repo(&lines);
-        let record = read_arc(&f.paths, f.root(), "k").unwrap();
-        assert_eq!(record.stopped, None);
-        assert!(record.park.as_ref().unwrap().honoured);
-
-        lines.push_str(&log_line_at(
-            "2026-08-24T10:04:00Z",
-            "k",
-            "arc-park",
-            "k-v3 fork",
-        ));
-        let f = log_repo(&lines);
-        let park = read_arc(&f.paths, f.root(), "k").unwrap().park.unwrap();
-        assert_eq!(park.successor, "k-v3");
-        assert!(!park.honoured);
     }
 
     fn log_line(arc: &str, marker: &str, note: &str) -> String {

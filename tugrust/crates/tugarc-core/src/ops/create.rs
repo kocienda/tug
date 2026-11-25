@@ -136,7 +136,7 @@ pub fn create_in(
     validate_arc_name(name).map_err(ArcError::InvalidName)?;
     let repo_root = main_repo_root(repo_root);
     reconcile_branches(paths, &repo_root, &mut Vec::new());
-    let mut base_branch = match base {
+    let base_branch = match base {
         Some(requested) => {
             if !branch_exists(&repo_root, requested) {
                 return Err(ArcError::Refused(format!(
@@ -185,17 +185,6 @@ pub fn create_in(
         });
     }
 
-    // A successor's branch is cut inside the old arc's history and lands on
-    // the old arc's base: the generation's `arc-succeeds` line says where.
-    let succession = crate::arc::read_arc(paths, &repo_root, name).and_then(|r| r.succeeds);
-    let start_point = match &succession {
-        Some(s) => {
-            base_branch = s.base.clone();
-            s.from.clone()
-        }
-        None => base_branch.clone(),
-    };
-
     // Clean up any partial leftovers from a half-built or stale incarnation.
     if have_worktree {
         let _ = git_output(
@@ -229,7 +218,7 @@ pub fn create_in(
             &worktree.to_string_lossy(),
             "-b",
             &branch,
-            &start_point,
+            &base_branch,
         ],
     )?;
     if !out.status.success() {
@@ -241,7 +230,7 @@ pub fn create_in(
                 &worktree.to_string_lossy(),
                 "-b",
                 &branch,
-                &start_point,
+                &base_branch,
             ],
             String::from_utf8_lossy(&out.stderr).trim(),
         ));
@@ -257,14 +246,6 @@ pub fn create_in(
     );
     if let Some(desc) = description.as_deref() {
         let _ = git_output(&repo_root, &["config", &description_config_key(name), desc]);
-    }
-    // The successor's cut point, so its fork point reads inside the old arc's
-    // history rather than at the merge-base. The one writer of the key.
-    if succession.is_some() {
-        let _ = git_output(
-            &repo_root,
-            &["config", &super::fork_config_key(name), &start_point],
-        );
     }
 
     // Mint the creation id ([P01]) beside the rest of the branch metadata, so

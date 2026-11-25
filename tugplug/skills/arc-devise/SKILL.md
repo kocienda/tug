@@ -45,8 +45,6 @@ Read the relevant code before designing. Use Glob/Grep/Read to map the territory
 
 Read the arc's sketch too, and keep it current as the arc doctrine's *The record of where the work came from* says: rewrite it when its source session has turns since that changed it or when it is not in the shape that section gives, and never invent one.
 
-**A successor devises from its predecessor's finished work.** When the prompt carries a `successor:` line under the `where` line — `successor: of <old> · from <sha> · carries steps 1–K of its ledger`, or `carries none` — this arc's worktree already holds that work: its branch was cut at `<sha>` inside the parked arc `<old>`. Read the predecessor's plan with `tugtool arc show <old> --document plan` (or `--document tasks` when it was plain) and its carried steps' commits with `git log <sha>` in the worktree. The new plan's steps begin from that tree and never re-do carried work; a carried step whose decision the revised brief changed becomes a new step that changes it, said as such. Its decisions and every step's references still name the revised brief's `[B##]` decisions, since the revised brief is what this arc is devised from.
-
 ### 2. Clarify (only what matters)
 
 Settle what you can from the code, the laws, and the conventional default — which is nearly everything. A question is worth raising **only when the answer changes the design** and nothing you can read decides it.

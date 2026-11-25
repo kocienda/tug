@@ -744,12 +744,6 @@ struct ArcApiRequest {
     /// receipt, so it is the whole of what the user has to go on.
     #[serde(default)]
     question: Option<String>,
-    /// For `arc_run`: the parked arc this one succeeds, with `from`, the
-    /// commit its branch starts at. Both or neither.
-    #[serde(default)]
-    successor_of: Option<String>,
-    #[serde(default)]
-    from: Option<String>,
 }
 
 // (A review-start route is gone: a review is an ordinary turn the user starts,
@@ -1108,16 +1102,7 @@ fn apply_arc_request(
                     "arc_run needs tug_session_id, project_dir, and arc".to_string(),
                 );
             };
-            let succession = match (req.successor_of.as_deref(), req.from.as_deref()) {
-                (Some(old), Some(from)) => Some((old, from)),
-                (None, None) => None,
-                _ => {
-                    return ArcApiOutcome::Error(
-                        "arc_run takes successor_of and from together".to_string(),
-                    );
-                }
-            };
-            crate::arc_api::arc_run(ledger, &project, session, arc, succession)
+            crate::arc_api::arc_run(ledger, &project, session, arc)
         }
         // Pick a stopped arc back up: clear the stop by naming the stage it
         // stopped in, then bind — `arc_run`'s pair of acts made reachable

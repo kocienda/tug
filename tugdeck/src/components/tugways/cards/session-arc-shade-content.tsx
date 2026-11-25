@@ -24,11 +24,6 @@
  * `ArcPopoverContent` and `SessionArcShadeHint` as they are and adds no
  * styling of its own.
  *
- * When the arc's brief has moved on since the arc opened on it, the Brief
- * panel's foot also carries the revision notice — Keep going, Open successor,
- * Discard and reopen — read from the arc's docket thread, beside the Open in
- * Docket door; an arc on no docket has neither.
- *
  * The verbs and the confirm Discard arms are hosted here. The confirm hangs
  * off the Arc panel, over the verb row that armed it. It is rendered beside
  * the panels rather than inside one, and the panels stay mounted while the
@@ -63,7 +58,6 @@ import { getConnection } from "@/lib/connection-singleton";
 import { docketForArc, useDockets } from "@/lib/docket-store";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
-import { ArcRevisionNotice } from "./arc-revision-notice";
 import { ArcBriefDetail, ArcBriefHeadings } from "./session-arc-brief";
 import { SessionArcPanels, type SessionArcPanel } from "./session-arc-panels";
 import { SessionArcShadeHint } from "./session-arc-shade-hint";
@@ -206,28 +200,13 @@ export function SessionArcShadeContent({
     },
     [docketHit],
   );
-  const docketThread =
-    docketHit === null
-      ? null
-      : (docketHit.docket.threads.find((t) => t.key === docketHit.threadKey) ?? null);
   const docketDoor =
     docketHit === null ? undefined : (
-      <>
-        <span data-arc-panel-door="" data-slot="session-arc-docket-door">
-          <TugPushButton size="2xs" emphasis="ghost" data-tug-focus="refuse" onClick={() => openDocket(false)}>
-            Open in Docket
-          </TugPushButton>
-        </span>
-        {docketThread !== null ? (
-          <ArcRevisionNotice
-            thread={docketThread}
-            docketId={docketHit.docket.id}
-            projectDir={docketHit.project.project_dir}
-            answers
-            originCardId={cardId}
-          />
-        ) : null}
-      </>
+      <span data-arc-panel-door="" data-slot="session-arc-docket-door">
+        <TugPushButton size="2xs" emphasis="ghost" data-tug-focus="refuse" onClick={() => openDocket(false)}>
+          Open in Docket
+        </TugPushButton>
+      </span>
     );
 
   const arcVerbs = useArcPopoverVerbs({

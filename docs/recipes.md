@@ -30,7 +30,7 @@ Press Control-Command-R to show the Arcs sidebar. It lists every arc in every op
 ### Stop an arc
 <!-- source: tugdeck/src/lib/arc-verbs.ts (Stop); tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-lane.tsx; tugrust/crates/tugtool/src/arc.rs (run_arc_stop); tugdeck/src/lib/slash-commands.ts -->
 
-While an arc is running, the first verb on its row in the Arcs sidebar and in the Changes tab is **Stop**. Click it, or run `tugtool arc stop <name>` from a shell. The arc stops at once with a receipt reading `arc stopped · <name> · in <stage> — stopped by user`, and it keeps its branch, its worktree and every step it finished. A Stop pressed in the middle of a step puts that step back to pending and returns the worktree to where the last finished step left it, so the arc resumes on whole steps; the unfinished step's work is kept at `refs/tug/partial/<name>`, and the receipt says so.
+While an arc is running, the first verb on its row in the Arcs sidebar and in the Changes tab is **Stop**. Click it, or run `tugtool arc stop <name>` from a shell. The arc stops at once with a receipt reading `arc stopped · <name> · in <stage> — stopped by user`, and it keeps its branch and worktree, so nothing is lost.
 
 There is no `/arc-stop` slash command and no chord for it. Starting a new session on the arc's card, or closing the card, also stops the arc, and the receipt says which happened.
 

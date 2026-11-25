@@ -115,31 +115,6 @@
   color: var(--tug7-element-global-text-normal-default-rest);
 }
 
-/* A live arc's revision notice, a parked arc's note and a landed arc's revert
-   take a line of their own under the row's cells. */
-.docket-thread-note {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.25rem 0.5rem;
-  flex-basis: 100%;
-  min-width: 0;
-}
-
-/* An audit follow-up proposed in the inbox: its line reads muted until the
-   user answers it, so a proposal is never mistaken for an idea they wrote. */
-[data-proposal="true"] [data-slot="docket-proposal-text"] {
-  color: var(--tug7-element-global-text-normal-muted-rest);
-  font-style: italic;
-}
-
-/* A landed arc whose join was reverted: its cells read muted, so the row says
-   the work is no longer on the base. */
-[data-reverted="true"] .docket-cell,
-[data-reverted="true"] .docket-cell-note {
-  color: var(--tug7-element-global-text-normal-muted-rest);
-}
-
 /* The sketch editor and the reader take the body in place of the threads. */
 .docket-sketch-editor,
 .docket-reader {

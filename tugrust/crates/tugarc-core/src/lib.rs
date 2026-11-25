@@ -28,10 +28,6 @@ pub mod docket;
 /// store, the session index and commit trailers.
 pub mod docket_threads;
 
-/// What a revised brief changed against the version a running arc opened on,
-/// which finished steps it touches, and the offer that answers it.
-pub mod brief_revision;
-
 /// The arc record — the server-driven arc's stages, document, and plan, kept
 /// as arc log lines keyed by name so the record exists before a branch does.
 pub mod arc;

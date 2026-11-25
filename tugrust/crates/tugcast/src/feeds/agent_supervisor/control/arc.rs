@@ -650,37 +650,6 @@ impl AgentSupervisor {
             return abandon("stop stalled at: quiet");
         }
 
-        // A user's Stop leaves whole steps ([B07]). Only now, with the session
-        // quiet and the stopping mark standing, is nothing else writing the
-        // worktree, so the settle runs here and nowhere earlier: the worktree
-        // goes back to the last step boundary, the open step to `pending`, and
-        // the cut-off work to `refs/tug/partial/<name>`, snapshotted before
-        // the reset ([L23]). A settle that fails is said on the arc and never
-        // fails the stop. Every other reason is unchanged: a stage's own
-        // `arc ask` is mid-thought, not abandoned.
-        if terms.reason == tugarc_core::arc::ArcStopReason::StoppedByUser {
-            let (project_owned, arc_owned) = (project.to_path_buf(), arc.to_owned());
-            let settled = tokio::task::spawn_blocking(move || {
-                tugarc_core::ops::settle_to_step_boundary(
-                    &Paths::from_env(),
-                    &project_owned,
-                    &arc_owned,
-                )
-                .map_err(|e| e.to_string())
-            })
-            .await
-            .unwrap_or_else(|e| Err(e.to_string()));
-            if let Err(error) = settled {
-                warn!(arc = %arc, error = %error, "could not settle the arc to a step boundary");
-                let _ = tugarc_core::arc::append_arc_note(
-                    &Paths::from_env(),
-                    project,
-                    arc,
-                    &format!("could not settle to a step boundary: {error}"),
-                );
-            }
-        }
-
         // Only now is the card genuinely the user's again, which is what
         // earns the `HandBack::Send` below.
         //
@@ -805,7 +774,7 @@ impl AgentSupervisor {
         let session = request.tug_session_id.clone();
         let arc = request.arc.clone();
         let outcome = tokio::task::spawn_blocking(move || {
-            crate::arc_api::arc_run(&ledger, &project, &session, &arc, None)
+            crate::arc_api::arc_run(&ledger, &project, &session, &arc)
         })
         .await;
 

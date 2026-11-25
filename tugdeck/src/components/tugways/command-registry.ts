@@ -3896,20 +3896,6 @@ export const ACTIONS_OUTSIDE_THE_TABLE: ReadonlySet<string> = new Set<string>([
   TUG_ACTIONS.REOPEN_ARC_ON_BRIEF,
   TUG_ACTIONS.READ_SKETCH_VERSION,
   TUG_ACTIONS.READ_BRIEF_VERSION,
-  // An arc's answers to a newer brief, on the same terms: each means "the
-  // arc this thread is", and Open successor's boundary is named by the popup
-  // item that carries it. The discards are "requests", arming the card's
-  // confirm rather than performing anything.
-  TUG_ACTIONS.KEEP_GOING_ARC,
-  TUG_ACTIONS.OPEN_SUCCESSOR,
-  TUG_ACTIONS.DISCARD_AND_REOPEN_ARC,
-  TUG_ACTIONS.REQUEST_DISCARD_PARKED_ARC,
-  // An Inbox proposal's two answers: each means "the follow-up this row is".
-  TUG_ACTIONS.ACCEPT_FOLLOW_UP,
-  TUG_ACTIONS.DISMISS_FOLLOW_UP,
-  // A Landed row's Revert, a request on the same terms as the discards: it
-  // arms the card's confirm and means "the arc this thread is".
-  TUG_ACTIONS.REQUEST_REVERT_ARC,
   // The workspace header's four verbs used to be here, for the reason every
   // other entry in this list is: "the workspace this row is" is a sampled
   // target no chord and no menu-bar item can name. [P02] changed the premise

@@ -94,14 +94,6 @@ control_actions! {
     SketchRead => "sketch_read",
     SketchEdit => "sketch_edit",
 
-    // Supervisor: the docket loop — an arc's answer to a newer brief, and
-    // the user's answer to an audit's follow-up.
-    ArcKeepGoing => "arc_keep_going",
-    ArcPark => "arc_park",
-    FollowUpAccept => "follow_up_accept",
-    FollowUpDismiss => "follow_up_dismiss",
-    ArcRevert => "arc_revert",
-
     // Supervisor: changesets, landings and joins.
     ChangesetGitInit => "changeset_git_init",
     ChangesetCommit => "changeset_commit",

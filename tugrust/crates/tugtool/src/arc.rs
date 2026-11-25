@@ -120,22 +120,11 @@ pub fn dispatch(cmd: ArcCommands, json: bool, quiet: bool) -> ExitCode {
         ArcCommands::Mark { name, stage, note } => {
             run_mark(paths, &name, stage.into(), note, json, quiet)
         }
-        ArcCommands::FollowUp { name, line } => run_follow_up(paths, &name, &line, json, quiet),
-        ArcCommands::Revert {
-            name,
-            created,
-            dry_run,
-        } => run_revert(paths, &name, created.as_deref(), dry_run, json, quiet),
         ArcCommands::Run {
             name,
             project,
             session,
-            successor_of,
-            from,
-        } => {
-            let succession = successor_of.zip(from);
-            run_arc_run(paths, &name, project, session, succession, json, quiet)
-        }
+        } => run_arc_run(paths, &name, project, session, json, quiet),
         ArcCommands::Documents { name, ensure, bind } => {
             run_documents(&name, ensure, bind, json, quiet)
         }
@@ -195,8 +184,6 @@ fn command_name(cmd: &ArcCommands) -> &'static str {
         ArcCommands::Doctor { .. } => "arc doctor",
         ArcCommands::Step { .. } => "arc step",
         ArcCommands::Mark { .. } => "arc mark",
-        ArcCommands::FollowUp { .. } => "arc follow-up",
-        ArcCommands::Revert { .. } => "arc revert",
         ArcCommands::Run { .. } => "arc run",
         ArcCommands::Documents { .. } => "arc documents",
         ArcCommands::Record { .. } => "arc record",
@@ -985,67 +972,6 @@ fn run_mark(
     Ok(())
 }
 
-/// `tugtool arc follow-up`: append the line and say its `k`.
-fn run_follow_up(
-    paths: &Paths,
-    name: &str,
-    line: &str,
-    json: bool,
-    quiet: bool,
-) -> Result<(), AppError> {
-    let repo = arc_repo_root()?;
-    let k = tugarc_core::arc::append_arc_follow_up(paths, &repo, name, line)?;
-    if json {
-        print_ok("arc follow-up", serde_json::json!({ "arc": name, "k": k }));
-    } else if !quiet {
-        println!("follow-up {k} recorded");
-    }
-    Ok(())
-}
-
-/// `tugtool arc revert`: undo a landed arc's join on its base, or with
-/// `--dry-run` say what that would undo and which later work shares its files.
-fn run_revert(
-    paths: &Paths,
-    name: &str,
-    created: Option<&str>,
-    dry_run: bool,
-    json: bool,
-    quiet: bool,
-) -> Result<(), AppError> {
-    let repo = arc_repo_root()?;
-    let out = ops::revert_arc(paths, &repo, name, created, dry_run)?;
-    if json {
-        print_ok("arc revert", &out);
-        return Ok(());
-    }
-    if quiet {
-        return Ok(());
-    }
-    let count = out.paths.len();
-    let files = if count == 1 { "file" } else { "files" };
-    match &out.reverted {
-        Some(revert) => println!(
-            "reverted {name}'s join {} on {} with {revert} ({count} {files})",
-            &out.join[..out.join.len().min(9)],
-            out.base
-        ),
-        None => println!(
-            "{name}'s join {} touched {count} {files} on {}",
-            &out.join[..out.join.len().min(9)],
-            out.base
-        ),
-    }
-    for later in &out.later {
-        let by = later.arc.as_deref().unwrap_or(&later.subject);
-        println!(
-            "  later work on the same files: {by} ({})",
-            &later.sha[..later.sha.len().min(9)]
-        );
-    }
-    Ok(())
-}
-
 /// Say when a mark claims more than the ledger does.
 ///
 /// `built` says the work is there and `audited` arms the join, so either one
@@ -1810,7 +1736,6 @@ fn run_arc_run(
     name: &str,
     project: Option<std::path::PathBuf>,
     session: Option<String>,
-    succession: Option<(String, String)>,
     json: bool,
     quiet: bool,
 ) -> Result<(), AppError> {
@@ -1868,26 +1793,17 @@ fn run_arc_run(
         resumed,
         reaudit,
         record: arc,
-    } = match &succession {
-        // The succession is recorded in the act that opens the arc, so it
-        // belongs to this generation and to no later one.
-        Some((old, from)) => tugarc_core::ops::open_successor(paths, &root, name, old, from)?,
-        None => tugarc_core::ops::open_arc(paths, &root, name)?,
-    };
+    } = tugarc_core::ops::open_arc(paths, &root, name)?;
 
     // The record is written before the kick, so a tugcast that never hears
     // about the arc still has one to find on its next pass.
-    let mut request = serde_json::json!({
+    let response = post_arc_api(serde_json::json!({
         "op": "arc_run",
         "tug_session_id": session.session_id,
         "project_dir": binding_project(project)?.to_string_lossy(),
         "arc": name,
-    });
-    if let Some((old, from)) = &succession {
-        request["successor_of"] = serde_json::json!(old);
-        request["from"] = serde_json::json!(from);
-    }
-    let response = post_arc_api(request).map_err(|e| refuse(&session, e))?;
+    }))
+    .map_err(|e| refuse(&session, e))?;
     // The server resolves once more at its own door, so its answer is the
     // last word on which session the arc was seated against — never the id
     // that was posted ([P01]).

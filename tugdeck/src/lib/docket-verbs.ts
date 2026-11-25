@@ -1,7 +1,6 @@
 /**
- * docket-verbs.ts — the deck's sender for the docket CONTROL verbs, the
- * idea and sketch verbs the Docket card authors with, and the docket-loop
- * verbs an arc answers a newer brief with.
+ * docket-verbs.ts — the deck's sender for the docket CONTROL verbs, and the
+ * idea and sketch verbs the Docket card authors with.
  *
  * Each call writes one CONTROL frame carrying a fresh `request_id` and
  * settles on the reply that echoes it: `ok` with the decoded `_ok`, or
@@ -22,17 +21,10 @@
 
 import {
   FeedId,
-  decodeDocketLoopVerbErr,
-  decodeDocketLoopVerbOk,
   decodeIdeaVerbErr,
   decodeIdeaVerbOk,
   decodeDocketVerbErr,
   decodeDocketVerbOk,
-  encodeArcKeepGoing,
-  encodeArcPark,
-  encodeFollowUpAccept,
-  encodeFollowUpDismiss,
-  encodeArcRevert,
   encodeDocketCreate,
   encodeDocketFile,
   encodeDocketRemove,
@@ -45,8 +37,6 @@ import {
   encodeSketchEdit,
   encodeSketchRead,
   type DocketFileItem,
-  type DocketLoopVerb,
-  type DocketLoopVerbOk,
   type DocketVerb as DocketOnlyVerb,
   type DocketVerbOk as DocketOnlyVerbOk,
   type Frame,
@@ -55,11 +45,11 @@ import {
 } from "../protocol";
 import type { TugConnection } from "../connection";
 
-/** Every verb this sender asks: the docket verbs, the idea verbs and the docket-loop verbs. */
-export type DocketVerb = DocketOnlyVerb | IdeaVerb | DocketLoopVerb;
+/** Every verb this sender asks: the docket verbs and the idea verbs. */
+export type DocketVerb = DocketOnlyVerb | IdeaVerb;
 
 /** Every decoded `_ok` this sender settles with. */
-export type DocketVerbOk = DocketOnlyVerbOk | IdeaVerbOk | DocketLoopVerbOk;
+export type DocketVerbOk = DocketOnlyVerbOk | IdeaVerbOk;
 
 /** How long an ask waits for its answer before it is `unanswered`. */
 export const DOCKET_ACKNOWLEDGEMENT_MS = 60_000;
@@ -139,31 +129,6 @@ export interface DocketVerbs {
     opts: { projectDir: string; id: string; text: string; baseVersion: number },
     ask?: DocketAskOptions<"sketch_edit">,
   ): Promise<DocketVerbResult<"sketch_edit">>;
-  /** Keep going past brief version `version`, filing its added decisions on `docketId`. */
-  keepGoing(
-    opts: { projectDir: string; arc: string; version: number; docketId: string },
-    ask?: DocketAskOptions<"arc_keep_going">,
-  ): Promise<DocketVerbResult<"arc_keep_going">>;
-  /** Park `arc` at `boundary` (`tip`, `fork`, `step:<K>`) for `successor`. */
-  park(
-    opts: { projectDir: string; arc: string; successor: string; boundary: string },
-    ask?: DocketAskOptions<"arc_park">,
-  ): Promise<DocketVerbResult<"arc_park">>;
-  /** Accept follow-up `k` of the `arc` generation started at `created` as an idea on `docketId`. */
-  followUpAccept(
-    opts: { projectDir: string; arc: string; created: string; k: number; docketId: string },
-    ask?: DocketAskOptions<"follow_up_accept">,
-  ): Promise<DocketVerbResult<"follow_up_accept">>;
-  /** Dismiss follow-up `k` of the `arc` generation started at `created`. */
-  followUpDismiss(
-    opts: { projectDir: string; arc: string; created: string; k: number },
-    ask?: DocketAskOptions<"follow_up_dismiss">,
-  ): Promise<DocketVerbResult<"follow_up_dismiss">>;
-  /** Revert the join of the `arc` generation started at `created`; a dry run commits nothing. */
-  revert(
-    opts: { projectDir: string; arc: string; created: string; dryRun: boolean },
-    ask?: DocketAskOptions<"arc_revert">,
-  ): Promise<DocketVerbResult<"arc_revert">>;
   /** Stop listening; every ask still open settles `unanswered`. */
   dispose(): void;
 }
@@ -200,12 +165,8 @@ export function docketVerbs(
     } catch {
       return;
     }
-    const ok: DocketVerbOk | null =
-      decodeDocketVerbOk(body) ?? decodeIdeaVerbOk(body) ?? decodeDocketLoopVerbOk(body);
-    const err =
-      ok === null
-        ? (decodeDocketVerbErr(body) ?? decodeIdeaVerbErr(body) ?? decodeDocketLoopVerbErr(body))
-        : null;
+    const ok: DocketVerbOk | null = decodeDocketVerbOk(body) ?? decodeIdeaVerbOk(body);
+    const err = ok === null ? (decodeDocketVerbErr(body) ?? decodeIdeaVerbErr(body)) : null;
     const requestId = ok?.requestId ?? err?.requestId ?? null;
     if (requestId === null) return;
     const entry = pending.get(requestId);
@@ -276,14 +237,6 @@ export function docketVerbs(
       ask("sketch_read", (requestId) => encodeSketchRead({ ...o, requestId }), a),
     sketchEdit: (o, a) =>
       ask("sketch_edit", (requestId) => encodeSketchEdit({ ...o, requestId }), a),
-    keepGoing: (o, a) =>
-      ask("arc_keep_going", (requestId) => encodeArcKeepGoing({ ...o, requestId }), a),
-    park: (o, a) => ask("arc_park", (requestId) => encodeArcPark({ ...o, requestId }), a),
-    followUpAccept: (o, a) =>
-      ask("follow_up_accept", (requestId) => encodeFollowUpAccept({ ...o, requestId }), a),
-    followUpDismiss: (o, a) =>
-      ask("follow_up_dismiss", (requestId) => encodeFollowUpDismiss({ ...o, requestId }), a),
-    revert: (o, a) => ask("arc_revert", (requestId) => encodeArcRevert({ ...o, requestId }), a),
     dispose() {
       unsubscribe();
       for (const entry of pending.values()) {

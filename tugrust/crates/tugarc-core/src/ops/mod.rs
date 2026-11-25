@@ -21,11 +21,8 @@ mod git;
 mod identity;
 mod join;
 mod listing;
-mod revert;
-mod settle;
 mod show;
 mod steps;
-mod successor;
 // Test-only by its own `#![cfg(test)]`, which the workspace's source scans read.
 mod test_support;
 
@@ -38,8 +35,5 @@ pub use git::*;
 pub use identity::*;
 pub use join::*;
 pub(crate) use listing::*;
-pub use revert::*;
-pub use settle::*;
 pub use show::*;
 pub use steps::*;
-pub use successor::*;

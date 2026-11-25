@@ -71,13 +71,6 @@ pub fn forget_join_residue(repo: &Path, name: &str, warnings: &mut Vec<String>) 
             &["update-ref", "-d", &format!("{namespace}{leaf}")],
         );
     }
-    // Not retired residue: the Stop settle's keepsake of an arc's cut-off
-    // work. It lives exactly as long as the arc, so the same teardowns that
-    // collect the retired refs collect it.
-    let _ = git_output(
-        &repo_root,
-        &["update-ref", "-d", &crate::ops::partial_ref(name)],
-    );
     remove_workshop(&repo_root, &leaf, warnings);
 }
 

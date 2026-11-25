@@ -2059,9 +2059,6 @@ struct ArcReading {
     /// an audit stage's prompt opens a re-audit with. `None` with no mark, or
     /// with one that still describes the tree.
     audit_staleness: Option<tugarc_core::log::AuditStaleness>,
-    /// A successor's line — the arc it succeeds and how much of that arc's
-    /// ledger it carries — which every one of its opening prompts names.
-    successor_clause: Option<String>,
 }
 
 /// The runner's per-arc memory as one tick reads it — the facts no document
@@ -2272,9 +2269,6 @@ fn read(
         // `evaluate` already has in hand.
         boundary_held: false,
         open_jobs: Vec::new(),
-        // Only an outstanding request: one a parked stop already answered
-        // stays on the record to name the successor, and a resumed arc runs on.
-        park_requested: super::arc::park_outstanding(&record),
     };
 
     // Where devise writes: the arc's own `plan.md`, repo-relative, which is
@@ -2291,11 +2285,6 @@ fn read(
         })
         .flatten();
 
-    let successor_clause = record
-        .succeeds
-        .as_ref()
-        .map(|s| tugarc_core::ops::successor_clause(project, s));
-
     Some(ArcReading {
         name: name.to_string(),
         record,
@@ -2311,7 +2300,6 @@ fn read(
         config,
         latest_yield: declarations.latest_yield.clone(),
         audit_staleness,
-        successor_clause,
     })
 }
 
@@ -2399,10 +2387,6 @@ fn opening_prompt(
         reading.latest_yield.as_deref(),
     );
     let place = with_reaudit(place, rotation.stage, reading);
-    let place = match &reading.successor_clause {
-        Some(clause) => format!("{place}\n{clause}"),
-        None => place,
-    };
     // A stopped arc that is rotating again is resuming, and the stage it opens
     // is owed that fact: it is the difference between starting the work and
     // picking it back up.
@@ -3756,12 +3740,7 @@ fn format_arc_receipt(record: &ArcRecord) -> String {
 /// survives is the terminal sentence, and it survives because it is a *fact*
 /// rather than an instruction: it is the one marker of terminality a restored
 /// transcript can still read, where no wire frame is available to ask ([B05]).
-fn format_arc_stop_receipt(
-    record: &ArcRecord,
-    stage: ArcStage,
-    reason: ArcStopReason,
-    partial: Option<&str>,
-) -> String {
+fn format_arc_stop_receipt(record: &ArcRecord, stage: ArcStage, reason: ArcStopReason) -> String {
     let terminal = if reason.is_resumable() {
         String::new()
     } else {
@@ -3781,17 +3760,11 @@ fn format_arc_stop_receipt(
         }
         _ => String::new(),
     };
-    // Where a user's Stop put the unfinished step's work, when the settle
-    // cut any off. Read from the log by the caller, so this stays pure.
-    let kept = match partial {
-        Some(at) => format!(" · the unfinished step's work is kept at {at}"),
-        None => String::new(),
-    };
     format!(
         "arc stopped · {} · in {} — {}{terminal}",
         record.arc,
         stage.as_str(),
-        format_args!("{}{kept}{asked}", reason.sentence()),
+        format_args!("{}{asked}", reason.sentence()),
     )
 }
 
@@ -3885,16 +3858,10 @@ pub(crate) async fn stop_arc_for_session(
             resume: None,
             dispatched: None,
             owner: None,
-            brief_kept: None,
-            park: None,
-            succeeds: None,
             done: false,
             last_activity: None,
         });
-        let partial = (reason == ArcStopReason::StoppedByUser)
-            .then(|| tugarc_core::ops::unreported_partial(&Paths::from_env(), project, name))
-            .flatten();
-        let summary = format_arc_stop_receipt(&record, stage, reason, partial.as_deref());
+        let summary = format_arc_stop_receipt(&record, stage, reason);
         supervisor
             .record_arc_receipt(session.as_str(), name, &project.to_string_lossy(), &summary)
             .await;
@@ -7266,9 +7233,6 @@ Some context.
             resume: None,
             dispatched: None,
             owner: None,
-            brief_kept: None,
-            park: None,
-            succeeds: None,
             done: true,
             last_activity: Some("2026-08-25T00:00:00Z".to_owned()),
         }
@@ -7412,7 +7376,7 @@ Some context.
         // which is the marker a restored transcript reads terminality off
         // ([B05]).
         for reason in ArcStopReason::ALL {
-            let receipt = format_arc_stop_receipt(&record, ArcStage::Review, *reason, None);
+            let receipt = format_arc_stop_receipt(&record, ArcStage::Review, *reason);
             assert!(
                 receipt.starts_with("arc stopped · foo · in review — "),
                 "got {receipt}"
@@ -7433,16 +7397,16 @@ Some context.
         }
 
         assert_eq!(
-            format_arc_stop_receipt(&record, ArcStage::Devise, ArcStopReason::Lint, None),
+            format_arc_stop_receipt(&record, ArcStage::Devise, ArcStopReason::Lint),
             "arc stopped · foo · in devise — the plan does not lint"
         );
         assert_eq!(
-            format_arc_stop_receipt(&record, ArcStage::Review, ArcStopReason::Discarded, None),
+            format_arc_stop_receipt(&record, ArcStage::Review, ArcStopReason::Discarded),
             "arc stopped · foo · in review — the arc was discarded\n\
              there is nothing to resume"
         );
         assert_eq!(
-            format_arc_stop_receipt(&record, ArcStage::Implement, ArcStopReason::CardTaken, None),
+            format_arc_stop_receipt(&record, ArcStage::Implement, ArcStopReason::CardTaken),
             "arc stopped · foo · in implement — you took the card back"
         );
     }

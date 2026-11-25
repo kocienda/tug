@@ -40,8 +40,6 @@ Tokens are the invocation's whitespace-split arguments after the command. These 
 
 There are no sub-verbs: joining is the `/arc-join` card verb, the readouts are `tugtool arc status|show|list`, and discard is a bare CLI call the user makes.
 
-**A successor carries two flags.** An invocation whose tokens include `--successor-of <old> --from <sha>` opens a **successor**: a new arc whose branch starts at `<sha>` inside the parked arc `<old>`'s finished work and lands on `<old>`'s base. The Docket card writes this invocation when the user presses Open successor on an arc whose brief moved, so it arrives with a handed-in brief (rule 1) and a name already settled, shaped `<stem>-v<N>`. Take the two flags out before applying the rules above, and treat the rest as rule 1 does. The flags change three things and nothing else: the kind (step 4), what a plain successor's task list starts from (step 5), and the hand-off command (step 6). Everything the flags carry the user already decided by pressing the button, so none of it is a question.
-
 ## The door
 
 ### 1. Orient
@@ -134,8 +132,6 @@ Three deciders, in order, and the first that settles it wins.
 
 **Keep the reason.** Whichever decider settled it, carry the reason into step 7's hand-off sentence in one clause — "decisions settled, order stated in the brief" or "two open questions decide the shape". A reason that names a document's wish ("the brief asked for a plan") is not a reason, and writing it down is how you notice.
 
-**A successor of a planned arc is planned, before any decider runs.** Read the old arc's record with `tugtool arc record <old> --json`. When `data.arc.kind` is `planned`, write no task list: the successor opens at devise, which reads the old plan and writes steps that start from the carried work, and the reason in the hand-off is "successor of a planned arc devises fresh". The old plan's later steps were written against the brief that moved, so walking them under the new one would re-do or contradict it. When the old arc was plain, or the record names no kind, decide the kind with the three deciders above, as for any brief.
-
 ### 5. Write the task list — plain arcs only
 
 On a **planned** arc, skip this step entirely: the plan is the devise stage's product, judged by the review stage, and a task list beside the brief is what would make the arc plain instead. **The brief is the whole output of a planned arc's door.**
@@ -160,22 +156,14 @@ On a **plain** arc, the steps are settled here rather than by a devise stage, an
 
 <A sentence or two on what this step does, and how it will be checked.>
 
-Carries: [B01], [B03].
-
 #### Step 2: <Title> {#step-2}
 
 <A sentence or two.>
-
-Carries: none.
 ```
 
 **Every row `pending`, and no commits.** The other cells belong to the arc, and `tugtool arc step` writes them.
 
-**Every step ends with a `Carries:` line** naming the brief decisions (`[B##]`) it carries. `Carries: none.` is allowed and silence is not: when the brief is revised while the arc runs, these lines are how the finished steps are judged against it.
-
 **Size it to the work.** A one-line fix is one step and reads `1/1` when it lands — a task list of one is the form telling the truth. Something with three distinct pieces is three.
-
-**A plain successor's steps start from the carried work.** Its worktree will already hold the old arc's finished steps up to `<sha>`: read the old task list (`tugtool arc show <old> --document tasks`) and `git log <sha>` to learn which, and write only the steps that remain under the revised brief. Never a step that re-does carried work. A carried step whose decision the revised brief changed is a new step that changes it, said as such.
 
 **This is deliberately not a plan.** No metadata, no phase overview, no success criteria, no review record — those are the devise stage's contract, and `tugtool plan lint` is the check for it, which a task list does not aim to pass. What it must do is **parse**: an `{#execution-steps}` section, a `{#step-status-ledger}` table whose first cell is each step's anchor, and a `#### Step N: … {#step-N}` heading per row. That is what the step verbs read, and a document that does not parse is refused rather than guessed at.
 
@@ -185,13 +173,7 @@ Carries: none.
 tugtool arc run <name>
 ```
 
-For a successor, pass the two flags through exactly as the invocation carried them:
-
-```bash
-tugtool arc run <name> --successor-of <old> --from <sha>
-```
-
-The verb records the succession and cuts the successor's branch at `<sha>` when its seat is made; it refuses unless `<old>` is parked, and run twice it binds rather than refuses. Otherwise the verb takes no flag and no document: it opens on what the arc has, and **the documents are what say which shape the arc is**. A task list with no plan beside it opens a plain arc at implement; a brief alone, or a plan, opens a planned one at devise. The engine derives that once, at the opening, and records it — so every stage after reads the record rather than sniffing the directory again, and a plan the devise stage writes later does not re-decide anything.
+The verb takes no flag and no document: it opens on what the arc has, and **the documents are what say which shape the arc is**. A task list with no plan beside it opens a plain arc at implement; a brief alone, or a plan, opens a planned one at devise. The engine derives that once, at the opening, and records it — so every stage after reads the record rather than sniffing the directory again, and a plan the devise stage writes later does not re-decide anything.
 
 It refuses without a calling session, because an arc runs *on a card* and there would otherwise be nowhere for a stage to rotate. It records the arc, binds this session to it, and returns — **and the first rotation happens when this turn ends, not on arrival.** That ordering is not incidental: the request is issued from inside your own turn, and rotating on receipt would kill the session mid-sentence.
 
