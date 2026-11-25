@@ -344,11 +344,6 @@ pub struct WorkspaceRegistry {
     /// aggregate feed's poll backstop. Shared (cloned) with the feed and the
     /// `ChangesetBumper`.
     changeset_all_bump: Arc<tokio::sync::Notify>,
-    /// The DOCKETS feed's recompute signal, pinged at the same open-set
-    /// changes as `changeset_all_bump` and nowhere else: dockets are drawn
-    /// per open project, so a project opening or closing changes the frame
-    /// even though no docket file moved.
-    dockets_bump: Arc<tokio::sync::Notify>,
     /// Shared GIT_HEAD-signal broadcast channel. Cloned into each workspace's
     /// git watch, which broadcasts a `GitHeadSignal` when that workspace's HEAD
     /// moves. The router subscribes once at the process level (see `main.rs`).
@@ -388,7 +383,6 @@ impl WorkspaceRegistry {
             inner: Mutex::new(HashMap::new()),
             ft_response_tx,
             changeset_all_bump,
-            dockets_bump: Arc::new(tokio::sync::Notify::new()),
             gh_response_tx,
             fs_event_tx,
             workspace_open_tx: OnceLock::new(),
@@ -412,20 +406,6 @@ impl WorkspaceRegistry {
     /// the `ChangesetAllFeed` (which awaits it).
     pub fn changeset_all_bump(&self) -> Arc<tokio::sync::Notify> {
         Arc::clone(&self.changeset_all_bump)
-    }
-
-    /// The DOCKETS feed's recompute signal, fired whenever the open-project
-    /// set changes.
-    pub fn dockets_bump(&self) -> Arc<tokio::sync::Notify> {
-        Arc::clone(&self.dockets_bump)
-    }
-
-    /// Both open-set signals at once: the aggregate changeset and the
-    /// dockets feed each draw one section per open project.
-    fn open_set_changed(&self) {
-        for bump in [&self.changeset_all_bump, &self.dockets_bump] {
-            bump.notify_one();
-        }
     }
 
     /// Test-only constructor that creates its own throwaway broadcast
@@ -534,7 +514,7 @@ impl WorkspaceRegistry {
             let entry = Arc::clone(existing);
             drop(map);
             if promoted {
-                self.open_set_changed();
+                self.changeset_all_bump.notify_one();
                 if let Some(tx) = self.semantic_open_tx.get() {
                     let _ = tx.try_send(workspace_key.as_ref().to_string());
                 }
@@ -558,7 +538,7 @@ impl WorkspaceRegistry {
         // so its section shows immediately instead of after the poll. A
         // browse-only entry is not in that set, so it skips the bump.
         if !browse_only {
-            self.open_set_changed();
+            self.changeset_all_bump.notify_one();
             // Tell the base-motion engine to sweep this workspace's arcs: the
             // git watch it just started baselined HEAD, so it will never signal
             // about motion that happened before now. A full channel means a
@@ -744,7 +724,7 @@ impl WorkspaceRegistry {
             // its section drops immediately instead of after the poll. A
             // browse-only entry was never in that set, so it skips the bump.
             if !was_browse_only {
-                self.open_set_changed();
+                self.changeset_all_bump.notify_one();
             }
         }
         Ok(())
@@ -778,7 +758,7 @@ impl WorkspaceRegistry {
         // A project left the open set — same recompute `release`'s zero path
         // asks for, once for the whole sweep.
         if bump {
-            self.open_set_changed();
+            self.changeset_all_bump.notify_one();
         }
     }
 }

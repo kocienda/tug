@@ -16,14 +16,6 @@ pub mod archive;
 /// The sketch record: a sketch's own id and every version of its text.
 pub mod sketch;
 
-/// The docket store: a named, per-checkout list of filed briefs, sketches,
-/// arcs, sessions and commits.
-pub mod docket;
-
-/// A docket's threads, derived from the arc log, the archive, the sketch
-/// store, the session index and commit trailers.
-pub mod docket_threads;
-
 /// The arc record — the server-driven arc's stages, document, and plan, kept
 /// as arc log lines keyed by name so the record exists before a branch does.
 pub mod arc;

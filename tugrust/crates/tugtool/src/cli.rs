@@ -334,11 +334,6 @@ pub enum Commands {
     #[command(subcommand)]
     Sketch(SketchCommands),
 
-    /// A docket: a named list of filed briefs, sketches, arcs, sessions and
-    /// commits, read as threads. Read-only.
-    #[command(subcommand)]
-    Docket(DocketCommands),
-
     /// The plugin's Claude Code hooks — payload in on stdin, decision out.
     #[command(subcommand)]
     Hook(crate::commands::HookCommands),
@@ -693,31 +688,6 @@ pub enum SketchCommands {
         /// List the versions instead of printing one.
         #[arg(long)]
         versions: bool,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum DocketCommands {
-    /// List this checkout's dockets, newest first: id, name, thread count.
-    ///
-    /// Read-only. A retired docket is left out unless `--all` is given.
-    List {
-        /// Project dir (default: cwd).
-        #[arg(long)]
-        project: Option<PathBuf>,
-        /// Include retired dockets.
-        #[arg(long)]
-        all: bool,
-    },
-    /// Print a docket and its threads, by its id.
-    ///
-    /// Read-only. Each thread is printed as its cells — sketch, brief, arc,
-    /// sessions, commits — in the order the work ran, each naming the command
-    /// that reads it further. Scans every checkout's dockets on this machine,
-    /// so it needs no repository. Exits 3 when the id is not on this machine.
-    Show {
-        /// The docket's id: eight hex characters.
-        id: String,
     },
 }
 

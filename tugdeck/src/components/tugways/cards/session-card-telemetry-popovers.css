@@ -31,7 +31,6 @@
  * | --tug7-element-global-text-normal-default-rest    | --tug7-surface-global-primary-normal-overlay-rest | content | .session-state-log-phase etc. (color)       |
  * | --tug7-element-global-border-normal-default-rest  | --tug7-surface-global-primary-normal-overlay-rest | content | .session-context-popover-grid-divider (border) |
  * | --tug7-element-global-text-normal-default-rest    | --tug7-surface-global-primary-normal-overlay-rest | content | .session-arc-popover-reaudit-headline (color) |
- * | --tug7-element-global-text-normal-muted-rest      | --tug7-surface-global-primary-normal-overlay-rest | content | .session-arc-popover-docket-label (color)    |
  * | --tug7-element-global-text-normal-muted-rest      | --tug7-surface-global-primary-normal-overlay-rest | content | .session-arc-popover-reaudit-phase (color)    |
  *
  * @module components/tugways/cards/session-card-telemetry-popovers
@@ -701,35 +700,6 @@
   display: flex;
   min-width: 0;
   padding: var(--tug-space-md) var(--tug-space-sm);
-}
-
-/* The arc's docket, under the head when its thread is on one: a muted label
-   and the docket's atom, pressed to open the Docket card at the thread. */
-.session-arc-popover-docket {
-  display: flex;
-  align-items: center;
-  gap: var(--tug-space-sm);
-  min-width: 0;
-  padding: 0 var(--tug-space-sm) var(--tug-space-md);
-}
-
-/* @tug-renders-on: --tug7-surface-global-primary-normal-overlay-rest */
-.session-arc-popover-docket-label {
-  flex: none;
-  color: var(--tug7-element-global-text-normal-muted-rest);
-}
-
-.session-arc-popover-docket-open {
-  appearance: none;
-  display: inline-flex;
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
 }
 
 /* The engine's re-audit, under the head while it holds or waits on the arc:

@@ -523,18 +523,6 @@ pub fn is_yield_note(note: &str) -> bool {
     note.trim_start().starts_with(YIELD_PREFIX)
 }
 
-/// Whether a marker is a round's short sha — hex, and long enough that no
-/// word in the marker vocabulary can be mistaken for one.
-pub fn is_short_sha(marker: &str) -> bool {
-    marker.len() >= 7 && marker.len() <= 40 && marker.chars().all(|c| c.is_ascii_hexdigit())
-}
-
-/// Whether a line records a round: its marker is the round's short sha, and
-/// it is not a teardown, whose marker is a sha too.
-pub fn is_round_line(marker: &str, note: &str) -> bool {
-    !is_terminal(marker, note) && is_short_sha(marker)
-}
-
 /// Split an arc-log line into its timestamp, arc, marker, and note fields.
 ///
 /// [`append_arc_log`] joins the four fields with two spaces and trims the

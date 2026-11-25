@@ -51,10 +51,9 @@
  *    `` `@session:<project>/<callsign>` ``. A session's value is spelled like
  *    a relative path and nothing in it tells a replay what it is. See
  *    {@link wrapSessionMention}.
- *  - `arc` → `` `@arc:<project>/<name>` ``, `sketch` → `` `@sketch:<id>` `` and
- *    `docket` → `` `@docket:<id>` ``, typed for the same reason. See
- *    {@link wrapArcMention}, {@link wrapSketchMention} and
- *    {@link wrapDocketMention}.
+ *  - `arc` → `` `@arc:<project>/<name>` `` and `sketch` → `` `@sketch:<id>` ``,
+ *    typed for the same reason. See {@link wrapArcMention} and
+ *    {@link wrapSketchMention}.
  *  - `command` → a clean `/<name>` string (not the mention marker), so
  *    claude expands it as a user-invoked slash command. See
  *    {@link commandWireText}.
@@ -69,11 +68,10 @@
  * it was before this existed. See `session-ref-block.ts`, and
  * `synthesize-user-message.ts` for the strip on the way back in.
  *
- * An arc atom earns a `tug:arc-refs` block, a sketch atom a
- * `tug:sketch-refs` block and a docket atom a `tug:docket-refs` block, after
- * the session block and in that order, on the same terms: written only when
- * the message carries one. See `arc-ref-block.ts`, `sketch-ref-block.ts` and
- * `docket-ref-block.ts`.
+ * An arc atom earns a `tug:arc-refs` block and a sketch atom a
+ * `tug:sketch-refs` block, after the session block and in that order, on the
+ * same terms: written only when the message carries one. See
+ * `arc-ref-block.ts` and `sketch-ref-block.ts`.
  *
  * ## Returned `atomIdAt` resolver
  *
@@ -129,17 +127,10 @@ import type { AtomBytesStore } from "./atom-bytes-store";
 import {
   wrapArcMention,
   wrapAtomMention,
-  wrapDocketMention,
   wrapSessionMention,
   wrapSketchMention,
 } from "./atom-mention-marker";
-import {
-  DOCKET_ATOM_TYPE,
-  docketAtomLabel,
-  isArcAtomType,
-  isDocketAtomType,
-  isSketchAtomType,
-} from "./record-atom-shape";
+import { isArcAtomType, isSketchAtomType } from "./record-atom-shape";
 import { commandWireText } from "./command-atom";
 import { isSessionAtomType } from "./session-atom-shape";
 import {
@@ -158,11 +149,6 @@ import {
   type SketchRefEntry,
   type SketchRefVerdict,
 } from "./sketch-ref-block";
-import {
-  buildDocketRefBlock,
-  type DocketRefEntry,
-  type DocketRefVerdict,
-} from "./docket-ref-block";
 
 // ---------------------------------------------------------------------------
 // Public type
@@ -219,14 +205,6 @@ export interface WirePayloadOptions {
     arc?: string;
     versions?: number;
   };
-  /** What the client knows about one docket atom; omitted, `unverified`. */
-  docketVerdict?: (atom: AtomSegment) => {
-    verdict: DocketRefVerdict;
-    name?: string;
-    projectDir?: string;
-    threads?: number;
-    retired?: boolean;
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -262,11 +240,10 @@ export function buildWirePayload(
   // rows. Keyed by `value`, which is the spelling the marker carries, so two
   // chips naming one session earn one line rather than two.
   const sessionAtoms = new Map<string, AtomSegment>();
-  // Distinct arc, sketch and docket atoms, collected the same way, for their
-  // own reference blocks.
+  // Distinct arc and sketch atoms, collected the same way, for their own
+  // reference blocks.
   const arcAtoms = new Map<string, AtomSegment>();
   const sketchAtoms = new Map<string, AtomSegment>();
-  const docketAtoms = new Map<string, AtomSegment>();
 
   function flushText(): void {
     if (textBuf.length > 0) {
@@ -342,8 +319,8 @@ export function buildWirePayload(
       if (!sessionAtoms.has(atom.value)) sessionAtoms.set(atom.value, atom);
       continue;
     }
-    // An arc's `<project>/<name>` is spelled like a path and a sketch's or a
-    // docket's id like a short sha, so each names its type on the wire for the same
+    // An arc's `<project>/<name>` is spelled like a path and a sketch's id
+    // like a short sha, so both name their type on the wire for the same
     // reason a session does.
     if (isArcAtomType(atom.type)) {
       textBuf += wrapArcMention(atom.value);
@@ -353,11 +330,6 @@ export function buildWirePayload(
     if (isSketchAtomType(atom.type)) {
       textBuf += wrapSketchMention(atom.value);
       if (!sketchAtoms.has(atom.value)) sketchAtoms.set(atom.value, atom);
-      continue;
-    }
-    if (isDocketAtomType(atom.type)) {
-      textBuf += wrapDocketMention(atom.value);
-      if (!docketAtoms.has(atom.value)) docketAtoms.set(atom.value, atom);
       continue;
     }
     // Non-image, bytes-less, or otherwise not promoted to an image
@@ -392,9 +364,8 @@ export function buildWirePayload(
   const refBlock = buildSessionRefBlock(refEntries);
   if (refBlock !== null) content.push({ type: "text", text: refBlock });
 
-  // The arc block, then the sketch block, then the docket block, each only
-  // when there is a reference of its kind, so a message with none is
-  // byte-identical.
+  // The arc block, then the sketch block, each only when there is a
+  // reference of its kind, so a message with neither is byte-identical.
   const arcEntries: ArcRefEntry[] = [];
   for (const atom of arcAtoms.values()) {
     const answer = options?.arcVerdict?.(atom);
@@ -428,29 +399,6 @@ export function buildWirePayload(
   }
   const sketchBlock = buildSketchRefBlock(sketchEntries);
   if (sketchBlock !== null) content.push({ type: "text", text: sketchBlock });
-
-  const docketEntries: DocketRefEntry[] = [];
-  for (const atom of docketAtoms.values()) {
-    const answer = options?.docketVerdict?.(atom);
-    const projectDir = answer?.projectDir ?? atom.docket?.projectDir;
-    // The store's name is the live one; the chip's label is the name it was
-    // minted with, unless it is only the id's fallback spelling.
-    const name =
-      answer?.name ??
-      (atom.type === DOCKET_ATOM_TYPE && atom.label !== docketAtomLabel(atom.value)
-        ? atom.label
-        : undefined);
-    docketEntries.push({
-      value: atom.value,
-      verdict: answer?.verdict ?? "unverified",
-      ...(name !== undefined ? { name } : {}),
-      ...(projectDir !== undefined ? { projectDir } : {}),
-      ...(answer?.threads !== undefined ? { threads: answer.threads } : {}),
-      ...(answer?.retired !== undefined ? { retired: answer.retired } : {}),
-    });
-  }
-  const docketBlock = buildDocketRefBlock(docketEntries);
-  if (docketBlock !== null) content.push({ type: "text", text: docketBlock });
 
   return {
     content,

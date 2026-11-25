@@ -76,8 +76,6 @@ use notify::Watcher;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
-use tugarc_core::log::{is_round_line, is_short_sha};
-
 use super::agent_supervisor::AgentSupervisor;
 use super::workspace_registry::WorkspaceRegistry;
 use crate::session_ledger::SessionLedger;
@@ -202,7 +200,7 @@ async fn probe_on_round(ctx: &ArcNotesContext, root: &Path, line: &str) {
     let Some((_timestamp, arc, marker, note)) = tugarc_core::log::split_log_line(line) else {
         return;
     };
-    if !is_round_line(marker, note) {
+    if !is_round(marker, note) {
         return;
     }
     // A round moves the arc's head, which is what takes a finished arc's
@@ -294,6 +292,12 @@ async fn probe_on_round(ctx: &ArcNotesContext, root: &Path, line: &str) {
         Ok(Err(err)) => warn!(arc = %probed, error = %err, "crossing probe failed"),
         Err(err) => warn!(arc = %probed, error = %err, "crossing probe task failed"),
     }
+}
+
+/// Whether a line records a round: its marker is the round's short sha, and
+/// it is not a teardown, whose marker is a sha too.
+fn is_round(marker: &str, note: &str) -> bool {
+    !tugarc_core::log::is_terminal(marker, note) && is_short_sha(marker)
 }
 
 /// Whether an arc log line was written after this observer started.
@@ -528,6 +532,12 @@ fn command_for_line(arc: &str, marker: &str) -> String {
     }
 }
 
+/// Whether a marker is a round's short sha — hex, and long enough that no
+/// word in the marker vocabulary can be mistaken for one.
+fn is_short_sha(marker: &str) -> bool {
+    marker.len() >= 7 && marker.len() <= 40 && marker.chars().all(|c| c.is_ascii_hexdigit())
+}
+
 fn with_tail(head: String, tail: Option<&str>) -> String {
     match tail {
         Some(tail) => format!("{head} — {tail}"),
@@ -603,14 +613,11 @@ mod tests {
 
     #[test]
     fn only_a_round_wakes_the_crossing_probe() {
-        assert!(is_round_line("63de5762a", "Step 2: the probe"));
-        assert!(
-            !is_round_line("999353ca1", "joined"),
-            "a join is a teardown"
-        );
-        assert!(!is_round_line("crossing", "b · overlaps f.txt"));
-        assert!(!is_round_line("crossing-conflict", "b · conflicts f.txt"));
-        assert!(!is_round_line("-", ""), "a commit that found nothing");
+        assert!(is_round("63de5762a", "Step 2: the probe"));
+        assert!(!is_round("999353ca1", "joined"), "a join is a teardown");
+        assert!(!is_round("crossing", "b · overlaps f.txt"));
+        assert!(!is_round("crossing-conflict", "b · conflicts f.txt"));
+        assert!(!is_round("-", ""), "a commit that found nothing");
     }
 
     #[test]

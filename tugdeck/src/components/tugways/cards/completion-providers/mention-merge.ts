@@ -1,6 +1,6 @@
 /**
- * mention-merge.ts — one `@` provider over files, sessions, arcs, sketches,
- * dockets and commits.
+ * mention-merge.ts — one `@` provider over files, sessions, arcs, sketches
+ * and commits.
  *
  * `mergeCommandProviders` beside it merges synchronous command lists into one
  * ranked list. This is the other shape: three sources of different kinds,
@@ -10,11 +10,11 @@
  * - **Files keep their place.** Whatever the file provider answers comes
  *   first, whole and in its own order, so `@` followed by a path behaves
  *   exactly as it did when files were all `@` offered.
- * - **Sessions, arcs, sketches, dockets, then commits, follow as short groups** of at
+ * - **Sessions, arcs, sketches, then commits, follow as short groups** of at
  *   most {@link MENTION_GROUP_CAP} rows each. With nothing typed these are
  *   the most recent of each, which is how a bare `@` shows that the kinds
  *   are there to be had.
- * - **`session:`, `arc:`, `sketch:`, `docket:` and `commit:` narrow to one kind,
+ * - **`session:`, `arc:`, `sketch:` and `commit:` narrow to one kind,
  *   uncapped.** The fragment
  *   after the colon is the query; an empty one browses that kind. `@@` and
  *   `@#` are the same two narrowings in one keystroke, and a bare `@` says so
@@ -39,7 +39,6 @@ export interface MentionSources {
   sessions: CompletionProvider;
   arcs: CompletionProvider;
   sketches: CompletionProvider;
-  dockets: CompletionProvider;
   commits: CompletionProvider;
 }
 
@@ -52,14 +51,12 @@ export function mergeMentionProviders(
     if (kind === "session") return sources.sessions(rest);
     if (kind === "arc") return sources.arcs(rest);
     if (kind === "sketch") return sources.sketches(rest);
-    if (kind === "docket") return sources.dockets(rest);
     if (kind === "commit") return sources.commits(rest);
     return [
       ...sources.files(query),
       ...sources.sessions(query).slice(0, groupCap),
       ...sources.arcs(query).slice(0, groupCap),
       ...sources.sketches(query).slice(0, groupCap),
-      ...sources.dockets(query).slice(0, groupCap),
       ...sources.commits(query).slice(0, groupCap),
     ];
   }) as CompletionProvider;
@@ -71,7 +68,6 @@ export function mergeMentionProviders(
       sources.sessions,
       sources.arcs,
       sources.sketches,
-      sources.dockets,
       sources.commits,
     ]) {
       if (source.subscribe !== undefined) releases.push(source.subscribe(listener));

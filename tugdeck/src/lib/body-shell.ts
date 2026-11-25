@@ -150,7 +150,6 @@ import { indicate } from "./drag-indication";
 import { askCloseDecision, withdrawCloseDecision } from "./close-decision";
 import { closeRefusalStore } from "./close-refusal-store";
 import { createKeptGuardWords } from "./kept-guard-word";
-import { recordShownDocket } from "./open-docket-in-card";
 import { getTugbankClient } from "./tugbank-singleton";
 import { putGuardWord, readGuardWords } from "../settings-api";
 import { pageBus, type PageBus } from "../bus/page-bus";
@@ -164,7 +163,6 @@ import {
   cardRefuseHold,
   commandForCard,
   devtoolsLogEntries,
-  docketShown,
   focusEnter,
   focusExit,
   GUARD_WORD_WRITE_MS,
@@ -1549,14 +1547,6 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       if (cardId === null) return;
       const paneId = paneOf(deck.getSnapshot(), cardId);
       if (paneId !== null) deck.addCardToPane(paneId, componentId);
-    }),
-    docketShown.handle(({ projectDir, docketId }, from) => {
-      const cardId = fromBody(from);
-      if (cardId === null) return;
-      recordShownDocket(
-        cardId,
-        projectDir === "" || docketId === "" ? null : { projectDir, docketId },
-      );
     }),
   );
 

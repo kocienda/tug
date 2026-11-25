@@ -68,12 +68,6 @@ const ALLOW: readonly string[] = [
   "@/lib/commit-format",
   "@/lib/compaction-request",
   "@/lib/dev-log-port",
-  // Pure guards over the DOCKETS frame and the docket verbs' replies, which
-  // `protocol.ts` decodes with; it imports nothing.
-  "@/lib/docket-types",
-  // The docket reference block's grammar, which the wire builder and the
-  // synthesizer both read; pure, with no imports.
-  "@/lib/docket-ref-block",
   "@/lib/frame-period",
   "@/lib/image-downsample",
   "@/lib/landings-block",

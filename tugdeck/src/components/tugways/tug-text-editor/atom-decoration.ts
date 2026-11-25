@@ -63,11 +63,9 @@ import { sessionCitationStore } from "@/lib/session-citation-store";
 import { sessionChipVerdict } from "@/lib/session-chip-verdict";
 import { arcCitationStore } from "@/lib/arc-citation-store";
 import { sketchCitationStore } from "@/lib/sketch-citation-store";
-import { docketCitationStore } from "@/lib/docket-citation-store";
 import { arcChipVerdict, requestArcChipVerdict } from "@/lib/arc-atom";
 import { requestSketchChipVerdict, sketchChipVerdict } from "@/lib/sketch-atom";
-import { docketChipVerdict, requestDocketChipVerdict } from "@/lib/docket-atom";
-import { isArcAtomType, isDocketAtomType, isSketchAtomType } from "@/lib/record-atom-shape";
+import { isArcAtomType, isSketchAtomType } from "@/lib/record-atom-shape";
 import { padInsert } from "./smart-insert";
 
 // ---------------------------------------------------------------------------
@@ -189,7 +187,6 @@ export class AtomWidget extends WidgetType {
       && this.segment.arc?.projectDir === other.segment.arc?.projectDir
       && this.segment.arc?.created === other.segment.arc?.created
       && this.segment.sketch?.projectDir === other.segment.sketch?.projectDir
-      && this.segment.docket?.projectDir === other.segment.docket?.projectDir
     );
   }
 
@@ -219,18 +216,15 @@ export class AtomWidget extends WidgetType {
     if (isSession) {
       sessionCitationStore.request(sessionVerdictAskKey(this.segment));
     }
-    // An arc, a sketch or a docket chip asks its own store the same way, under the
+    // An arc or a sketch chip asks its own store the same way, under the
     // directory the atom recorded, and bakes `missing` when the answer is.
     requestArcChipVerdict(this.segment);
     requestSketchChipVerdict(this.segment);
-    requestDocketChipVerdict(this.segment);
     const variant = isArcAtomType(this.segment.type)
       ? arcChipVerdict(this.segment)
       : isSketchAtomType(this.segment.type)
         ? sketchChipVerdict(this.segment)
-        : isDocketAtomType(this.segment.type)
-          ? docketChipVerdict(this.segment)
-          : sessionChipVerdict(this.segment);
+        : sessionChipVerdict(this.segment);
     const img = createAtomImgElement(
       this.segment.type,
       this.segment.label,
@@ -245,7 +239,6 @@ export class AtomWidget extends WidgetType {
         session: this.segment.session,
         arc: this.segment.arc,
         sketch: this.segment.sketch,
-        docket: this.segment.docket,
         variant,
         // Only a session chip leaves its dot to the layer: it is the one mark
         // that changes while the chip sits there. A commit's ring is ink and a
@@ -946,13 +939,12 @@ class SessionVerdictRegenPlugin implements PluginValue {
         this.view.dispatch({ effects: regenerateAtomsEffect.of(null) });
       });
     };
-    // Session, arc, sketch and docket chips all bake their verdict, so an
-    // answer from any of the four stores is a reason to rebuild.
+    // Session, arc and sketch chips all bake their verdict, so an answer from
+    // any of the three stores is a reason to rebuild.
     const offs = [
       sessionCitationStore.subscribe(regen),
       arcCitationStore.subscribe(regen),
       sketchCitationStore.subscribe(regen),
-      docketCitationStore.subscribe(regen),
     ];
     this.unsubscribe = () => {
       for (const off of offs) off();

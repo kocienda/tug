@@ -28,7 +28,6 @@ import type {
   AtomArcRef,
   AtomSessionRef,
   AtomSketchRef,
-  AtomDocketRef,
 } from "@/lib/atom-identity-attrs";
 import {
   chipStyle,
@@ -139,8 +138,6 @@ export interface AtomSegment {
   arc?: AtomArcRef;
   /** For a sketch atom: the checkout its sketch belongs to. */
   sketch?: AtomSketchRef;
-  /** For a docket atom: the checkout its docket belongs to. */
-  docket?: AtomDocketRef;
 }
 
 /** Label display mode for file paths. */
@@ -191,8 +188,6 @@ export interface AtomImgOptions {
   arc?: AtomArcRef;
   /** For a sketch atom: written onto the `<img>` as `data-atom-sketch-*`. */
   sketch?: AtomSketchRef;
-  /** For a docket atom: written onto the `<img>` as `data-atom-docket-*`. */
-  docket?: AtomDocketRef;
   /**
    * Which face to bake, and the value the `<img>` records in
    * `data-chip-variant`. Defaults to `"default"`. The widget passes
@@ -219,9 +214,6 @@ const ATOM_ICON_PATHS: Record<string, string> = {
   // PencilLine — a sketch is the drawn shape of an idea.
   sketch:
     '<path d="M12 20h9"/><path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838a.5.5 0 0 1-.62-.62l.838-2.872a2 2 0 0 1 .506-.854z"/>',
-  // ClipboardList — a docket is the list a line of work is gathered on.
-  docket:
-    '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/>',
 };
 
 // ---- Layout constants ----
@@ -686,7 +678,7 @@ function paintPillChip(
       ctx.lineWidth = w;
       ctx.stroke();
     } else if (mark === "icon") {
-      // An arc's, a sketch's or a docket's glyph, stroked in the pill's own ink: the pill
+      // An arc's or a sketch's glyph, stroked in the pill's own ink: the pill
       // has no wash for a separate icon token to read against.
       ctx.save();
       ctx.translate(g.iconX, g.iconY);
@@ -1010,7 +1002,6 @@ export function createAtomImgElement(
     ...(options?.session !== undefined ? { session: options.session } : {}),
     ...(options?.arc !== undefined ? { arc: options.arc } : {}),
     ...(options?.sketch !== undefined ? { sketch: options.sketch } : {}),
-    ...(options?.docket !== undefined ? { docket: options.docket } : {}),
   });
   img.title = value;
   // [L06] — the face is DOM, not state. Written always, including the

@@ -70,7 +70,6 @@ const SWALLOWED_MARKERS: &[&str] = &[
     "<!-- tug:session-refs -->",
     "<!-- tug:arc-refs -->",
     "<!-- tug:sketch-refs -->",
-    "<!-- tug:docket-refs -->",
     "<!-- tug:compact-seed -->",
 ];
 
@@ -557,7 +556,6 @@ mod tests {
                 { "type": "text", "text": "<!-- tug:session-refs -->\nSession references in this message:\n- @session:tug/curly-apple" },
                 { "type": "text", "text": "<!-- tug:arc-refs -->\nArc references in this message:\n- @arc:tug/gpu-wedge — verdict: absent" },
                 { "type": "text", "text": "<!-- tug:sketch-refs -->\nSketch references in this message:\n- @sketch:3f9a1c2e — verdict: absent" },
-                { "type": "text", "text": "<!-- tug:docket-refs -->\nDocket references in this message:\n- @docket:3f9a1c2e — verdict: absent" },
             ])),
             serde_json::json!({
                 "type": "assistant",

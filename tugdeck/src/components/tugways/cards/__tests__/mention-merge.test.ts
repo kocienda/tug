@@ -41,14 +41,7 @@ function source(type: string, count: number) {
 }
 
 function merged(
-  counts: {
-    files: number;
-    sessions: number;
-    commits: number;
-    arcs?: number;
-    sketches?: number;
-    dockets?: number;
-  } = {
+  counts: { files: number; sessions: number; commits: number; arcs?: number; sketches?: number } = {
     files: 4,
     sessions: 5,
     commits: 5,
@@ -58,17 +51,15 @@ function merged(
   const sessions = source("session", counts.sessions);
   const arcs = source("arc", counts.arcs ?? 0);
   const sketches = source("sketch", counts.sketches ?? 0);
-  const dockets = source("docket", counts.dockets ?? 0);
   const commits = source("commit", counts.commits);
   const provider = mergeMentionProviders({
     files: files.provider,
     sessions: sessions.provider,
     arcs: arcs.provider,
     sketches: sketches.provider,
-    dockets: dockets.provider,
     commits: commits.provider,
   });
-  return { provider, files, sessions, arcs, sketches, dockets, commits };
+  return { provider, files, sessions, arcs, sketches, commits };
 }
 
 const types = (items: CompletionItem[]) => items.map((i) => i.atom.type);
@@ -187,7 +178,6 @@ describe("subscribe", () => {
       sessions: sessions.provider,
       arcs: () => [],
       sketches: () => [],
-      dockets: () => [],
       commits: commits.provider,
     });
     let heard = 0;
@@ -218,16 +208,5 @@ describe("arcs and sketches", () => {
     expect(arcs.queries[arcs.queries.length - 1]).toBe("par");
     expect(types(provider("sketch:"))).toEqual(Array<string>(5).fill("sketch"));
     expect(sketches.queries[sketches.queries.length - 1]).toBe("");
-  });
-
-  test("dockets follow sketches as a capped group, and `docket:` narrows to them", () => {
-    const { provider, dockets } = merged({ files: 0, sessions: 0, sketches: 1, dockets: 5, commits: 1 });
-    expect(types(provider(""))).toEqual([
-      "sketch",
-      ...Array<string>(MENTION_GROUP_CAP).fill("docket"),
-      "commit",
-    ]);
-    expect(types(provider("docket:gpu"))).toEqual(Array<string>(5).fill("docket"));
-    expect(dockets.queries[dockets.queries.length - 1]).toBe("gpu");
   });
 });

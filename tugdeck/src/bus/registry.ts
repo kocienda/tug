@@ -128,8 +128,6 @@ import {
   surfaceDismissed,
   textRevealLine,
   helpScrollTo,
-  docketMarkThread,
-  docketShown,
 } from "./declarations/verbs";
 import type { RoutedAction } from "./routed-action";
 import type { Request } from "./request";
@@ -218,7 +216,6 @@ export const ROUTED_ACTIONS: readonly RoutedAction<any>[] = [
   cardActivate,
   cardClose,
   cardAddSibling,
-  docketShown,
   paneSelectTab,
   paneCloseCard,
   paneClosePane,
@@ -240,7 +237,6 @@ export const ROUTED_ACTIONS: readonly RoutedAction<any>[] = [
   cardFlash,
   textRevealLine,
   helpScrollTo,
-  docketMarkThread,
   settingsReveal,
   jotsNewJot,
   sessionIntent,

@@ -1,5 +1,5 @@
 /**
- * record-atom-shape.ts — what an arc, a sketch and a docket atom's `type` and
+ * record-atom-shape.ts — what an arc atom's and a sketch atom's `type` and
  * `value` are made of.
  *
  * A leaf, as `session-atom-shape.ts` is: no imports, so the chip renderers,
@@ -10,12 +10,10 @@
  * |--------|--------------------------|----------------|-----------------|
  * | arc    | `<project leaf>/<name>`  | `<name>`       | `arc:<name>`    |
  * | sketch | `<id>`                   | `sketch:<id>`  | `sketch:<id>`   |
- * | docket | `<id>`                   | `<name>`       | `docket:<id>`   |
  *
  * An arc name is unique only within one checkout's log, so the project travels
- * in the value. A sketch id and a docket id are unique on the machine, so the
- * value is the id alone. A docket is labelled by its name, which is what the
- * user gave it; the name is not unique, so the plain text is the id.
+ * in the value. A sketch id is unique on the machine, so its value is the id
+ * alone.
  *
  * @module lib/record-atom-shape
  */
@@ -26,9 +24,6 @@ export const ARC_ATOM_TYPE = "arc";
 /** The atom `type` a sketch reference wears. */
 export const SKETCH_ATOM_TYPE = "sketch";
 
-/** The atom `type` a docket reference wears. */
-export const DOCKET_ATOM_TYPE = "docket";
-
 /** Whether an atom segment's `type` names an arc. */
 export function isArcAtomType(type: string): boolean {
   return type === ARC_ATOM_TYPE;
@@ -37,11 +32,6 @@ export function isArcAtomType(type: string): boolean {
 /** Whether an atom segment's `type` names a sketch. */
 export function isSketchAtomType(type: string): boolean {
   return type === SKETCH_ATOM_TYPE;
-}
-
-/** Whether an atom segment's `type` names a docket. */
-export function isDocketAtomType(type: string): boolean {
-  return type === DOCKET_ATOM_TYPE;
 }
 
 /**
@@ -66,19 +56,6 @@ export function arcAtomProject(value: string): string | null {
 /** The label a sketch atom wears: `sketch:<id>`, as a commit wears its sha. */
 export function sketchAtomLabel(id: string): string {
   return `sketch:${id}`;
-}
-
-/**
- * The label a docket atom wears: its name, which is what the user gave it, or
- * `docket:<id>` when no name is known (a marker replayed with no block).
- */
-export function docketAtomLabel(id: string, name?: string): string {
-  return name !== undefined && name !== "" ? name : `docket:${id}`;
-}
-
-/** The plain text a docket atom copies as: `docket:<id>`, the one spelling that is unique. */
-export function docketPlainText(id: string): string {
-  return `docket:${id}`;
 }
 
 /** The last path segment of a directory — the project leaf an arc value carries. */

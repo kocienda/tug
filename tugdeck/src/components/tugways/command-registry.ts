@@ -1493,14 +1493,6 @@ export const COMMANDS: readonly CommandEntry[] = [
     internal: true,
   },
   {
-    // Its doors are a docket atom's plain click and the arc shade's docket
-    // line — no menu item and no chord, the same standing Open Commit has.
-    id: TUG_ACTIONS.OPEN_DOCKET,
-    title: "Open Docket",
-    routing: "registry",
-    internal: true,
-  },
-  {
     // Its doors are the Help menu (through `show-card`), a link between the
     // help documents, and an Overview help ref — no chord of its own.
     id: TUG_ACTIONS.OPEN_HELP,
@@ -3857,20 +3849,6 @@ export const ACTIONS_OUTSIDE_THE_TABLE: ReadonlySet<string> = new Set<string>([
   TUG_ACTIONS.UNBIND_ARC,
   TUG_ACTIONS.REQUEST_DISCARD_ARC,
   TUG_ACTIONS.REQUEST_REPLAY_ARC,
-  // The Docket card's verbs, on the arc row's terms: each means "the docket
-  // this card shows" or "the thread this row is", which no chord and no
-  // menu-bar item can name. The retire is a "request", arming the card's
-  // confirm rather than performing anything.
-  TUG_ACTIONS.SELECT_DOCKET_PROJECT,
-  TUG_ACTIONS.SELECT_DOCKET,
-  TUG_ACTIONS.NEW_DOCKET,
-  TUG_ACTIONS.RENAME_DOCKET,
-  TUG_ACTIONS.REQUEST_RETIRE_DOCKET,
-  TUG_ACTIONS.RESTORE_DOCKET,
-  TUG_ACTIONS.TOGGLE_RETIRED_DOCKETS,
-  TUG_ACTIONS.MOVE_THREAD_TO_DOCKET,
-  TUG_ACTIONS.REMOVE_THREAD_FROM_DOCKET,
-  TUG_ACTIONS.COPY_DOCKET_ATOM,
   // The workspace header's four verbs used to be here, for the reason every
   // other entry in this list is: "the workspace this row is" is a sampled
   // target no chord and no menu-bar item can name. [P02] changed the premise

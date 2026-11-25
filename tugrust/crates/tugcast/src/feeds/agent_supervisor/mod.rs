@@ -2302,13 +2302,6 @@ impl AgentSupervisor {
             A::SearchArcs | A::ResolveSketches | A::SearchSketches => {
                 self.handle_records_control(action, payload).await
             }
-            A::DocketCreate
-            | A::DocketRename
-            | A::DocketRetire
-            | A::DocketFile
-            | A::DocketRemove
-            | A::ResolveDockets
-            | A::SearchDockets => self.handle_docket_control(action, payload).await,
             A::ChangesetGitInit
             | A::ChangesetCommit
             | A::ChangesetPush

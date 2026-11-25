@@ -23,7 +23,6 @@ pub mod crossing_settle;
 pub mod deck_seatings;
 pub mod defaults;
 pub mod digest_bridge;
-pub mod dockets;
 pub mod draft_engine;
 pub mod facts_library;
 pub mod file_watch;

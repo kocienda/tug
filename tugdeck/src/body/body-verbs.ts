@@ -23,7 +23,6 @@ import {
   cardsShrink,
   commandForCard,
   devtoolsLogEntries,
-  docketMarkThread,
   focusEnter,
   focusExit,
   helpScrollTo,
@@ -50,7 +49,6 @@ import { requestSettingsReveal } from "../lib/settings-reveal";
 import { SETTINGS_SECTION_IDS, type SettingsSectionId } from "../lib/settings-sections-pref";
 import { getOpenTextCard } from "../lib/text-card-open-registry";
 import { scrollOpenHelpCard } from "../lib/open-help-in-card";
-import { getOpenDocketCard } from "../lib/docket-card-open-registry";
 import { tugDevLogStore } from "../lib/tug-dev-log-store/tug-dev-log-store";
 import { TUG_DEV_LOG_LEVELS, type TugDevLogEntry, type TugDevLogLevel } from "../lib/tug-dev-log-store/types";
 import { parseBodyIntent, type BodyIntent } from "./body-intent";
@@ -140,11 +138,6 @@ export function answerBodyVerbs(bus: PageBus, host: BodyVerbHost): () => void {
     // passage it asked for is scrolled to in this card.
     helpScrollTo.on(bus).handle(({ anchor }) => {
       scrollOpenHelpCard(cardId, anchor);
-    }),
-    // An open of the docket this card holds, from another page, naming a
-    // thread: the card is re-pointed and the thread marked.
-    docketMarkThread.on(bus).handle(({ projectDir, docketId, thread }) => {
-      getOpenDocketCard(cardId)?.setTarget({ projectDir, docketId, thread });
     }),
     // A reveal the shell parked for the Settings card, now that this page
     // holds it: the card's own consumer takes it.

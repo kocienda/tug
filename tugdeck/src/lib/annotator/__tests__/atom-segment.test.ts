@@ -297,32 +297,3 @@ describe("an arc", () => {
     expect(atomPlainTextFor(payload, atomSegmentFor(payload)!)).toBe("arc:parser");
   });
 });
-
-describe("a docket", () => {
-  const payload: AnnotationPayload = {
-    kind: "docket",
-    id: "3f9a1c2e",
-    name: "GPU wedge",
-    root: "/u/src/tug",
-  };
-
-  test("mints a docket atom whose round trip is the identity on { id, name, root }", () => {
-    const segment = atomSegmentFor(payload);
-    expect(segment).toEqual({
-      kind: "atom",
-      type: "docket",
-      label: "GPU wedge",
-      value: "3f9a1c2e",
-      docket: { projectDir: "/u/src/tug" },
-    });
-    expect(payloadForAtom(segment!)).toEqual(payload);
-  });
-
-  test("copies as `docket:<id>`", () => {
-    expect(atomPlainTextFor(payload, atomSegmentFor(payload)!)).toBe("docket:3f9a1c2e");
-  });
-
-  test("a docket atom with no recorded checkout has no gesture", () => {
-    expect(payloadForAtom({ type: "docket", value: "3f9a1c2e", label: "GPU wedge" })).toBeNull();
-  });
-});

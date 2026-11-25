@@ -44,15 +44,6 @@ export const CONTROL_ACTIONS = [
   "resolve_sketches",
   "search_sketches",
 
-  // Supervisor: dockets.
-  "docket_create",
-  "docket_rename",
-  "docket_retire",
-  "docket_file",
-  "docket_remove",
-  "resolve_dockets",
-  "search_dockets",
-
   // Supervisor: changesets, landings and joins.
   "changeset_git_init",
   "changeset_commit",

@@ -318,7 +318,7 @@ pub(super) fn search_sketches_body(
 
 /// The `<verb>_err` frame a malformed ask is answered with, so the deck can
 /// settle what it held pending rather than wait on a reply that never comes.
-pub(super) fn refusal(verb: &str, message: String, request_id: Option<&str>) -> serde_json::Value {
+fn refusal(verb: &str, message: String, request_id: Option<&str>) -> serde_json::Value {
     serde_json::json!({
         "action": format!("{verb}_err"),
         "message": message,
@@ -327,7 +327,7 @@ pub(super) fn refusal(verb: &str, message: String, request_id: Option<&str>) -> 
 }
 
 /// The request id of a payload too broken to parse, when it still has one.
-pub(super) fn request_id_of(payload: &[u8]) -> Option<String> {
+fn request_id_of(payload: &[u8]) -> Option<String> {
     serde_json::from_slice::<serde_json::Value>(payload)
         .ok()?
         .get("request_id")?
