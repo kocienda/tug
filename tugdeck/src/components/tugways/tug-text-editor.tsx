@@ -1667,6 +1667,10 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
     // window regains focus: the one the editor held as the window blurred,
     // or the one `focusKeepingSelection` wrote while it was blurred.
     const windowBlurSelectionRef = useRef<{ from: number; to: number } | null>(null);
+    // Whether this page's window is blurred, and whether a press landed in
+    // the editor since it blurred — the press that decides the caret.
+    const windowBlurredRef = useRef(false);
+    const pressedWhileBlurredRef = useRef(false);
     useLayoutEffect(() => {
       if (typeof window === "undefined") return;
       const holdsFocus = (view: EditorView): boolean => view.root.activeElement === view.contentDOM;
@@ -1684,6 +1688,8 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
         view.dispatch({ selection: EditorSelection.range(from, to) });
       };
       const onWindowBlur = (): void => {
+        windowBlurredRef.current = true;
+        pressedWhileBlurredRef.current = false;
         const view = viewRef.current;
         // Only the focused editor owns a selection worth preserving.
         if (view === null || !holdsFocus(view)) {
@@ -1694,9 +1700,12 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
         windowBlurSelectionRef.current = { from: sel.from, to: sel.to };
       };
       const onWindowFocus = (): void => {
+        windowBlurredRef.current = false;
+        const pressed = pressedWhileBlurredRef.current;
+        pressedWhileBlurredRef.current = false;
         const target = windowBlurSelectionRef.current;
         windowBlurSelectionRef.current = null;
-        if (target === null) return;
+        if (target === null || pressed) return;
         // Synchronous pass (the framework's window-`focus` listener is
         // registered first, so its `view.focus()` has already run by
         // now) avoids a visible collapse; the rAF pass is the backstop.
@@ -1708,11 +1717,26 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
           holdSelectionThroughFocus(view, { start: Math.min(target.from, len), end: Math.min(target.to, len) });
         }
       };
+      // A press into the editor while the window is blurred is the user
+      // aiming the caret: the click that activates an inactive card lands in
+      // its page first (CM places the caret under it), and the window's
+      // `focus` follows when the host moves first responder to that page.
+      // Restoring the saved range then would put the caret back where it was
+      // before the click, so a press inside the editor's host cancels it.
+      const onPointerDown = (event: PointerEvent): void => {
+        if (!windowBlurredRef.current) return;
+        const host = hostRef.current;
+        if (host !== null && event.target instanceof Node && host.contains(event.target)) {
+          pressedWhileBlurredRef.current = true;
+        }
+      };
       window.addEventListener("blur", onWindowBlur);
       window.addEventListener("focus", onWindowFocus);
+      window.addEventListener("pointerdown", onPointerDown, true);
       return () => {
         window.removeEventListener("blur", onWindowBlur);
         window.removeEventListener("focus", onWindowFocus);
+        window.removeEventListener("pointerdown", onPointerDown, true);
       };
     }, []);
 
