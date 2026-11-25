@@ -55,7 +55,6 @@ import * as React from "react";
 import {
   atomIdentityAttrs,
   type AtomDocketRef,
-  type AtomIdeaRef,
   type AtomSketchRef,
 } from "@/lib/atom-identity-attrs";
 
@@ -118,8 +117,6 @@ export interface TugAtomChipProps {
   sketch?: AtomSketchRef;
   /** A docket atom's owning checkout, on the sketch's terms. */
   docket?: AtomDocketRef;
-  /** An idea atom's owning checkout, on the sketch's terms. */
-  idea?: AtomIdeaRef;
   /** Optional max width in px — labels longer than this truncate with `…`. */
   maxLabelWidth?: number;
   className?: string;
@@ -140,7 +137,6 @@ export const TugAtomChip = React.forwardRef<SVGSVGElement, TugAtomChipProps>(
       id,
       sketch,
       docket,
-      idea,
       maxLabelWidth,
       className,
       "data-slot": dataSlot,
@@ -198,7 +194,6 @@ export const TugAtomChip = React.forwardRef<SVGSVGElement, TugAtomChipProps>(
           ...(id !== undefined ? { id } : {}),
           ...(sketch !== undefined ? { sketch } : {}),
           ...(docket !== undefined ? { docket } : {}),
-          ...(idea !== undefined ? { idea } : {}),
         })}
         aria-label={displayLabel}
         role="img"

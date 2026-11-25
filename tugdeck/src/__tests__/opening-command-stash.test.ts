@@ -29,22 +29,20 @@ describe("the opening command stash", () => {
 
   it("hands back the command stashed for the card", () => {
     stashOpeningCommand(CARD, {
-      kind: "command",
       name: "arc",
       args: "brief-handoff @briefs/a-brief.md",
     });
 
     expect(drainOpeningCommand(CARD)).toEqual({
-      kind: "command",
       name: "arc",
       args: "brief-handoff @briefs/a-brief.md",
     });
   });
 
   it("drains exactly once — a second read would run the command twice", () => {
-    stashOpeningCommand(CARD, { kind: "command", name: "arc", args: "x" });
+    stashOpeningCommand(CARD, { name: "arc", args: "x" });
 
-    expect(drainOpeningCommand(CARD)).toEqual({ kind: "command", name: "arc", args: "x" });
+    expect(drainOpeningCommand(CARD)).toEqual({ name: "arc", args: "x" });
     expect(drainOpeningCommand(CARD)).toBeUndefined();
   });
 
@@ -53,24 +51,24 @@ describe("the opening command stash", () => {
   });
 
   it("keys by card, so one card's command never reaches another", () => {
-    stashOpeningCommand(CARD, { kind: "command", name: "arc", args: "mine" });
+    stashOpeningCommand(CARD, { name: "arc", args: "mine" });
 
     expect(drainOpeningCommand(OTHER_CARD)).toBeUndefined();
-    expect(drainOpeningCommand(CARD)).toEqual({ kind: "command", name: "arc", args: "mine" });
+    expect(drainOpeningCommand(CARD)).toEqual({ name: "arc", args: "mine" });
   });
 
   it("forgets on demand — a closed card's command must not resurface", () => {
-    stashOpeningCommand(CARD, { kind: "command", name: "arc", args: "x" });
+    stashOpeningCommand(CARD, { name: "arc", args: "x" });
     clearOpeningCommand(CARD);
 
     expect(drainOpeningCommand(CARD)).toBeUndefined();
   });
 
   it("a second stash replaces the first rather than queueing beside it", () => {
-    stashOpeningCommand(CARD, { kind: "command", name: "arc", args: "first" });
-    stashOpeningCommand(CARD, { kind: "command", name: "arc", args: "second" });
+    stashOpeningCommand(CARD, { name: "arc", args: "first" });
+    stashOpeningCommand(CARD, { name: "arc", args: "second" });
 
-    expect(drainOpeningCommand(CARD)).toEqual({ kind: "command", name: "arc", args: "second" });
+    expect(drainOpeningCommand(CARD)).toEqual({ name: "arc", args: "second" });
     expect(drainOpeningCommand(CARD)).toBeUndefined();
   });
 });

@@ -68,13 +68,6 @@ describe("coerceDocketSeed", () => {
     expect(coerceDocketSeed({ projectDir: "", docketId: 7, showRetired: "yes" })).toEqual({});
     expect(coerceDocketSeed(null)).toBeNull();
   });
-
-  test("an editSketch rides the seed like a thread", () => {
-    expect(
-      coerceDocketSeed({ projectDir: HERE, docketId: "aaaa0001", editSketch: "3f9a1c2e" }),
-    ).toEqual({ projectDir: HERE, docketId: "aaaa0001", editSketch: "3f9a1c2e" });
-    expect(coerceDocketSeed({ projectDir: HERE, editSketch: "" })).toEqual({ projectDir: HERE });
-  });
 });
 
 describe("filedItemsOf", () => {

@@ -1,17 +1,16 @@
-# Arc, sketch, docket and idea references
+# Arc, sketch and docket references
 
-A prompt can name an arc, a sketch, a docket or an idea. Each arrives as a backticked marker the user put there by placing an atom, the same way they place a session, a file or a commit:
+A prompt can name an arc, a sketch or a docket. Each arrives as a backticked marker the user put there by placing an atom, the same way they place a session, a file or a commit:
 
 - `` `@arc:<project>/<name>` `` means *the arc called `<name>` in the checkout whose directory ends in `<project>`*. An arc is a unit of work with its own branch, its brief and plan, its rounds, and how it ended.
 - `` `@sketch:<id>` `` means *the sketch whose id is the eight hex characters `<id>`*. A sketch is the converged shape of a conversation, kept as numbered versions under that id.
 - `` `@docket:<id>` `` means *the docket whose id is the eight hex characters `<id>`*. A docket is a named list the user keeps to gather one line of work: the arcs, sketches, briefs, sessions and commits filed on it, grouped into threads.
-- `` `@idea:<id>` `` means *the idea whose id is the eight hex characters `<id>`*. An idea is one line the user captured on a docket before any of the work existed: the seed a sketch, a brief and an arc may later grow from.
 
-**An arc name is a name, not an address.** It is unique only inside one checkout's arc log, and only for one generation of it: a name discarded and opened again is two arcs. A sketch id, a docket id and an idea id are unique on the machine, but each store lives in one checkout, and a docket's name is not unique at all. So you cannot resolve any of them by guessing, and everything you need to act on one is given to you.
+**An arc name is a name, not an address.** It is unique only inside one checkout's arc log, and only for one generation of it: a name discarded and opened again is two arcs. A sketch id and a docket id are unique on the machine, but each store lives in one checkout, and a docket's name is not unique at all. So you cannot resolve any of them by guessing, and everything you need to act on one is given to you.
 
 ## The reference blocks
 
-A message carrying an arc reference ends with one block that resolves each of them, a message carrying a sketch reference with another, a message carrying a docket reference with a third, and a message carrying an idea reference with a fourth, after any session block and in that order:
+A message carrying an arc reference ends with one block that resolves each of them, a message carrying a sketch reference with another, and a message carrying a docket reference with a third, after any session block and in that order:
 
 ```text
 <!-- tug:arc-refs -->
@@ -36,23 +35,15 @@ Docket references in this message (read one with the command shown; do not guess
 - @docket:00ff00ff — verdict: absent — this docket is not on this machine
 ```
 
-```text
-<!-- tug:idea-refs -->
-Idea references in this message (read one with the command shown; do not guess at what a reference means):
-- @idea:1a2b3c4d — "An inbox for ideas", project /u/src/tug, docket Inbox, sketch 3f9a1c2e, verdict: here — read: tugtool idea show 1a2b3c4d
-- @idea:9e8d7c6b — "Fold the rail", project /u/src/eucit, docket none, sketch none, verdict: elsewhere — read: tugtool idea show 9e8d7c6b
-- @idea:00ff00ff — verdict: absent — this idea is not on this machine
-```
+One line per distinct reference. An arc line names the checkout, the generation's start when it is known (`created`), and its fate: `live`, `joined <sha>`, or `discarded`. A sketch line names the checkout that holds it, the arc it belongs to when it has one, and how many versions it has. A docket line names the docket in quotes, the checkout that holds it, how many threads it gathers, and `retired` when the user has retired it. Run the command the line gives: it already carries the `--created` and `--project` the reference needs.
 
-One line per distinct reference. An arc line names the checkout, the generation's start when it is known (`created`), and its fate: `live`, `joined <sha>`, or `discarded`. A sketch line names the checkout that holds it, the arc it belongs to when it has one, and how many versions it has. A docket line names the docket in quotes, the checkout that holds it, how many threads it gathers, and `retired` when the user has retired it. An idea line names the idea's one line in quotes, the checkout that holds it, the docket it is filed on and the sketch kept from it, or `none` for either. Run the command the line gives: it already carries the `--created` and `--project` the reference needs.
-
-The blocks are plumbing: they are addressed to you, the user does not see them, and there is no reason to quote them back. When you name an arc in your own prose, write its bare name in backticks; a sketch, its id; a docket, its name, with its id beside it when the name could be ambiguous; an idea, its id.
+The blocks are plumbing: they are addressed to you, the user does not see them, and there is no reason to quote them back. When you name an arc in your own prose, write its bare name in backticks; a sketch, its id; a docket, its name, with its id beside it when the name could be ambiguous.
 
 ## The verdicts
 
-- **`here`** — the arc, sketch, docket or idea belongs to the project you are working in.
+- **`here`** — the arc, sketch or docket belongs to the project you are working in.
 - **`elsewhere`** — it is on this machine, in another checkout. It reads the same way; the command carries the checkout for you.
-- **`absent`** — nothing on this machine matches. Say so plainly: no such arc is recorded for that project, or the sketch, docket or idea is not on this machine. Do not guess at what it was about, do not infer its content from its name, and do not substitute a different arc, sketch, docket or idea that looks similar. An unfindable reference is a fact to report, not a gap to fill.
+- **`absent`** — nothing on this machine matches. Say so plainly: no such arc is recorded for that project, or the sketch or docket is not on this machine. Do not guess at what it was about, do not infer its content from its name, and do not substitute a different arc, sketch or docket that looks similar. An unfindable reference is a fact to report, not a gap to fill.
 - **`unverified`** — the client had not heard back when it sent the message. Run the `check:` command the line gives to settle it rather than assuming either way.
 
 ## The commands
@@ -68,16 +59,14 @@ tugtool sketch show <id> --versions              # the list of versions
 tugtool docket list                              # this checkout's dockets, newest first
 tugtool docket list --all                        # retired dockets too
 tugtool docket show <id>                         # a docket and each of its threads
-tugtool idea list                                # this checkout's ideas, newest first
-tugtool idea show <id>                           # an idea: its line, its docket, its sketch and its sessions
 ```
 
 `arc show` answers for a live arc from its branch and documents, and for one that has ended from the arc archive, where its brief, plan and sketch were kept when it joined or was discarded. An arc joined before documents were archived has no documents to read, and `arc show` says so; its join commit is still named, and `git show` reads it.
 
-`sketch show`, `docket show` and `idea show` look under every checkout on the machine, so they need no `--project`. Each exits 3 when the id is not on this machine. `idea show` ends with the command that reads the idea's sketch when it has one. A docket's threads are derived when it is read: each line of `docket show` names the thread's sketch, brief, arc, sessions and commits, and those are references you read with the commands above.
+`sketch show` and `docket show` look under every checkout on the machine, so they need no `--project`. Each exits 3 when the id is not on this machine. A docket's threads are derived when it is read: each line of `docket show` names the thread's sketch, brief, arc, sessions and commits, and those are references you read with the commands above.
 
 ## Reading is reading
 
-None of these commands writes anything, resumes anything, or touches the arc, sketch, docket or idea it reads. An arc is a record you may consult, never one you may continue, join or discard on the user's behalf; a sketch is a version you may read, never one you may rewrite because it was cited; a docket is the user's list, which you may read but never file on, rename or retire for them; an idea is the user's line, which you may read but never rewrite.
+None of these commands writes anything, resumes anything, or touches the arc, sketch or docket it reads. An arc is a record you may consult, never one you may continue, join or discard on the user's behalf; a sketch is a version you may read, never one you may rewrite because it was cited; a docket is the user's list, which you may read but never file on, rename or retire for them.
 
 Narrow before you read whole. Read the record first; it tells you which documents there are, and `--document` reads one of them.

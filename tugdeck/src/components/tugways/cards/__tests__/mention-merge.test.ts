@@ -48,7 +48,6 @@ function merged(
     arcs?: number;
     sketches?: number;
     dockets?: number;
-    ideas?: number;
   } = {
     files: 4,
     sessions: 5,
@@ -60,7 +59,6 @@ function merged(
   const arcs = source("arc", counts.arcs ?? 0);
   const sketches = source("sketch", counts.sketches ?? 0);
   const dockets = source("docket", counts.dockets ?? 0);
-  const ideas = source("idea", counts.ideas ?? 0);
   const commits = source("commit", counts.commits);
   const provider = mergeMentionProviders({
     files: files.provider,
@@ -68,10 +66,9 @@ function merged(
     arcs: arcs.provider,
     sketches: sketches.provider,
     dockets: dockets.provider,
-    ideas: ideas.provider,
     commits: commits.provider,
   });
-  return { provider, files, sessions, arcs, sketches, dockets, ideas, commits };
+  return { provider, files, sessions, arcs, sketches, dockets, commits };
 }
 
 const types = (items: CompletionItem[]) => items.map((i) => i.atom.type);
@@ -191,7 +188,6 @@ describe("subscribe", () => {
       arcs: () => [],
       sketches: () => [],
       dockets: () => [],
-      ideas: () => [],
       commits: commits.provider,
     });
     let heard = 0;
@@ -233,16 +229,5 @@ describe("arcs and sketches", () => {
     ]);
     expect(types(provider("docket:gpu"))).toEqual(Array<string>(5).fill("docket"));
     expect(dockets.queries[dockets.queries.length - 1]).toBe("gpu");
-  });
-
-  test("ideas follow dockets as a capped group, and `idea:` narrows to them", () => {
-    const { provider, ideas } = merged({ files: 0, sessions: 0, dockets: 1, ideas: 5, commits: 1 });
-    expect(types(provider(""))).toEqual([
-      "docket",
-      ...Array<string>(MENTION_GROUP_CAP).fill("idea"),
-      "commit",
-    ]);
-    expect(types(provider("idea:inbox"))).toEqual(Array<string>(5).fill("idea"));
-    expect(ideas.queries[ideas.queries.length - 1]).toBe("inbox");
   });
 });

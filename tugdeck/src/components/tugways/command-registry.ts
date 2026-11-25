@@ -2944,18 +2944,6 @@ export const COMMANDS: readonly CommandEntry[] = [
     parameterized: true,
   },
   {
-    // Its doors are the Docket card's authoring gestures — Sketch it, Keep
-    // sketch, Write and Revise brief, Open and Reopen arc — each pressed in
-    // the card's body and run in the shell, which owns the deck the new
-    // Session card is added to.
-    id: TUG_ACTIONS.OPEN_AUTHORING_SESSION,
-    title: "Open Authoring Session",
-    routing: "registry",
-    owner: "shell",
-    internal: true,
-    parameterized: true,
-  },
-  {
     // Its door is an Arcs card row: front the card working the arc and open
     // its Changes shade.
     id: "reveal-session-changes",
@@ -3883,19 +3871,6 @@ export const ACTIONS_OUTSIDE_THE_TABLE: ReadonlySet<string> = new Set<string>([
   TUG_ACTIONS.MOVE_THREAD_TO_DOCKET,
   TUG_ACTIONS.REMOVE_THREAD_FROM_DOCKET,
   TUG_ACTIONS.COPY_DOCKET_ATOM,
-  // The thread's authoring gestures, on the same terms: each means "the
-  // thread this row is", and the version reads "this kept version", named by
-  // the popup item that carries it. A gesture that opens a session hands off
-  // to Open Authoring Session, which is a table command.
-  TUG_ACTIONS.SKETCH_IDEA,
-  TUG_ACTIONS.KEEP_SKETCH,
-  TUG_ACTIONS.EDIT_SKETCH,
-  TUG_ACTIONS.WRITE_BRIEF,
-  TUG_ACTIONS.REVISE_BRIEF,
-  TUG_ACTIONS.OPEN_ARC_ON_BRIEF,
-  TUG_ACTIONS.REOPEN_ARC_ON_BRIEF,
-  TUG_ACTIONS.READ_SKETCH_VERSION,
-  TUG_ACTIONS.READ_BRIEF_VERSION,
   // The workspace header's four verbs used to be here, for the reason every
   // other entry in this list is: "the workspace this row is" is a sampled
   // target no chord and no menu-bar item can name. [P02] changed the premise

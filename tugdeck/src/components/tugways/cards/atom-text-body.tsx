@@ -231,7 +231,6 @@ export const AtomTextBody = React.forwardRef<
               {...(seg.atom.id !== undefined ? { id: seg.atom.id } : {})}
               {...(seg.atom.sketch !== undefined ? { sketch: seg.atom.sketch } : {})}
               {...(seg.atom.docket !== undefined ? { docket: seg.atom.docket } : {})}
-              {...(seg.atom.idea !== undefined ? { idea: seg.atom.idea } : {})}
             />
           );
         if (payload === null) return chip;

@@ -74,14 +74,6 @@ export interface AtomDocketRef {
   projectDir: string;
 }
 
-/**
- * The checkout an idea atom's idea belongs to, on the sketch's terms: the id
- * alone finds the idea anywhere on the machine.
- */
-export interface AtomIdeaRef {
-  projectDir: string;
-}
-
 /** The identity an atom publishes — the shape `AtomSegment` already carries. */
 export interface AtomIdentity {
   type: string;
@@ -97,8 +89,6 @@ export interface AtomIdentity {
   sketch?: AtomSketchRef;
   /** The checkout a docket atom's docket belongs to. */
   docket?: AtomDocketRef;
-  /** The checkout an idea atom's idea belongs to. */
-  idea?: AtomIdeaRef;
 }
 
 /**
@@ -120,7 +110,6 @@ export interface AtomIdentityAttrs {
   "data-atom-arc-created"?: string;
   "data-atom-sketch-project-dir"?: string;
   "data-atom-docket-project-dir"?: string;
-  "data-atom-idea-project-dir"?: string;
 }
 
 /**
@@ -152,7 +141,7 @@ export function atomIdentityAttrs(atom: AtomIdentity): AtomIdentityAttrs {
     attrs["data-atom-session-id"] = atom.session.id;
     attrs["data-atom-session-project-dir"] = atom.session.projectDir;
   }
-  // An arc's, a sketch's, a docket's or an idea's directory, absent rather than empty, as above.
+  // An arc's, a sketch's or a docket's directory, absent rather than empty, as above.
   if (atom.arc !== undefined && atom.arc.projectDir !== "") {
     attrs["data-atom-arc-project-dir"] = atom.arc.projectDir;
     if (atom.arc.created !== undefined && atom.arc.created !== "") {
@@ -164,9 +153,6 @@ export function atomIdentityAttrs(atom: AtomIdentity): AtomIdentityAttrs {
   }
   if (atom.docket !== undefined && atom.docket.projectDir !== "") {
     attrs["data-atom-docket-project-dir"] = atom.docket.projectDir;
-  }
-  if (atom.idea !== undefined && atom.idea.projectDir !== "") {
-    attrs["data-atom-idea-project-dir"] = atom.idea.projectDir;
   }
   return attrs;
 }

@@ -180,7 +180,6 @@ function atomOf(el: Element): AtomSegment | null {
   const arcCreated = el.getAttribute("data-atom-arc-created");
   const sketchDir = el.getAttribute("data-atom-sketch-project-dir");
   const docketDir = el.getAttribute("data-atom-docket-project-dir");
-  const ideaDir = el.getAttribute("data-atom-idea-project-dir");
   return {
     kind: "atom",
     type,
@@ -204,9 +203,6 @@ function atomOf(el: Element): AtomSegment | null {
       : {}),
     ...(docketDir !== null && docketDir !== ""
       ? { docket: { projectDir: docketDir } }
-      : {}),
-    ...(ideaDir !== null && ideaDir !== ""
-      ? { idea: { projectDir: ideaDir } }
       : {}),
   };
 }

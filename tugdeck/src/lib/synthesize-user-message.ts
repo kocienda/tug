@@ -46,11 +46,10 @@
  * user committed, pushed, joined or discarded since its last turn — is
  * stripped on the same terms and contributes nothing at all.
  *
- * The `tug:arc-refs`, `tug:sketch-refs`, `tug:docket-refs` and
- * `tug:idea-refs` blocks are stripped the same way, and each puts its identity
- * back: an arc atom takes its checkout and pinned generation, a sketch atom
- * its owning checkout, a docket atom its owning checkout and its name, and an
- * idea atom its owning checkout and its line.
+ * The `tug:arc-refs`, `tug:sketch-refs` and `tug:docket-refs` blocks are
+ * stripped the same way, and each puts its identity back: an arc atom takes
+ * its checkout and pinned generation, a sketch atom its owning checkout, and a
+ * docket atom its owning checkout and its name.
  *
  * The bytes-store side-effect is the documented seam: for each image
  * block, the synthesizer ensures the bytes-store has an entry at the
@@ -101,10 +100,8 @@ import { parseAtomMentionSegments, type MarkerAtomType } from "./atom-mention-ma
 import {
   arcAtomName,
   docketAtomLabel,
-  ideaAtomLabel,
   isArcAtomType,
   isDocketAtomType,
-  isIdeaAtomType,
   isSketchAtomType,
   sketchAtomLabel,
 } from "./record-atom-shape";
@@ -129,11 +126,6 @@ import {
   parseDocketRefBlock,
   type ParsedDocketRef,
 } from "./docket-ref-block";
-import {
-  isIdeaRefBlock,
-  parseIdeaRefBlock,
-  type ParsedIdeaRef,
-} from "./idea-ref-block";
 import { commitAtomLabel } from "./commit-format";
 import { isCommitSha } from "./annotator/detect-commit-sha";
 import { isLandingsBlock } from "./landings-block";
@@ -252,8 +244,6 @@ function mentionAtomLabel(type: string, value: string): string {
   if (isSketchAtomType(type)) return sketchAtomLabel(value);
   // A docket's name rides the block, not the marker; the block puts it back.
   if (isDocketAtomType(type)) return docketAtomLabel(value);
-  // An idea's line rides the block too.
-  if (isIdeaAtomType(type)) return ideaAtomLabel(value);
   return value;
 }
 
@@ -390,7 +380,6 @@ export function synthesizeUserMessageFromBlocks(
   const arcRefs = new Map<string, ParsedArcRef>();
   const sketchRefs = new Map<string, ParsedSketchRef>();
   const docketRefs = new Map<string, ParsedDocketRef>();
-  const ideaRefs = new Map<string, ParsedIdeaRef>();
   const bodyBlocks: ContentBlock[] = [];
   for (const block of blocks) {
     if (block.type === "text" && isSessionRefBlock(block.text)) {
@@ -414,12 +403,6 @@ export function synthesizeUserMessageFromBlocks(
     if (block.type === "text" && isDocketRefBlock(block.text)) {
       for (const ref of parseDocketRefBlock(block.text)) {
         if (!docketRefs.has(ref.value)) docketRefs.set(ref.value, ref);
-      }
-      continue;
-    }
-    if (block.type === "text" && isIdeaRefBlock(block.text)) {
-      for (const ref of parseIdeaRefBlock(block.text)) {
-        if (!ideaRefs.has(ref.value)) ideaRefs.set(ref.value, ref);
       }
       continue;
     }
@@ -459,15 +442,6 @@ export function synthesizeUserMessageFromBlocks(
         ...atom,
         label: docketAtomLabel(atom.value, docketRef.name),
         docket: { projectDir: docketRef.projectDir },
-      };
-    }
-    if (isIdeaAtomType(atom.type)) {
-      const ideaRef = ideaRefs.get(atom.value);
-      if (ideaRef === undefined) return atom;
-      return {
-        ...atom,
-        label: ideaAtomLabel(atom.value, ideaRef.text),
-        idea: { projectDir: ideaRef.projectDir },
       };
     }
     const ref = refs.get(atom.value);

@@ -27,7 +27,6 @@ import {
   wrapSessionMention,
   wrapSketchMention,
   wrapDocketMention,
-  wrapIdeaMention,
   type AtomMentionSegment,
 } from "../atom-mention-marker";
 
@@ -313,19 +312,5 @@ describe("the typed `@docket:` marker", () => {
 
   test("a backtick in the value falls back to the bare value", () => {
     expect(wrapDocketMention("a`b")).toBe("a`b");
-  });
-});
-
-describe("the typed `@idea:` marker", () => {
-  test("wraps with its own prefix and parses back to its type", () => {
-    expect(wrapIdeaMention("1a2b3c4d")).toBe("`@idea:1a2b3c4d`");
-    expect(parseAtomMentionSegments("from `@idea:1a2b3c4d`")).toEqual<AtomMentionSegment[]>([
-      { kind: "text", text: "from " },
-      { kind: "mention", value: "1a2b3c4d", atomType: "idea" },
-    ]);
-  });
-
-  test("a backtick in the value falls back to the bare value", () => {
-    expect(wrapIdeaMention("a`b")).toBe("a`b");
   });
 });

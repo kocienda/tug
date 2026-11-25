@@ -10,7 +10,6 @@
 
 use super::super::*;
 use super::records::{refusal, request_id_of};
-use super::request::{MAX_ENTRIES, Request};
 use std::path::Path;
 use tugarc_core::docket::{self, FileItem, FileOutcome};
 use tugarc_core::docket_threads::{derive_threads, gather_inputs};
@@ -19,6 +18,74 @@ use tugcore::instance::Paths;
 
 /// The most rows `search_dockets` answers with.
 const SEARCH_LIMIT: usize = 20;
+
+/// The most ids one `resolve_dockets`, items one `docket_file`, or keys one
+/// `docket_remove` may carry.
+const MAX_ENTRIES: usize = 512;
+
+/// A parsed request: its JSON, the checkout it names, and its id.
+struct Request {
+    value: serde_json::Value,
+    project_dir: String,
+    request_id: Option<String>,
+}
+
+impl Request {
+    fn parse(verb: &str, payload: &[u8]) -> Result<Request, String> {
+        let value: serde_json::Value = serde_json::from_slice(payload)
+            .map_err(|_| format!("{verb} payload is not valid JSON"))?;
+        let project_dir = value
+            .get("project_dir")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| format!("{verb} payload is missing project_dir"))?
+            .to_owned();
+        let request_id = value
+            .get("request_id")
+            .and_then(|v| v.as_str())
+            .map(str::to_owned);
+        Ok(Request {
+            value,
+            project_dir,
+            request_id,
+        })
+    }
+
+    fn repo(&self) -> &Path {
+        Path::new(&self.project_dir)
+    }
+
+    fn text(&self, verb: &str, key: &str) -> Result<String, String> {
+        self.value
+            .get(key)
+            .and_then(|v| v.as_str())
+            .map(str::to_owned)
+            .ok_or_else(|| format!("{verb} payload is missing {key}"))
+    }
+
+    fn strings(&self, verb: &str, key: &str) -> Result<Vec<String>, String> {
+        Ok(self
+            .value
+            .get(key)
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| format!("{verb} payload is missing {key}"))?
+            .iter()
+            .filter_map(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .take(MAX_ENTRIES)
+            .map(str::to_owned)
+            .collect())
+    }
+
+    /// The `<verb>_ok` frame: `fields` with the action and the request id.
+    fn ok(&self, verb: &str, fields: serde_json::Value) -> serde_json::Value {
+        let mut body = fields;
+        body["action"] = serde_json::json!(format!("{verb}_ok"));
+        body["request_id"] = serde_json::json!(self.request_id);
+        body
+    }
+}
 
 /// The key a placed item is reported under when it never resolved: what the
 /// atom named, in the store's key grammar where it can be.
@@ -29,7 +96,6 @@ fn placed_key(item: &FileItem) -> String {
             None => format!("arc:{name}"),
         },
         FileItem::Sketch { id } => format!("sketch:{id}"),
-        FileItem::Idea { id } => format!("idea:{id}"),
         FileItem::Session { uuid, callsign, .. } => format!(
             "session:{}",
             uuid.as_deref().or(callsign.as_deref()).unwrap_or("")

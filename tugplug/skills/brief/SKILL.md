@@ -1,7 +1,7 @@
 ---
 name: brief
 description: Write the conversation's settled findings and decisions as a brief — the document that says what was found and what was decided before an implementable one exists. Triggered by "write a brief", "brief this", "make a brief of this". Sharpens nothing and opens nothing.
-argument-hint: "[path] | --sketch <id> [--revise]"
+argument-hint: "[path]"
 allowed-tools: Bash, Read, Write, Glob, Grep, AskUserQuestion
 disallowed-tools: Task, Edit
 ---
@@ -33,26 +33,6 @@ Three addresses, in order. Take the first that applies.
    When `exists` is **false**, ask once, with one `AskUserQuestion`: two options, **Create it** (naming the directory) and **Use a different directory** (the user types the path in the free-text row). On *Create it*, `tugtool brief dir --ensure`; on a path, write there. This is the only question this skill ever asks, and it is gated on the directory being absent, so it happens at most once per project.
 
 **The filename** is a short kebab-case slug of the subject plus `.md` — `atom-copy-paste-fidelity-brief.md`, not `brief.md`. If that file already exists, say so and write `<slug>-2.md`; never overwrite a brief somebody already has.
-
-## From a sketch
-
-The Docket card opens this skill as `--sketch <id>` (Write brief) or `--sketch <id> --revise` (Revise brief), in a fresh session that holds none of the conversation. The sketch is where that conversation was kept, so it is what you write from:
-
-```bash
-tugtool sketch show <id> --json
-```
-
-Read `text` (the sketch's latest version), `version` (its number, `n`), the latest entry of `versions` and its `source` (the session and turns the sketch was kept from), `briefs` (every brief version already written from it), and `arc` and `idea` when present. Then read the source turns, read-only, with `tugtool session show <uuid>`, narrowed with `--turn` or `--grep` to the turns the `source` names: the sketch says what was settled, and the turns are where the findings and decisions behind it are. A version the user wrote by hand is the user's own statement of the work; write from it as it stands. With no `source`, write from the sketch's text alone and say so in the brief's context.
-
-**Where it goes.** Without `--revise`, the path is chosen as under *Where it goes*, the slug taken from the sketch's arc `name` when it has one. With `--revise`, the brief is the latest entry of `briefs`, and you **rewrite its `path` in place**. That is deliberate and the one exception to *never overwrite a brief*: a revision is a new version of the same brief, its older bytes are already kept beside the sketch, and the file keeps its name so the arc and anything citing it still point at it. A `--revise` with no entry in `briefs` writes a new file in the briefs directory, named from the sketch's arc name.
-
-**Then land it as below**, with the subject `briefs(<slug>): Revise brief for …` on a revision, and after the commit record the version against the sketch:
-
-```bash
-tugtool sketch record-brief <id> --path <path> --from-version <n> --session $(printenv TUG_SESSION_ID)
-```
-
-where `<n>` is the sketch `version` you wrote from. That is what marks the brief written from sketch v`<n>`, and what marks it stale when the sketch moves on. Bytes identical to the latest brief version add nothing, so a revision that changed nothing records nothing.
 
 ## What it does not do
 

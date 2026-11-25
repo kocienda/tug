@@ -187,15 +187,6 @@ export const TUG_ACTIONS = {
   //              then submitted through the same path a typed command takes.
   //              Menu-only, and dimmed on the same two conditions as
   //              RUN_COMMAND_HERE.
-  // OPEN_AUTHORING_SESSION: payload — `{ projectDir, sessionId, opening,
-  //              originCardId? }`, where `opening` is `{ kind: "command",
-  //              name, args }` or `{ kind: "prompt", text }`. Opens a NEW
-  //              Session card on `projectDir`, spawned under the given
-  //              `sessionId`, whose first turn is the opening — the road
-  //              RUN_COMMAND_IN_NEW_SESSION takes. The Docket card's authoring
-  //              gestures send it: the card mints the session id so it can
-  //              record the session on an idea before the spawn. A prompt is
-  //              sent as plain text with no catalog wait.
   // COPY_COPYABLE: payload — none. Copy the text of the copyable the
   //              right-click landed on — a label, a badge, a timestamp, a
   //              sha. Menu-only, and menu-only for a structural reason: a
@@ -240,7 +231,6 @@ export const TUG_ACTIONS = {
   INSERT_INTO_PROMPT: "insert-into-prompt",
   RUN_COMMAND_HERE:    "run-command-here",
   RUN_COMMAND_IN_NEW_SESSION: "run-command-in-new-session",
-  OPEN_AUTHORING_SESSION: "open-authoring-session",
   PASTE:               "paste",
   PASTE_AS_QUOTE:      "paste-as-quote",
   PASTE_AS_PLAIN_TEXT: "paste-as-plain-text",
@@ -1495,26 +1485,6 @@ export const TUG_ACTIONS = {
   //                         thread's filed items from this docket.
   // COPY_DOCKET_ATOM:       payload — none. Copy the docket this card shows
   //                         as its atom, with the sidecar a paste re-mints.
-  // SKETCH_IDEA:            payload — `value`: the thread key. Record a fresh
-  //                         session on the thread's idea, then open it with
-  //                         the idea's line as its first prompt.
-  // KEEP_SKETCH:            payload — `value`: the thread key. Open a session
-  //                         running the keep-sketch skill on the thread's idea.
-  // EDIT_SKETCH:            payload — `value`: the thread key. Open the card's
-  //                         sketch editor on the thread's sketch.
-  // WRITE_BRIEF:            payload — `value`: the thread key. Open a session
-  //                         writing a brief from the thread's sketch.
-  // REVISE_BRIEF:           payload — `value`: the thread key. Open a session
-  //                         revising the brief written from the thread's sketch.
-  // OPEN_ARC_ON_BRIEF:      payload — `value`: the thread key. Open a session
-  //                         opening an arc on the thread's latest brief
-  //                         version; asks first when the brief is stale.
-  // REOPEN_ARC_ON_BRIEF:    payload — `value`: the thread key. As
-  //                         OPEN_ARC_ON_BRIEF, for a thread whose arc ended.
-  // READ_SKETCH_VERSION:    payload — `value`: `"<sketch id>@<n>"`. Show that
-  //                         sketch version in the card's reader.
-  // READ_BRIEF_VERSION:     payload — `value`: `"<sketch id>@<n>"`. Show the
-  //                         sketch's brief version `n` in the reader.
   SELECT_DOCKET_PROJECT:  "select-docket-project",
   SELECT_DOCKET:          "select-docket",
   NEW_DOCKET:             "new-docket",
@@ -1525,15 +1495,6 @@ export const TUG_ACTIONS = {
   MOVE_THREAD_TO_DOCKET:  "move-thread-to-docket",
   REMOVE_THREAD_FROM_DOCKET: "remove-thread-from-docket",
   COPY_DOCKET_ATOM:       "copy-docket-atom",
-  SKETCH_IDEA:            "sketch-idea",
-  KEEP_SKETCH:            "keep-sketch",
-  EDIT_SKETCH:            "edit-sketch",
-  WRITE_BRIEF:            "write-brief",
-  REVISE_BRIEF:           "revise-brief",
-  OPEN_ARC_ON_BRIEF:      "open-arc-on-brief",
-  REOPEN_ARC_ON_BRIEF:    "reopen-arc-on-brief",
-  READ_SKETCH_VERSION:    "read-sketch-version",
-  READ_BRIEF_VERSION:     "read-brief-version",
 
   // ---- Meta ----
   //

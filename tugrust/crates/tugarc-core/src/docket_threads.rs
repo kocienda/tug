@@ -21,14 +21,6 @@
 //! itself. Items with one anchor are one thread, and a filed item is never
 //! shown twice. After a join the round commits are unreachable, so their
 //! subjects come from the arc log's round lines, never from git.
-//!
-//! Lineage anchors too, after every direct arc tie. An idea's sketch, the
-//! brief versions written from that sketch and the sessions the idea was
-//! sketched in all join the idea's thread, and once an arc adopts the sketch
-//! the whole lineage joins the arc's newest generation. Only the idea is ever
-//! filed; the rest arrives by derivation. A brief version written from an
-//! older sketch version is marked stale, and so is an arc whose brief is an
-//! older brief version.
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -41,10 +33,7 @@ use tugcore::session_index::IndexEntry;
 use crate::archive::{ArchiveEntry, compact_stamp};
 use crate::docket::{Docket, DocketItem};
 use crate::log::{GenerationEnd, arc_generations, is_round_line, is_yield_note, split_log_line};
-use crate::sketch::{SketchArc, SketchAuthor};
-
-/// The stage a session an idea lists is shown with.
-pub const SKETCH_STAGE: &str = "sketch";
+use crate::sketch::SketchArc;
 
 /// One commit, as `git log` describes it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -78,33 +67,6 @@ pub struct SketchFact {
     pub want: Option<String>,
     pub created: String,
     pub arc: Option<SketchArc>,
-    /// The idea the sketch was kept from.
-    pub idea: Option<String>,
-    /// Who wrote the newest version.
-    pub latest_author: SketchAuthor,
-    /// The brief versions written from the sketch, oldest first.
-    pub briefs: Vec<BriefVersionFact>,
-}
-
-/// One brief version a sketch keeps.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BriefVersionFact {
-    pub n: u32,
-    pub sha256: String,
-    pub title: String,
-    pub path: String,
-    /// The sketch version it was written from.
-    pub sketch_version: u32,
-}
-
-/// An idea record: its line, and the sessions it was sketched in.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IdeaFact {
-    pub id: String,
-    pub text: String,
-    pub created: String,
-    /// Session uuids, oldest first.
-    pub sessions: Vec<String>,
 }
 
 /// Everything [`derive_threads`] reads.
@@ -117,10 +79,8 @@ pub struct DocketInputs {
     pub archive: Vec<ArchiveEntry>,
     pub arc_briefs: Vec<ArcBrief>,
     pub sketches: Vec<SketchFact>,
-    /// Every idea of the checkout.
-    pub ideas: Vec<IdeaFact>,
     /// Session-index rows for every filed session's line and every stage
-    /// session the log names, and every session an idea lists.
+    /// session the log names.
     pub sessions: Vec<IndexEntry>,
     /// Every commit the derivation may name.
     pub commits: Vec<CommitFact>,
@@ -145,8 +105,6 @@ pub enum BriefSource {
     Arc,
     /// A snapshot filed on the docket.
     Filed,
-    /// The newest brief version kept on the thread's sketch.
-    Sketch,
 }
 
 /// The part a commit plays in its thread.
@@ -171,9 +129,6 @@ pub struct SketchCell {
     pub versions: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub want: Option<String>,
-    /// Who wrote the newest version.
-    #[serde(default)]
-    pub author: SketchAuthor,
     pub filed: bool,
 }
 
@@ -188,19 +143,6 @@ pub struct BriefCell {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_path: Option<String>,
     pub filed: bool,
-    /// The newest brief version kept on the thread's sketch; `None` when the
-    /// brief is only an arc's copy or a filed snapshot.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub version: Option<u32>,
-    /// How many brief versions the sketch keeps.
-    #[serde(default)]
-    pub versions: u32,
-    /// The sketch version the newest brief version was written from.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sketch_version: Option<u32>,
-    /// The sketch has moved on since the newest brief version was written.
-    #[serde(default)]
-    pub stale: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -210,29 +152,6 @@ pub struct ArcCell {
     pub fate: ArcFate,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub join_sha: Option<String>,
-    pub filed: bool,
-    /// The brief version whose bytes the arc's `brief.md` holds.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub brief_version: Option<u32>,
-    /// A newer brief version than the arc's has been written.
-    #[serde(default)]
-    pub stale: bool,
-    /// How many generations ran on the thread's sketch: 1, or more after a
-    /// reopen.
-    #[serde(default = "one")]
-    pub runs: u32,
-}
-
-fn one() -> u32 {
-    1
-}
-
-/// A thread's idea.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct IdeaCell {
-    pub id: String,
-    /// Its one line; the id when the record is missing.
-    pub text: String,
     pub filed: bool,
 }
 
@@ -259,13 +178,10 @@ pub struct CommitCell {
 /// One thread: a line of work as far as it has gone, in the order it ran.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Thread {
-    /// `arc:<name>@<created>`, `idea:<id>`, `session:<line>`, or the lone
-    /// item's key.
+    /// `arc:<name>@<created>`, `session:<line>`, or the lone item's key.
     pub key: String,
     /// When the thread began, ISO 8601; empty when nothing says.
     pub start: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub idea: Option<IdeaCell>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sketch: Option<SketchCell>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -389,8 +305,6 @@ pub fn stage_session_ids(log: &str) -> BTreeSet<String> {
 enum Anchor {
     /// An index into the generations.
     Arc(usize),
-    /// An idea with no arc yet, by its id.
-    Idea(String),
     /// A session line's key: its line id, or the uuid when it has none.
     Line(String),
     /// The item itself, by its key.
@@ -432,12 +346,6 @@ struct Index<'a> {
     gen_brief: BTreeMap<usize, &'a ArcBrief>,
     /// Filed session lines → every uuid of the line.
     filed_lines: BTreeMap<String, BTreeSet<String>>,
-    /// Brief-version SHA-256 → the sketch that keeps it.
-    brief_sketch: BTreeMap<&'a str, &'a str>,
-    /// Idea → its newest sketch.
-    idea_sketch: BTreeMap<&'a str, &'a str>,
-    /// A session an idea lists → the idea.
-    session_idea: BTreeMap<&'a str, &'a str>,
 }
 
 impl<'a> Index<'a> {
@@ -475,43 +383,12 @@ impl<'a> Index<'a> {
                 }
             }
         }
-        let mut brief_sketch = BTreeMap::new();
-        for sketch in &inputs.sketches {
-            for b in &sketch.briefs {
-                brief_sketch
-                    .entry(b.sha256.as_str())
-                    .or_insert(sketch.id.as_str());
-            }
-        }
-        let mut kept: Vec<&SketchFact> = inputs
-            .sketches
-            .iter()
-            .filter(|s| s.idea.is_some())
-            .collect();
-        kept.sort_by(|a, b| a.created.cmp(&b.created).then_with(|| a.id.cmp(&b.id)));
-        let mut idea_sketch = BTreeMap::new();
-        for s in kept {
-            if let Some(idea) = s.idea.as_deref() {
-                idea_sketch.insert(idea, s.id.as_str());
-            }
-        }
-        let mut session_idea = BTreeMap::new();
-        for idea in &inputs.ideas {
-            for uuid in &idea.sessions {
-                session_idea
-                    .entry(uuid.as_str())
-                    .or_insert(idea.id.as_str());
-            }
-        }
         Index {
             inputs,
             gens,
             brief_gen,
             gen_brief,
             filed_lines,
-            brief_sketch,
-            idea_sketch,
-            session_idea,
         }
     }
 
@@ -539,40 +416,6 @@ impl<'a> Index<'a> {
 
     fn sketch(&self, id: &str) -> Option<&'a SketchFact> {
         self.inputs.sketches.iter().find(|s| s.id == id)
-    }
-
-    fn idea(&self, id: &str) -> Option<&'a IdeaFact> {
-        self.inputs.ideas.iter().find(|i| i.id == id)
-    }
-
-    /// The newest generation a sketch is tied to, by the log or by its link.
-    fn sketch_gen(&self, id: &str) -> Option<usize> {
-        let by_log = self
-            .gens
-            .iter()
-            .rposition(|g| g.sketch_id.as_deref() == Some(id));
-        let by_link = self.sketch(id).and_then(|s| {
-            let link = s.arc.as_ref()?;
-            self.gen_of_arc(&link.name, link.created.as_deref()?)
-        });
-        by_log.max(by_link)
-    }
-
-    /// A sketch's anchor: its generation, else its idea's.
-    fn sketch_anchor(&self, id: &str) -> Option<Anchor> {
-        if let Some(g) = self.sketch_gen(id) {
-            return Some(Anchor::Arc(g));
-        }
-        self.idea_anchor(self.sketch(id)?.idea.as_deref()?)
-    }
-
-    /// An idea's anchor: the generation its newest sketch reaches, else the
-    /// idea itself when its record is there.
-    fn idea_anchor(&self, id: &str) -> Option<Anchor> {
-        if let Some(g) = self.idea_sketch.get(id).and_then(|s| self.sketch_gen(s)) {
-            return Some(Anchor::Arc(g));
-        }
-        self.idea(id).map(|_| Anchor::Idea(id.to_string()))
     }
 
     fn callsign(&self, uuid: &str) -> Option<String> {
@@ -630,30 +473,27 @@ impl<'a> Index<'a> {
             DocketItem::Arc { name, created, .. } => {
                 self.gen_of_arc(name, created).map_or_else(own, Anchor::Arc)
             }
-            DocketItem::Sketch { id, .. } => self.sketch_anchor(id).unwrap_or_else(own),
-            DocketItem::Idea { id, .. } => self.idea_anchor(id).unwrap_or_else(own),
-            DocketItem::Brief { sha256, .. } => {
-                if let Some(g) = self.brief_gen.get(sha256.as_str()) {
-                    return Anchor::Arc(*g);
-                }
-                self.brief_sketch
-                    .get(sha256.as_str())
-                    .and_then(|s| self.sketch_anchor(s))
-                    .unwrap_or_else(own)
-            }
-            DocketItem::Session { uuid, line_id, .. } => {
-                if let Some(g) = self
+            DocketItem::Sketch { id, .. } => {
+                let by_log = self
                     .gens
                     .iter()
-                    .position(|g| g.stages.iter().any(|(u, _)| u == uuid))
-                {
-                    return Anchor::Arc(g);
-                }
-                self.session_idea
-                    .get(uuid.as_str())
-                    .and_then(|i| self.idea_anchor(i))
-                    .unwrap_or_else(|| Anchor::Line(line_key(uuid, line_id)))
+                    .position(|g| g.sketch_id.as_deref() == Some(id.as_str()));
+                let by_link = || {
+                    let link = self.sketch(id)?.arc.as_ref()?;
+                    self.gen_of_arc(&link.name, link.created.as_deref()?)
+                };
+                by_log.or_else(by_link).map_or_else(own, Anchor::Arc)
             }
+            DocketItem::Brief { sha256, .. } => self
+                .brief_gen
+                .get(sha256.as_str())
+                .copied()
+                .map_or_else(own, Anchor::Arc),
+            DocketItem::Session { uuid, line_id, .. } => self
+                .gens
+                .iter()
+                .position(|g| g.stages.iter().any(|(u, _)| u == uuid))
+                .map_or_else(|| Anchor::Line(line_key(uuid, line_id)), Anchor::Arc),
             DocketItem::Commit { sha, .. } => {
                 if let Some(g) = self.gen_of_commit(sha) {
                     return Anchor::Arc(g);
@@ -688,92 +528,8 @@ impl<'a> Index<'a> {
             id: id.to_string(),
             versions: fact.map_or(0, |s| s.versions),
             want: fact.and_then(|s| s.want.clone()),
-            author: fact.map(|s| s.latest_author).unwrap_or_default(),
             filed: self.filed(&format!("sketch:{id}")),
         }
-    }
-
-    fn idea_cell(&self, id: &str) -> IdeaCell {
-        IdeaCell {
-            id: id.to_string(),
-            text: self
-                .idea(id)
-                .map_or_else(|| id.to_string(), |i| i.text.clone()),
-            filed: self.filed(&format!("idea:{id}")),
-        }
-    }
-
-    /// A brief cell's version fields, read from the sketch's brief versions.
-    /// A cell with no path of its own — an arc's copy that was never filed —
-    /// takes the latest brief version's, so Open arc and Reopen arc have a
-    /// file to name.
-    fn stamp_versions(&self, cell: &mut BriefCell, sketch: Option<&SketchFact>) {
-        let Some(sketch) = sketch else {
-            return;
-        };
-        let Some(latest) = sketch.briefs.iter().max_by_key(|b| b.n) else {
-            return;
-        };
-        cell.version = Some(latest.n);
-        cell.versions = sketch.briefs.len() as u32;
-        cell.sketch_version = Some(latest.sketch_version);
-        cell.stale = latest.sketch_version < sketch.versions;
-        if cell.source_path.is_none() {
-            cell.source_path = Some(latest.path.clone());
-        }
-    }
-
-    /// The brief cell a sketch's newest brief version makes, with a brief
-    /// filed beside it keeping its snapshot on the cell.
-    fn sketch_brief_cell(
-        &self,
-        sketch: &SketchFact,
-        filed_brief: Option<&(String, String)>,
-    ) -> Option<BriefCell> {
-        let latest = sketch.briefs.iter().max_by_key(|b| b.n)?;
-        let mut cell = BriefCell {
-            title: Some(latest.title.clone()),
-            source: BriefSource::Sketch,
-            snapshot: filed_brief.map(|(s, _)| s.clone()),
-            source_path: Some(filed_brief.map_or_else(|| latest.path.clone(), |(_, p)| p.clone())),
-            filed: filed_brief.is_some(),
-            version: None,
-            versions: 0,
-            sketch_version: None,
-            stale: false,
-        };
-        self.stamp_versions(&mut cell, Some(sketch));
-        Some(cell)
-    }
-
-    /// The cells of an idea's sessions, each shown as a sketching session.
-    fn idea_sessions(&self, idea: &IdeaFact, members: &[&DocketItem]) -> Vec<SessionCell> {
-        idea.sessions
-            .iter()
-            .map(|uuid| SessionCell {
-                uuid: uuid.clone(),
-                callsign: self.callsign(uuid),
-                stage: Some(SKETCH_STAGE.to_string()),
-                filed: members
-                    .iter()
-                    .any(|m| matches!(m, DocketItem::Session { uuid: u, .. } if u == uuid)),
-            })
-            .collect()
-    }
-
-    /// The commits the given sessions made, oldest first, as session cells.
-    fn session_commits(&self, uuids: &BTreeSet<&str>) -> Vec<CommitCell> {
-        let mut facts: Vec<&CommitFact> = self
-            .inputs
-            .commits
-            .iter()
-            .filter(|c| c.session_ids.iter().any(|id| uuids.contains(id.as_str())))
-            .collect();
-        facts.sort_by_key(|c| (millis(&c.date).unwrap_or(i64::MAX), c.sha.clone()));
-        facts
-            .iter()
-            .map(|c| self.commit_cell(&c.sha, CommitRole::Session))
-            .collect()
     }
 
     fn commit_cell(&self, sha: &str, role: CommitRole) -> CommitCell {
@@ -793,62 +549,29 @@ impl<'a> Index<'a> {
             GenerationEnd::Joined { .. } => ArcFate::Joined,
             GenerationEnd::Discarded => ArcFate::Discarded,
         };
-        let linked_sketch = || {
-            self.inputs
-                .sketches
-                .iter()
-                .filter(|s| {
-                    s.arc.as_ref().is_some_and(|l| {
-                        l.name == g.name
-                            && l.created
-                                .as_deref()
-                                .is_some_and(|c| compact_stamp(c) == compact_stamp(&g.started_at))
-                    })
-                })
-                .max_by(|a, b| a.created.cmp(&b.created).then_with(|| a.id.cmp(&b.id)))
-        };
-        let sketch_id = g
-            .sketch_id
-            .clone()
-            .or_else(|| linked_sketch().map(|s| s.id.clone()));
-        let sketch_fact = sketch_id.as_deref().and_then(|id| self.sketch(id));
-        let idea_fact = sketch_fact
-            .and_then(|s| s.idea.as_deref())
-            .and_then(|id| self.idea(id));
-        let sketch = sketch_id.as_deref().map(|id| self.sketch_cell(id));
-        let idea = idea_fact.map(|i| self.idea_cell(&i.id));
-
-        let arc_brief = self.gen_brief.get(&i);
-        let brief_version = arc_brief.and_then(|b| {
-            sketch_fact?
-                .briefs
-                .iter()
-                .find(|v| v.sha256 == b.sha256)
-                .map(|v| v.n)
-        });
-        let latest_brief = sketch_fact.and_then(|s| s.briefs.iter().map(|b| b.n).max());
-        let runs = match sketch_id.as_deref() {
-            Some(id) => self
-                .gens
-                .iter()
-                .enumerate()
-                .filter(|(j, other)| {
-                    other.sketch_id.as_deref() == Some(id) || (*j == i && other.sketch_id.is_none())
-                })
-                .count()
-                .max(1) as u32,
-            None => 1,
-        };
         let arc = ArcCell {
             name: g.name.clone(),
             created: g.started_at.clone(),
             fate,
             join_sha: self.join_sha(g),
             filed: self.filed(&g.key()),
-            brief_version,
-            stale: brief_version.zip(latest_brief).is_some_and(|(n, l)| n < l),
-            runs,
         };
+
+        let linked_sketch = || {
+            self.inputs.sketches.iter().find(|s| {
+                s.arc.as_ref().is_some_and(|l| {
+                    l.name == g.name
+                        && l.created
+                            .as_deref()
+                            .is_some_and(|c| compact_stamp(c) == compact_stamp(&g.started_at))
+                })
+            })
+        };
+        let sketch_id = g
+            .sketch_id
+            .clone()
+            .or_else(|| linked_sketch().map(|s| s.id.clone()));
+        let sketch = sketch_id.map(|id| self.sketch_cell(&id));
 
         // A brief filed beside its arc's own copy keeps its snapshot and its
         // source on the cell, so it can be moved and removed as filed.
@@ -860,41 +583,26 @@ impl<'a> Index<'a> {
             } => Some((snapshot.clone(), source_path.clone())),
             _ => None,
         });
-        let brief = match arc_brief {
-            Some(b) => {
-                let mut cell = BriefCell {
-                    title: b.title.clone(),
-                    source: BriefSource::Arc,
-                    snapshot: filed_brief.as_ref().map(|(s, _)| s.clone()),
-                    source_path: filed_brief.as_ref().map(|(_, p)| p.clone()),
-                    filed: filed_brief.is_some(),
-                    version: None,
-                    versions: 0,
-                    sketch_version: None,
-                    stale: false,
-                };
-                self.stamp_versions(&mut cell, sketch_fact);
-                Some(cell)
-            }
-            None => sketch_fact.and_then(|s| self.sketch_brief_cell(s, filed_brief.as_ref())),
-        };
+        let brief = self.gen_brief.get(&i).map(|b| BriefCell {
+            title: b.title.clone(),
+            source: BriefSource::Arc,
+            snapshot: filed_brief.as_ref().map(|(s, _)| s.clone()),
+            source_path: filed_brief.as_ref().map(|(_, p)| p.clone()),
+            filed: filed_brief.is_some(),
+        });
 
-        // The idea's sketching sessions come before the stage sessions.
-        let mut sessions =
-            idea_fact.map_or_else(Vec::new, |idea| self.idea_sessions(idea, members));
-        for (uuid, stage) in &g.stages {
-            if sessions.iter().any(|s| &s.uuid == uuid) {
-                continue;
-            }
-            sessions.push(SessionCell {
+        let sessions = g
+            .stages
+            .iter()
+            .map(|(uuid, stage)| SessionCell {
                 uuid: uuid.clone(),
                 callsign: self.callsign(uuid),
                 stage: Some(stage.clone()),
                 filed: members
                     .iter()
                     .any(|m| matches!(m, DocketItem::Session { uuid: u, .. } if u == uuid)),
-            });
-        }
+            })
+            .collect();
 
         let mut commits: Vec<CommitCell> = g
             .rounds
@@ -909,14 +617,6 @@ impl<'a> Index<'a> {
         if let Some(join) = self.join_sha(g) {
             commits.push(self.commit_cell(&join, CommitRole::Join));
         }
-        if let Some(idea) = idea_fact {
-            let uuids: BTreeSet<&str> = idea.sessions.iter().map(String::as_str).collect();
-            for cell in self.session_commits(&uuids) {
-                if !commits.iter().any(|c| same_commit(&c.sha, &cell.sha)) {
-                    commits.push(cell);
-                }
-            }
-        }
         for m in members {
             if let DocketItem::Commit { sha, .. } = m {
                 if !commits.iter().any(|c| same_commit(&c.sha, sha)) {
@@ -928,41 +628,11 @@ impl<'a> Index<'a> {
         Thread {
             key: g.key(),
             start: g.started_at.clone(),
-            idea,
             sketch,
             brief,
             arc: Some(arc),
             sessions,
             commits,
-            filed_keys: Vec::new(),
-        }
-    }
-
-    /// The thread of an idea no arc has adopted: the idea, its newest sketch,
-    /// that sketch's newest brief version, the sessions it was sketched in and
-    /// the commits they made.
-    fn idea_thread(&self, id: &str, members: &[&DocketItem]) -> Thread {
-        let fact = self.idea(id);
-        let sketch_fact = self.idea_sketch.get(id).and_then(|s| self.sketch(s));
-        let filed_brief = members.iter().find_map(|m| match m {
-            DocketItem::Brief {
-                snapshot,
-                source_path,
-                ..
-            } => Some((snapshot.clone(), source_path.clone())),
-            _ => None,
-        });
-        let sessions = fact.map_or_else(Vec::new, |idea| self.idea_sessions(idea, members));
-        let uuids: BTreeSet<&str> = sessions.iter().map(|s| s.uuid.as_str()).collect();
-        Thread {
-            key: format!("idea:{id}"),
-            start: fact.map(|i| i.created.clone()).unwrap_or_default(),
-            idea: Some(self.idea_cell(id)),
-            sketch: sketch_fact.map(|s| self.sketch_cell(&s.id)),
-            brief: sketch_fact.and_then(|s| self.sketch_brief_cell(s, filed_brief.as_ref())),
-            arc: None,
-            commits: self.session_commits(&uuids),
-            sessions,
             filed_keys: Vec::new(),
         }
     }
@@ -1041,7 +711,6 @@ impl<'a> Index<'a> {
         Thread {
             key: format!("session:{line}"),
             start,
-            idea: None,
             sketch: None,
             brief: None,
             arc: None,
@@ -1055,7 +724,6 @@ impl<'a> Index<'a> {
         let mut thread = Thread {
             key: item.key(),
             start: item.filed_at().to_string(),
-            idea: None,
             sketch: None,
             brief: None,
             arc: None,
@@ -1079,9 +747,6 @@ impl<'a> Index<'a> {
                     },
                     join_sha: archived.and_then(|e| e.join_sha.clone()),
                     filed: true,
-                    brief_version: None,
-                    stale: false,
-                    runs: 1,
                 });
             }
             DocketItem::Sketch { id, .. } => {
@@ -1089,10 +754,6 @@ impl<'a> Index<'a> {
                     thread.start = s.created.clone();
                 }
                 thread.sketch = Some(self.sketch_cell(id));
-            }
-            // Only an idea whose record is missing stands alone.
-            DocketItem::Idea { id, .. } => {
-                thread.idea = Some(self.idea_cell(id));
             }
             DocketItem::Brief {
                 snapshot,
@@ -1106,10 +767,6 @@ impl<'a> Index<'a> {
                     snapshot: Some(snapshot.clone()),
                     source_path: Some(source_path.clone()),
                     filed: true,
-                    version: None,
-                    versions: 0,
-                    sketch_version: None,
-                    stale: false,
                 });
             }
             DocketItem::Commit { sha, .. } => {
@@ -1141,7 +798,6 @@ pub fn derive_threads(inputs: &DocketInputs) -> Vec<Thread> {
         .map(|(anchor, members)| {
             let mut thread = match anchor {
                 Anchor::Arc(i) => index.arc_thread(*i, members),
-                Anchor::Idea(id) => index.idea_thread(id, members),
                 Anchor::Line(line) => index.line_thread(line, members),
                 Anchor::Own(_) => index.own_thread(members[0]),
             };
@@ -1232,9 +888,8 @@ fn hash_hex(text: &str) -> String {
 /// Read everything [`derive_threads`] needs for `docket`.
 ///
 /// A docket with no items reads nothing. The one `git log` over `HEAD` runs
-/// only when a thread shows a session the user filed or one an idea lists,
-/// bounded by the earliest such session's creation; filed commits and join
-/// commits are read by name.
+/// only when a session is filed, bounded by the earliest filed session's
+/// creation; filed commits and join commits are read by name.
 pub fn gather_inputs(paths: &Paths, repo: &Path, docket: &Docket) -> DocketInputs {
     let mut inputs = DocketInputs {
         docket: docket.clone(),
@@ -1242,7 +897,6 @@ pub fn gather_inputs(paths: &Paths, repo: &Path, docket: &Docket) -> DocketInput
         archive: Vec::new(),
         arc_briefs: Vec::new(),
         sketches: Vec::new(),
-        ideas: Vec::new(),
         sessions: Vec::new(),
         commits: Vec::new(),
     };
@@ -1289,31 +943,6 @@ pub fn gather_inputs(paths: &Paths, repo: &Path, docket: &Docket) -> DocketInput
             versions: record.latest(),
             created: record.created.clone(),
             arc: record.arc.clone(),
-            idea: record.idea.clone(),
-            latest_author: record
-                .latest_version()
-                .map(|v| v.author)
-                .unwrap_or_default(),
-            briefs: record
-                .briefs
-                .iter()
-                .map(|b| BriefVersionFact {
-                    n: b.n,
-                    sha256: b.sha256.clone(),
-                    title: b.title.clone(),
-                    path: b.path.clone(),
-                    sketch_version: b.sketch_version,
-                })
-                .collect(),
-        })
-        .collect();
-    inputs.ideas = crate::idea::ideas(paths, repo)
-        .into_iter()
-        .map(|idea| IdeaFact {
-            id: idea.id,
-            text: idea.text,
-            created: idea.created,
-            sessions: idea.sessions.into_iter().map(|s| s.uuid).collect(),
         })
         .collect();
 
@@ -1334,20 +963,31 @@ pub fn gather_inputs(paths: &Paths, repo: &Path, docket: &Docket) -> DocketInput
         })
         .collect();
     let stage_ids = stage_session_ids(&inputs.log);
-    let idea_ids: BTreeSet<String> = inputs
-        .ideas
-        .iter()
-        .flat_map(|i| i.sessions.iter().cloned())
-        .collect();
     inputs.sessions = tugcore::session_index::all_entries(&paths.session_index_db)
         .into_iter()
         .filter(|e| {
             filed_lines.contains(e.line_id.as_str())
                 || filed_uuids.contains(e.session_id.as_str())
                 || stage_ids.contains(&e.session_id)
-                || idea_ids.contains(&e.session_id)
         })
         .collect();
+
+    // HEAD's commits since the earliest filed session began.
+    let earliest = inputs
+        .sessions
+        .iter()
+        .filter(|e| {
+            filed_lines.contains(e.line_id.as_str()) || filed_uuids.contains(e.session_id.as_str())
+        })
+        .map(|e| e.created_at_ms)
+        .min();
+    if !filed_uuids.is_empty() {
+        let mut args = vec!["HEAD".to_string()];
+        if let Some(ms) = earliest {
+            args.push(format!("--since={}", iso_of_millis(ms)));
+        }
+        inputs.commits = git_log(repo, &args);
+    }
 
     // Filed commits, by name — they decide anchors.
     let filed_shas: Vec<String> = docket
@@ -1357,38 +997,10 @@ pub fn gather_inputs(paths: &Paths, repo: &Path, docket: &Docket) -> DocketInput
             DocketItem::Commit { sha, .. } => Some(sha.clone()),
             _ => None,
         })
+        .filter(|sha| !inputs.commits.iter().any(|c| c.sha == *sha))
         .collect();
-    inputs.commits = commit_facts(repo, &filed_shas);
-
-    // HEAD's commits since the earliest session whose commits a thread shows
-    // began: every filed session, and every idea's session a thread carries.
-    let mut wanted: BTreeSet<String> = filed_uuids.iter().map(|u| u.to_string()).collect();
-    for thread in derive_threads(&inputs) {
-        wanted.extend(
-            thread
-                .sessions
-                .into_iter()
-                .filter(|s| s.stage.as_deref() == Some(SKETCH_STAGE))
-                .map(|s| s.uuid),
-        );
-    }
-    if !wanted.is_empty() {
-        let earliest = inputs
-            .sessions
-            .iter()
-            .filter(|e| filed_lines.contains(e.line_id.as_str()) || wanted.contains(&e.session_id))
-            .map(|e| e.created_at_ms)
-            .min();
-        let mut args = vec!["HEAD".to_string()];
-        if let Some(ms) = earliest {
-            args.push(format!("--since={}", iso_of_millis(ms)));
-        }
-        for fact in git_log(repo, &args) {
-            if !inputs.commits.iter().any(|c| c.sha == fact.sha) {
-                inputs.commits.push(fact);
-            }
-        }
-    }
+    let filed = commit_facts(repo, &filed_shas);
+    inputs.commits.extend(filed);
 
     // Join commits of the threads this docket draws, for their subjects.
     let joins: Vec<String> = derive_threads(&inputs)
@@ -1541,11 +1153,7 @@ mod tests {
                     name: "rail".into(),
                     created: Some("2026-11-01T00:00:00Z".into()),
                 }),
-                idea: None,
-                latest_author: SketchAuthor::Model,
-                briefs: Vec::new(),
             }],
-            ideas: Vec::new(),
             sessions: vec![
                 entry(STAGE_A, "line-a", "mighty-cabin", 1),
                 entry(STAGE_B, "line-b", "odd-kiln", 2),
@@ -1836,198 +1444,5 @@ mod tests {
             "the line's commits and no other"
         );
         assert_eq!(threads[0].sessions.len(), 2);
-    }
-
-    const IDEA: &str = "1a2b3c4d";
-    const SK: &str = "5e6f7a8b";
-    const SKETCHER: &str = "44444444-4444-4444-4444-444444444444";
-    const LIN_1: &str = "2026-11-12T00:00:00Z";
-    const LIN_2: &str = "2026-11-13T00:00:00Z";
-
-    fn idea_item(id: &str) -> DocketItem {
-        DocketItem::Idea {
-            id: id.into(),
-            filed_at: "2026-11-21T00:00:00Z".into(),
-        }
-    }
-
-    fn brief_version(n: u32, sha: char, from: u32) -> BriefVersionFact {
-        BriefVersionFact {
-            n,
-            sha256: sha.to_string().repeat(64),
-            title: format!("Lines, v{n}"),
-            path: "briefs/lines-brief.md".into(),
-            sketch_version: from,
-        }
-    }
-
-    /// An idea, its sketch at `versions`, two brief versions (from sketch v1
-    /// and v2) and one sketching session; an arc `lin` on `log` whose live
-    /// `brief.md` is brief version 1 when the log names it.
-    fn lineage(items: Vec<DocketItem>, log: &str, versions: u32) -> DocketInputs {
-        let arc_link = log.contains("arc-sketch").then(|| SketchArc {
-            name: "lin".into(),
-            created: Some(LIN_1.into()),
-        });
-        DocketInputs {
-            docket: docket(items),
-            log: log.into(),
-            archive: Vec::new(),
-            arc_briefs: if log.is_empty() {
-                Vec::new()
-            } else {
-                vec![ArcBrief {
-                    name: "lin".into(),
-                    created: None,
-                    sha256: "c".repeat(64),
-                    title: Some("Lines, v1".into()),
-                }]
-            },
-            sketches: vec![SketchFact {
-                id: SK.into(),
-                versions,
-                want: Some("Want lines of work.".into()),
-                created: "2026-11-10T00:01:00Z".into(),
-                arc: arc_link,
-                idea: Some(IDEA.into()),
-                latest_author: SketchAuthor::User,
-                briefs: vec![brief_version(1, 'c', 1), brief_version(2, 'd', 2)],
-            }],
-            ideas: vec![IdeaFact {
-                id: IDEA.into(),
-                text: "Lines of work".into(),
-                created: "2026-11-10T00:00:00Z".into(),
-                sessions: vec![SKETCHER.into()],
-            }],
-            sessions: vec![entry(SKETCHER, "line-s", "busy-quill", 5)],
-            commits: vec![fact(
-                &"e".repeat(40),
-                "Sketch the lines",
-                "2026-11-10T00:30:00Z",
-                &[SKETCHER],
-            )],
-        }
-    }
-
-    fn adopted_log() -> String {
-        format!("{LIN_1}  lin  arc-start  brief.md\n2026-11-12T00:00:01Z  lin  arc-sketch  {SK}\n")
-    }
-
-    #[test]
-    fn an_idea_brings_its_sketch_brief_versions_and_sessions() {
-        let threads = derive_threads(&lineage(vec![idea_item(IDEA)], "", 2));
-        assert_eq!(threads.len(), 1);
-        let t = &threads[0];
-        assert_eq!(t.key, format!("idea:{IDEA}"));
-        assert_eq!(t.start, "2026-11-10T00:00:00Z");
-        let idea = t.idea.as_ref().unwrap();
-        assert_eq!((idea.text.as_str(), idea.filed), ("Lines of work", true));
-        let sketch = t.sketch.as_ref().unwrap();
-        assert_eq!(
-            (sketch.id.as_str(), sketch.author),
-            (SK, SketchAuthor::User)
-        );
-        let brief = t.brief.as_ref().unwrap();
-        assert_eq!(brief.source, BriefSource::Sketch);
-        assert_eq!((brief.version, brief.versions), (Some(2), 2));
-        assert_eq!(brief.sketch_version, Some(2));
-        assert!(!brief.stale);
-        assert_eq!(brief.title.as_deref(), Some("Lines, v2"));
-        assert_eq!(brief.source_path.as_deref(), Some("briefs/lines-brief.md"));
-        let sessions: Vec<(&str, Option<&str>)> = t
-            .sessions
-            .iter()
-            .map(|s| (s.uuid.as_str(), s.stage.as_deref()))
-            .collect();
-        assert_eq!(sessions, vec![(SKETCHER, Some(SKETCH_STAGE))]);
-        assert_eq!(t.commits.len(), 1, "the sketching session's commit");
-        assert_eq!(t.commits[0].role, CommitRole::Session);
-        assert!(t.arc.is_none());
-        assert_eq!(t.filed_keys, vec![format!("idea:{IDEA}")]);
-    }
-
-    #[test]
-    fn an_adopted_sketch_draws_the_lineage_into_its_arc() {
-        let items = vec![
-            idea_item(IDEA),
-            brief_item(&"d".repeat(64)),
-            session_item(SKETCHER, "line-s"),
-        ];
-        let threads = derive_threads(&lineage(items, &adopted_log(), 2));
-        assert_eq!(threads.len(), 1, "{threads:#?}");
-        let t = &threads[0];
-        assert_eq!(t.key, format!("arc:lin@{LIN_1}"));
-        assert_eq!(t.idea.as_ref().map(|i| i.id.as_str()), Some(IDEA));
-        let arc = t.arc.as_ref().unwrap();
-        assert_eq!(arc.brief_version, Some(1));
-        assert!(arc.stale, "brief version 2 has been written since");
-        assert_eq!(arc.runs, 1);
-        let brief = t.brief.as_ref().unwrap();
-        assert_eq!(brief.source, BriefSource::Arc);
-        assert_eq!((brief.version, brief.versions), (Some(2), 2));
-        assert!(brief.filed, "the filed copy of version 2 rides the cell");
-        assert_eq!(t.sessions[0].uuid, SKETCHER);
-        assert_eq!(t.sessions[0].stage.as_deref(), Some(SKETCH_STAGE));
-        assert!(t.sessions[0].filed);
-        assert_eq!(t.filed_keys.len(), 3);
-    }
-
-    #[test]
-    fn a_new_sketch_version_stales_the_brief_and_leaves_the_arc() {
-        let before = derive_threads(&lineage(vec![idea_item(IDEA)], &adopted_log(), 2));
-        let after = derive_threads(&lineage(vec![idea_item(IDEA)], &adopted_log(), 3));
-        let brief = after[0].brief.as_ref().unwrap();
-        assert!(brief.stale);
-        assert_eq!(brief.sketch_version, Some(2));
-        assert!(!before[0].brief.as_ref().unwrap().stale);
-        assert_eq!(before[0].arc, after[0].arc, "the arc cell is unmoved");
-    }
-
-    #[test]
-    fn an_arc_brief_never_filed_names_the_latest_brief_versions_file() {
-        let threads = derive_threads(&lineage(vec![idea_item(IDEA)], &adopted_log(), 2));
-        let brief = threads[0].brief.as_ref().unwrap();
-        assert_eq!(brief.source, BriefSource::Arc);
-        assert!(!brief.filed);
-        assert_eq!(
-            brief.source_path.as_deref(),
-            Some("briefs/lines-brief.md"),
-            "Reopen arc needs the file the latest brief version lives in"
-        );
-    }
-
-    #[test]
-    fn a_reopened_arc_takes_the_idea_and_its_first_run_keeps_its_own() {
-        let log = format!(
-            "{}2026-11-12T01:00:00Z  lin  discarded\n{LIN_2}  lin  arc-start  brief.md\n2026-11-13T00:00:01Z  lin  arc-sketch  {SK}\n",
-            adopted_log()
-        );
-        let threads = derive_threads(&lineage(
-            vec![idea_item(IDEA), arc_item("lin", LIN_1)],
-            &log,
-            2,
-        ));
-        assert_eq!(threads.len(), 2, "{threads:#?}");
-        let first = threads
-            .iter()
-            .find(|t| t.key == format!("arc:lin@{LIN_1}"))
-            .unwrap();
-        let second = threads
-            .iter()
-            .find(|t| t.key == format!("arc:lin@{LIN_2}"))
-            .unwrap();
-        assert_eq!(first.filed_keys, vec![format!("arc:lin@{LIN_1}")]);
-        assert_eq!(second.filed_keys, vec![format!("idea:{IDEA}")]);
-        assert_eq!(second.arc.as_ref().unwrap().runs, 2);
-        assert!(second.idea.is_some());
-    }
-
-    #[test]
-    fn an_idea_with_no_record_stands_alone() {
-        let threads = derive_threads(&lineage(vec![idea_item("0f0f0f0f")], "", 2));
-        assert_eq!(threads.len(), 1);
-        assert_eq!(threads[0].key, "idea:0f0f0f0f");
-        assert_eq!(threads[0].idea.as_ref().unwrap().text, "0f0f0f0f");
-        assert!(threads[0].sketch.is_none());
     }
 }

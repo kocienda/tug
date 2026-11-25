@@ -1,6 +1,5 @@
 /**
- * docket-verbs.ts — the deck's sender for the docket CONTROL verbs, and the
- * idea and sketch verbs the Docket card authors with.
+ * docket-verbs.ts — the deck's sender for the docket CONTROL verbs.
  *
  * Each call writes one CONTROL frame carrying a fresh `request_id` and
  * settles on the reply that echoes it: `ok` with the decoded `_ok`, or
@@ -21,8 +20,6 @@
 
 import {
   FeedId,
-  decodeIdeaVerbErr,
-  decodeIdeaVerbOk,
   decodeDocketVerbErr,
   decodeDocketVerbOk,
   encodeDocketCreate,
@@ -30,26 +27,14 @@ import {
   encodeDocketRemove,
   encodeDocketRename,
   encodeDocketRetire,
-  encodeIdeaAddSession,
-  encodeIdeaCreate,
   encodeResolveDockets,
   encodeSearchDockets,
-  encodeSketchEdit,
-  encodeSketchRead,
   type DocketFileItem,
-  type DocketVerb as DocketOnlyVerb,
-  type DocketVerbOk as DocketOnlyVerbOk,
+  type DocketVerb,
+  type DocketVerbOk,
   type Frame,
-  type IdeaVerb,
-  type IdeaVerbOk,
 } from "../protocol";
 import type { TugConnection } from "../connection";
-
-/** Every verb this sender asks: the docket verbs and the idea verbs. */
-export type DocketVerb = DocketOnlyVerb | IdeaVerb;
-
-/** Every decoded `_ok` this sender settles with. */
-export type DocketVerbOk = DocketOnlyVerbOk | IdeaVerbOk;
 
 /** How long an ask waits for its answer before it is `unanswered`. */
 export const DOCKET_ACKNOWLEDGEMENT_MS = 60_000;
@@ -109,26 +94,6 @@ export interface DocketVerbs {
     opts: { projectDir: string; query: string },
     ask?: DocketAskOptions<"search_dockets">,
   ): Promise<DocketVerbResult<"search_dockets">>;
-  /** Make an idea from its one line and file it onto `docketId`. */
-  ideaCreate(
-    opts: { projectDir: string; docketId: string; text: string; body?: string },
-    ask?: DocketAskOptions<"idea_create">,
-  ): Promise<DocketVerbResult<"idea_create">>;
-  /** Record a session (by uuid) as one the idea was sketched in. */
-  ideaAddSession(
-    opts: { projectDir: string; id: string; uuid: string },
-    ask?: DocketAskOptions<"idea_add_session">,
-  ): Promise<DocketVerbResult<"idea_add_session">>;
-  /** Read a sketch version (the latest when absent), or a brief version's bytes. */
-  sketchRead(
-    opts: { projectDir: string; id: string; version?: number; brief?: number },
-    ask?: DocketAskOptions<"sketch_read">,
-  ): Promise<DocketVerbResult<"sketch_read">>;
-  /** Keep `text` as the user's version, refused when `baseVersion` is not the latest. */
-  sketchEdit(
-    opts: { projectDir: string; id: string; text: string; baseVersion: number },
-    ask?: DocketAskOptions<"sketch_edit">,
-  ): Promise<DocketVerbResult<"sketch_edit">>;
   /** Stop listening; every ask still open settles `unanswered`. */
   dispose(): void;
 }
@@ -165,8 +130,8 @@ export function docketVerbs(
     } catch {
       return;
     }
-    const ok: DocketVerbOk | null = decodeDocketVerbOk(body) ?? decodeIdeaVerbOk(body);
-    const err = ok === null ? (decodeDocketVerbErr(body) ?? decodeIdeaVerbErr(body)) : null;
+    const ok = decodeDocketVerbOk(body);
+    const err = ok === null ? decodeDocketVerbErr(body) : null;
     const requestId = ok?.requestId ?? err?.requestId ?? null;
     if (requestId === null) return;
     const entry = pending.get(requestId);
@@ -229,14 +194,6 @@ export function docketVerbs(
       ask("resolve_dockets", (requestId) => encodeResolveDockets({ ...o, requestId }), a),
     search: (o, a) =>
       ask("search_dockets", (requestId) => encodeSearchDockets({ ...o, requestId }), a),
-    ideaCreate: (o, a) =>
-      ask("idea_create", (requestId) => encodeIdeaCreate({ ...o, requestId }), a),
-    ideaAddSession: (o, a) =>
-      ask("idea_add_session", (requestId) => encodeIdeaAddSession({ ...o, requestId }), a),
-    sketchRead: (o, a) =>
-      ask("sketch_read", (requestId) => encodeSketchRead({ ...o, requestId }), a),
-    sketchEdit: (o, a) =>
-      ask("sketch_edit", (requestId) => encodeSketchEdit({ ...o, requestId }), a),
     dispose() {
       unsubscribe();
       for (const entry of pending.values()) {

@@ -17,10 +17,8 @@
  * brings its own scroller and footer.
  *
  * The top row is exactly as tall as the Sketch panel, which is shown whole:
- * it is not line-capped and a press never expands it, since it has no column
- * to widen and what it holds is bounded at a few lines. A Sketch panel the
- * caller gives an `onPress` is pressable instead: a press on it outside its
- * controls calls that, and the panel wears `data-pressable`. The lower row is as tall
+ * it is not line-capped and it is not pressable, since it has no column to
+ * widen and what it holds is bounded at a few lines. The lower row is as tall
  * as the taller of its two panels needs, down to the Arc panel's floor, so
  * the grid is as tall as what it holds. Under a host that caps its height
  * the top row keeps its height and the lower row gives way, its panels
@@ -51,9 +49,6 @@
  * `data-moving`, and the panel that was expanded is named by `data-leaving`
  * and keeps its wider cap until it has arrived. A press mid-motion starts
  * from where the tracks are. With motion off the change is a cut.
- *
- * A press inside an element marked `data-arc-panel-door` is the door's
- * alone: it expands nothing and calls nothing.
  *
  * What each panel says is the caller's. Composes `TugProgressIndicator`,
  * which keeps its own tokens.
@@ -93,9 +88,6 @@ const PANEL_SELECTOR = '[data-slot="session-arc-panel"]';
 
 /** A panel's own controls: a press on one in the expanded panel is the control's alone. */
 const CONTROL_SELECTOR = 'button, input, textarea, a, [role="button"], [contenteditable="true"]';
-
-/** A panel's door: a press inside one is the door's and the grid ignores it. */
-const DOOR_SELECTOR = "[data-arc-panel-door]";
 
 /** The panel a press never expands: alone in its row, it has no column to widen. */
 const UNPRESSABLE_RUNG: ArcPanelRung = "sketch";
@@ -144,12 +136,6 @@ export interface SessionArcPanel {
   full?: boolean;
   /** The panel's floor, under the body. It never scrolls. */
   foot?: React.ReactNode;
-  /**
-   * What a press on the Sketch panel outside its controls does. Given, the
-   * panel is pressable; other panels ignore it, since a press expands them.
-   * @selector [data-pressable="true"]
-   */
-  onPress?: () => void;
 }
 
 export interface SessionArcPanelsProps {
@@ -243,20 +229,14 @@ export function SessionArcPanels({ panels, raised = true }: SessionArcPanelsProp
    * A press expands the panel it lands in, Brief or Arc. On the panel already
    * expanded it puts the grid back at rest, unless it landed on one of the
    * panel's controls, which is a press on the control and nothing more. A
-   * press on the Sketch panel calls its `onPress`, when it has one and the
-   * press missed its controls. A press inside a door does nothing here.
+   * press on the Sketch panel does nothing.
    */
   const onClick = (event: React.MouseEvent<HTMLDivElement>): void => {
     const root = rootRef.current;
     const grid = gridRef.current;
     if (root === null || grid === null || !(event.target instanceof Element)) return;
-    if (event.target.closest(DOOR_SELECTOR) !== null) return;
     const rung = event.target.closest<HTMLElement>(PANEL_SELECTOR)?.dataset.rung;
-    if (rung === undefined) return;
-    if (rung === UNPRESSABLE_RUNG) {
-      if (event.target.closest(CONTROL_SELECTOR) === null) panels.sketch.onPress?.();
-      return;
-    }
+    if (rung === undefined || rung === UNPRESSABLE_RUNG) return;
     if (root.dataset.expanded !== rung) expand(root, grid, rung);
     else if (event.target.closest(CONTROL_SELECTOR) === null) expand(root, grid, undefined);
   };
@@ -269,8 +249,7 @@ export function SessionArcPanels({ panels, raised = true }: SessionArcPanelsProp
   const seams = arcPanelSeamStates(states);
 
   const panel = (rung: ArcPanelRung): React.ReactElement => {
-    const { state, paused, title, detail, body, full, foot, onPress } = panels[rung];
-    const pressable = rung === UNPRESSABLE_RUNG && onPress !== undefined;
+    const { state, paused, title, detail, body, full, foot } = panels[rung];
     return (
       <section
         data-slot="session-arc-panel"
@@ -278,7 +257,6 @@ export function SessionArcPanels({ panels, raised = true }: SessionArcPanelsProp
         data-rung={rung}
         data-state={state}
         data-full={full === true ? "true" : undefined}
-        data-pressable={pressable ? "true" : undefined}
         aria-label={RUNG_LABELS[rung]}
       >
         <header className="session-arc-panel-head">

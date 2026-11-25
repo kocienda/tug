@@ -22,8 +22,6 @@ export interface DocketCardTarget {
   docketId: string;
   /** A thread to scroll to and mark, once; never persisted. */
   thread?: string;
-  /** A sketch id whose editor to open, once; never persisted. */
-  editSketch?: string;
 }
 
 export interface DocketCardOpenEntry {

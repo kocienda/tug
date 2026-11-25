@@ -225,7 +225,7 @@ describe("with the capability", () => {
   });
 
   test("a fresh spawn carries its stashed opening command into the intent", () => {
-    stashOpeningCommand("s1", { kind: "command", name: "arc", args: "go" });
+    stashOpeningCommand("s1", { name: "arc", args: "go" });
     fireFreshSpawn("s1", "tug-1", "/p", connection, "launch");
     expect(controlActions).toEqual([]);
     expect(posted[0]?.body).toEqual({
@@ -236,7 +236,7 @@ describe("with the capability", () => {
         tugSessionId: "tug-1",
         projectDir: "/p",
         reason: "launch",
-        openingCommand: { kind: "command", name: "arc", args: "go" },
+        openingCommand: { name: "arc", args: "go" },
       },
     });
     expect(drainOpeningCommand("s1")).toBeUndefined();

@@ -75,9 +75,6 @@ const ALLOW: readonly string[] = [
   // synthesizer both read; pure, with no imports.
   "@/lib/docket-ref-block",
   "@/lib/frame-period",
-  // The idea reference block's grammar, on the docket block's terms; pure,
-  // with no imports.
-  "@/lib/idea-ref-block",
   "@/lib/image-downsample",
   "@/lib/landings-block",
   "@/lib/record-atom-shape",

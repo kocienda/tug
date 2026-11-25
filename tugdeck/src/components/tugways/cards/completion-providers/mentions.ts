@@ -16,7 +16,6 @@ import { createSessionMentionProvider } from "./session-mentions";
 import { createArcMentionProvider } from "./arc-mentions";
 import { createSketchMentionProvider } from "./sketch-mentions";
 import { createDocketMentionProvider } from "./docket-mentions";
-import { createIdeaMentionProvider } from "./idea-mentions";
 
 export interface MentionProviderOptions {
   /** The composer's own `@` file provider. */
@@ -45,7 +44,6 @@ export function createMentionProvider(options: MentionProviderOptions): MentionP
   const arcs = createArcMentionProvider({ projectDir: options.projectDir });
   const sketches = createSketchMentionProvider({ projectDir: options.projectDir });
   const dockets = createDocketMentionProvider({ projectDir: options.projectDir });
-  const ideas = createIdeaMentionProvider({ projectDir: options.projectDir });
   return {
     provider: mergeMentionProviders({
       files: options.files,
@@ -53,7 +51,6 @@ export function createMentionProvider(options: MentionProviderOptions): MentionP
       arcs: arcs.provider,
       sketches: sketches.provider,
       dockets: dockets.provider,
-      ideas: ideas.provider,
       commits: commits.provider,
     }),
     dispose(): void {
@@ -61,7 +58,6 @@ export function createMentionProvider(options: MentionProviderOptions): MentionP
       arcs.dispose();
       sketches.dispose();
       dockets.dispose();
-      ideas.dispose();
       commits.dispose();
     },
   };

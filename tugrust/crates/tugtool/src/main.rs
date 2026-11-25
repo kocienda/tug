@@ -12,7 +12,6 @@ mod deck;
 mod docket;
 mod draft;
 mod host;
-mod idea;
 mod output;
 mod plan;
 mod report;
@@ -185,7 +184,6 @@ fn main() -> ExitCode {
 
         // A sketch's record: keep a version, or read one back by id.
         Some(Commands::Sketch(cmd)) => sketch::dispatch(cmd, json),
-        Some(Commands::Idea(cmd)) => idea::dispatch(cmd, json),
 
         // A docket's record and its threads, read.
         Some(Commands::Docket(cmd)) => docket::dispatch(cmd, json),

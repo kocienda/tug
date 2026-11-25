@@ -26,8 +26,7 @@
  *  - **session** → its identity line. See the caveat below.
  *  - **arc** → `arc:<name>`, the spelling the prose scanner reads; **sketch** →
  *    `sketch:<id>`, its own label; **docket** → `docket:<id>`, since its
- *    label is a name that need not be unique; **idea** → `idea:<id>`, since
- *    its label is a line of prose.
+ *    label is a name that need not be unique.
  *  - **command** → `/name`, the leading slash it is drawn with, so the text
  *    pasted back is the text that was submitted.
  *  - **file** and **directory** → `[name](<path>)`. The path is real
@@ -67,10 +66,8 @@ import { isSessionAtomType } from "./session-atom-shape";
 import {
   arcAtomName,
   docketPlainText,
-  ideaPlainText,
   isArcAtomType,
   isDocketAtomType,
-  isIdeaAtomType,
   isSketchAtomType,
 } from "./record-atom-shape";
 
@@ -100,7 +97,6 @@ export function atomPlainText(atom: AtomPlainTextInput): string {
   if (isArcAtomType(type)) return `arc:${arcAtomName(value)}`;
   if (isSketchAtomType(type)) return `sketch:${value}`;
   if (isDocketAtomType(type)) return docketPlainText(value);
-  if (isIdeaAtomType(type)) return ideaPlainText(value);
   // The leading `/` the chip is drawn with — `chipDisplayLabel`'s one special
   // case, folded in here as an arm rather than standing beside the table.
   if (type === "command") return chipDisplayLabel(type, label, value);

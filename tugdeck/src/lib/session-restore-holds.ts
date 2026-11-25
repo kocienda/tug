@@ -13,7 +13,6 @@
 
 import { logSessionLifecycle } from "./session-lifecycle-log";
 import type { CodeSessionState } from "./code-session-store/reducer";
-import type { Opening } from "./opening-command-runner";
 
 // ---------------------------------------------------------------------------
 // Stranded queued sends — the one thing that must outlive the dispose
@@ -109,17 +108,17 @@ export function clearQueuedSends(cardId: string): void {
  * outright when the card closes so a command cannot resurface on an
  * unrelated later session. Module scope, so nothing survives a reload.
  */
-const openingCommands = new Map<string, Opening>();
+const openingCommands = new Map<string, { name: string; args: string }>();
 
-/** Hold a command or a prompt for a card to run as its first turn, once it binds. */
+/** Hold a command for a card to run as its first turn, once it binds. */
 export function stashOpeningCommand(
   cardId: string,
-  command: Opening,
+  command: { name: string; args: string },
 ): void {
   openingCommands.set(cardId, command);
   logSessionLifecycle("opening_command.stashed", {
     card_id: cardId,
-    name: command.kind === "command" ? command.name : "prompt",
+    name: command.name,
   });
 }
 
@@ -130,13 +129,13 @@ export function stashOpeningCommand(
  */
 export function drainOpeningCommand(
   cardId: string,
-): Opening | undefined {
+): { name: string; args: string } | undefined {
   const command = openingCommands.get(cardId);
   if (command === undefined) return undefined;
   openingCommands.delete(cardId);
   logSessionLifecycle("opening_command.drained", {
     card_id: cardId,
-    name: command.kind === "command" ? command.name : "prompt",
+    name: command.name,
   });
   return command;
 }

@@ -68,11 +68,6 @@ pub enum DocketItem {
         id: String,
         filed_at: String,
     },
-    /// An idea from the idea store, by its id.
-    Idea {
-        id: String,
-        filed_at: String,
-    },
     /// A session segment, with the line it belongs to; `line_id` is empty
     /// when the session index never recorded one.
     Session {
@@ -104,7 +99,6 @@ impl DocketItem {
         match self {
             DocketItem::Arc { name, created, .. } => format!("arc:{name}@{created}"),
             DocketItem::Sketch { id, .. } => format!("sketch:{id}"),
-            DocketItem::Idea { id, .. } => format!("idea:{id}"),
             DocketItem::Session { uuid, line_id, .. } => {
                 if line_id.is_empty() {
                     format!("session:{uuid}")
@@ -122,7 +116,6 @@ impl DocketItem {
         match self {
             DocketItem::Arc { filed_at, .. }
             | DocketItem::Sketch { filed_at, .. }
-            | DocketItem::Idea { filed_at, .. }
             | DocketItem::Session { filed_at, .. }
             | DocketItem::Commit { filed_at, .. }
             | DocketItem::Brief { filed_at, .. } => filed_at,
@@ -133,7 +126,6 @@ impl DocketItem {
         match self {
             DocketItem::Arc { filed_at, .. }
             | DocketItem::Sketch { filed_at, .. }
-            | DocketItem::Idea { filed_at, .. }
             | DocketItem::Session { filed_at, .. }
             | DocketItem::Commit { filed_at, .. }
             | DocketItem::Brief { filed_at, .. } => *filed_at = at,
@@ -191,9 +183,6 @@ pub enum FileItem {
         created: Option<String>,
     },
     Sketch {
-        id: String,
-    },
-    Idea {
         id: String,
     },
     /// A session by uuid or by callsign.
@@ -287,14 +276,9 @@ pub fn docket_root(paths: &Paths, repo: &Path) -> PathBuf {
 /// when the returned file is dropped. The lock dies with its process, so a
 /// crash leaves nothing stale.
 pub fn store_lock(paths: &Paths, repo: &Path) -> Result<fs::File, ArcError> {
-    flock_in(&docket_root(paths, repo), "docket")
-}
-
-/// An exclusive `flock` on `<root>/.lock`, creating `root` first; released
-/// when the returned file is dropped. `what` names the store in a refusal.
-pub(crate) fn flock_in(root: &Path, what: &str) -> Result<fs::File, ArcError> {
-    fs::create_dir_all(root)
-        .map_err(|e| ArcError::io(format!("could not create the {what} store"), root, e))?;
+    let root = docket_root(paths, repo);
+    fs::create_dir_all(&root)
+        .map_err(|e| ArcError::io("could not create the docket store", &root, e))?;
     let path = root.join(".lock");
     let file = fs::OpenOptions::new()
         .read(true)
@@ -302,17 +286,13 @@ pub(crate) fn flock_in(root: &Path, what: &str) -> Result<fs::File, ArcError> {
         .create(true)
         .truncate(false)
         .open(&path)
-        .map_err(|e| ArcError::io(format!("cannot open the {what} lock"), &path, e))?;
+        .map_err(|e| ArcError::io("cannot open the docket lock", &path, e))?;
     // SAFETY: `file.as_raw_fd()` is a valid fd for the lifetime of `file`;
     // `flock` records the lock in the kernel and retains nothing.
     let ret = unsafe { libc::flock(std::os::fd::AsRawFd::as_raw_fd(&file), libc::LOCK_EX) };
     if ret != 0 {
         let e = std::io::Error::last_os_error();
-        return Err(ArcError::io(
-            format!("cannot take the {what} lock"),
-            &path,
-            e,
-        ));
+        return Err(ArcError::io("cannot take the docket lock", &path, e));
     }
     Ok(file)
 }
@@ -588,19 +568,6 @@ pub fn resolve_item(paths: &Paths, repo: &Path, item: &FileItem) -> Result<Resol
                 return Err(NOT_THIS_CHECKOUT.into());
             }
             Ok(plain(DocketItem::Sketch {
-                id: id.clone(),
-                filed_at: String::new(),
-            }))
-        }
-        FileItem::Idea { id } => {
-            let found = crate::idea::find_idea(paths, id);
-            if found.is_empty() {
-                return Err(format!("No idea {id} on this machine."));
-            }
-            if !found.iter().any(|(state, _)| *state == here) {
-                return Err(NOT_THIS_CHECKOUT.into());
-            }
-            Ok(plain(DocketItem::Idea {
                 id: id.clone(),
                 filed_at: String::new(),
             }))
@@ -1067,34 +1034,13 @@ mod tests {
         let docs = crate::ops::documents_dir(&other, "sk");
         fs::create_dir_all(&docs).unwrap();
         fs::write(docs.join("sketch.md"), "# Sketch\n\nWant.\n").unwrap();
-        let made = crate::sketch::record_arc_sketch(&paths, &other, "sk", None).unwrap();
+        let made = crate::sketch::record_arc_sketch(&paths, &other, "sk").unwrap();
         let sketch = FileItem::Sketch { id: made.id };
         assert_eq!(
             resolve_item(&paths, &repo, &sketch).unwrap_err(),
             NOT_THIS_CHECKOUT
         );
         assert!(resolve_item(&paths, &other, &sketch).is_ok());
-
-        // An idea made in another checkout, and one nobody made.
-        let idea = crate::idea::create_idea(&paths, &other, "elsewhere", None).unwrap();
-        let idea = FileItem::Idea { id: idea.id };
-        assert_eq!(
-            resolve_item(&paths, &repo, &idea).unwrap_err(),
-            NOT_THIS_CHECKOUT
-        );
-        let filed = resolve_item(&paths, &other, &idea).unwrap();
-        assert!(filed.key().starts_with("idea:"), "{}", filed.key());
-        assert_eq!(
-            resolve_item(
-                &paths,
-                &repo,
-                &FileItem::Idea {
-                    id: "00000000".into()
-                }
-            )
-            .unwrap_err(),
-            "No idea 00000000 on this machine."
-        );
 
         assert!(resolve_item(&paths, &repo, &FileItem::Unfileable).is_err());
     }

@@ -53,14 +53,6 @@ export const CONTROL_ACTIONS = [
   "resolve_dockets",
   "search_dockets",
 
-  // Supervisor: ideas.
-  "idea_create",
-  "idea_add_session",
-  "resolve_ideas",
-  "search_ideas",
-  "sketch_read",
-  "sketch_edit",
-
   // Supervisor: changesets, landings and joins.
   "changeset_git_init",
   "changeset_commit",

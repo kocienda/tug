@@ -334,11 +334,6 @@ pub enum Commands {
     #[command(subcommand)]
     Sketch(SketchCommands),
 
-    /// An idea's record: read one back by its id, or list this checkout's.
-    /// Ideas are made by the user's capture on the Docket card, never here.
-    #[command(subcommand)]
-    Idea(IdeaCommands),
-
     /// A docket: a named list of filed briefs, sketches, arcs, sessions and
     /// commits, read as threads. Read-only.
     #[command(subcommand)]
@@ -681,54 +676,9 @@ pub enum SketchCommands {
     ///
     /// Run it right after writing the sketch. Text byte-identical to the
     /// latest version is not kept twice.
-    ///
-    /// A latest version the user wrote by hand is never rewritten: the
-    /// working copy is put back to the user's text and the verb exits 1.
     Record {
         /// Arc name.
         arc: String,
-        /// Tie the arc's open generation to this existing sketch, so the
-        /// arc continues it rather than minting a new id.
-        #[arg(long)]
-        sketch: Option<String>,
-    },
-    /// Keep a file as the newest version of an idea's sketch, minting the
-    /// sketch the first time.
-    ///
-    /// The text must end with a `Source: session <uuid>, turns <n–m>` line;
-    /// one without it is refused. A sketch an open arc holds has its
-    /// `sketch.md` rewritten to match.
-    Keep {
-        /// The idea's id: eight hex characters.
-        #[arg(long)]
-        idea: String,
-        /// The file holding the sketch's text.
-        #[arg(long)]
-        file: PathBuf,
-    },
-    /// Keep a brief written from a sketch as the sketch's newest brief
-    /// version, with a snapshot of its bytes.
-    ///
-    /// Bytes identical to the latest brief version append nothing.
-    RecordBrief {
-        /// The sketch's id: eight hex characters.
-        id: String,
-        /// The brief's file.
-        #[arg(long)]
-        path: PathBuf,
-        /// The sketch version the brief was written from.
-        #[arg(long)]
-        from_version: u32,
-        /// The session that wrote the brief.
-        #[arg(long)]
-        session: Option<String>,
-    },
-    /// Name the sketch and brief version a brief file's bytes match.
-    ///
-    /// Read-only. Exits 3 when no sketch in this checkout kept these bytes.
-    ForBrief {
-        /// The brief's file.
-        path: PathBuf,
     },
     /// Print a sketch's text, verbatim, by its id.
     ///
@@ -743,25 +693,6 @@ pub enum SketchCommands {
         /// List the versions instead of printing one.
         #[arg(long)]
         versions: bool,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum IdeaCommands {
-    /// Print an idea: its line, its body, the docket it is on, its sketch
-    /// and the sessions it was sketched in.
-    ///
-    /// Read-only. Scans every checkout's ideas on this machine, so it needs
-    /// no repository. Exits 3 when the id is not on this machine.
-    Show {
-        /// The idea's id: eight hex characters.
-        id: String,
-    },
-    /// List this checkout's ideas, newest first.
-    List {
-        /// Project dir (default: cwd).
-        #[arg(long)]
-        project: Option<PathBuf>,
     },
 }
 

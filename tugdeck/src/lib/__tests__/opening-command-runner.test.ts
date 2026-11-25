@@ -9,7 +9,6 @@ import {
   CATALOG_WAIT_MS,
   _setCatalogWaitMsForTest,
   openingCommandPayload,
-  parseOpening,
   runOpeningCommand,
 } from "@/lib/opening-command-runner";
 import { TUG_ATOM_CHAR } from "@/lib/tug-atom-img";
@@ -92,7 +91,7 @@ describe("runOpeningCommand", () => {
   test("waits for the replay, the submit gate and the catalog, then sends once", () => {
     const dispose = runOpeningCommand(
       "c1",
-      { kind: "command", name: "arc", args: "x @b.md" },
+      { name: "arc", args: "x @b.md" },
       code,
       meta.store as unknown as SessionMetadataStore,
     );
@@ -113,14 +112,14 @@ describe("runOpeningCommand", () => {
   test("sends at once when the card is already ready", () => {
     session.set({ replayEverCompleted: true, canSubmit: true });
     meta.set({ slashCommands: [{ name: "tugplug:arc" }] });
-    runOpeningCommand("c1", { kind: "command", name: "arc", args: "" }, code, meta.store as unknown as SessionMetadataStore);
+    runOpeningCommand("c1", { name: "arc", args: "" }, code, meta.store as unknown as SessionMetadataStore);
     expect(sent.length).toBe(1);
   });
 
   test("a disposed run never sends", () => {
     const dispose = runOpeningCommand(
       "c1",
-      { kind: "command", name: "arc", args: "" },
+      { name: "arc", args: "" },
       code,
       meta.store as unknown as SessionMetadataStore,
     );
@@ -134,7 +133,7 @@ describe("runOpeningCommand", () => {
     _setCatalogWaitMsForTest(20);
     const dispose = runOpeningCommand(
       "c1",
-      { kind: "command", name: "arc", args: "" },
+      { name: "arc", args: "" },
       code,
       meta.store as unknown as SessionMetadataStore,
     );
@@ -143,53 +142,5 @@ describe("runOpeningCommand", () => {
     await new Promise((r) => setTimeout(r, 70));
     expect(sent.map((s) => s.values)).toEqual([["arc"]]);
     dispose();
-  });
-
-  test("a prompt opening sends its text and no atoms without waiting for the catalog", () => {
-    const dispose = runOpeningCommand(
-      "c1",
-      { kind: "prompt", text: "An inbox for ideas" },
-      code,
-      meta.store as unknown as SessionMetadataStore,
-    );
-    // No catalog wait is armed, so nothing listens on the metadata store.
-    expect(meta.listeners()).toBe(0);
-    expect(sent).toEqual([]);
-    session.set({ replayEverCompleted: true, canSubmit: true });
-    expect(sent).toEqual([{ text: "An inbox for ideas", values: [] }]);
-    session.set({ canSubmit: true });
-    expect(sent.length).toBe(1);
-    expect(session.listeners()).toBe(0);
-    dispose();
-  });
-});
-
-describe("parseOpening", () => {
-  test("reads both shapes of the union", () => {
-    expect(parseOpening({ kind: "command", name: "arc", args: "x" })).toEqual({
-      kind: "command",
-      name: "arc",
-      args: "x",
-    });
-    expect(parseOpening({ kind: "prompt", text: "hello" })).toEqual({
-      kind: "prompt",
-      text: "hello",
-    });
-  });
-
-  test("a bare name and args, the shape before prompts, still reads as a command", () => {
-    expect(parseOpening({ name: "arc", args: "go" })).toEqual({
-      kind: "command",
-      name: "arc",
-      args: "go",
-    });
-  });
-
-  test("anything else is no opening", () => {
-    expect(parseOpening(undefined)).toBeUndefined();
-    expect(parseOpening({ kind: "prompt", text: "  " })).toBeUndefined();
-    expect(parseOpening({ kind: "other", name: "arc", args: "" })).toBeUndefined();
-    expect(parseOpening({ name: "", args: "" })).toBeUndefined();
-    expect(parseOpening({ name: "arc" })).toBeUndefined();
   });
 });

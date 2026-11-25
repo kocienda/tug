@@ -31,21 +31,17 @@ export const DOCKET_CARD_COMPONENT_ID = "docket";
 /**
  * The Docket card's seed — its restore bag content. An unseeded card (from
  * the type picker) has neither field and asks for a project and a docket;
- * `thread` and `editSketch` ride the seed of one open and are never written
- * back.
+ * `thread` rides the seed of one open and is never written back.
  */
 export interface DocketCardSeed {
   projectDir?: string;
   docketId?: string;
   thread?: string;
-  /** A sketch id: the card opens its editor once the thread is in the snapshot. */
-  editSketch?: string;
 }
 
 /**
- * What the card writes back to its bag. Never `thread` or `editSketch`: a
- * thread is marked, and an editor entered, once, by the open that named it,
- * and a reload does neither.
+ * What the card writes back to its bag. Never `thread`: a thread is marked
+ * once, by the open that named it, and a reload marks nothing.
  */
 export interface DocketCardBag {
   projectDir?: string;
@@ -56,12 +52,11 @@ export interface DocketCardBag {
 /** Narrow an unknown restore bag into the card's seed. */
 export function coerceDocketSeed(value: unknown): (DocketCardSeed & DocketCardBag) | null {
   if (typeof value !== "object" || value === null) return null;
-  const { projectDir, docketId, thread, editSketch, showRetired } = value as Record<string, unknown>;
+  const { projectDir, docketId, thread, showRetired } = value as Record<string, unknown>;
   const seed: DocketCardSeed & DocketCardBag = {};
   if (typeof projectDir === "string" && projectDir.length > 0) seed.projectDir = projectDir;
   if (typeof docketId === "string" && docketId.length > 0) seed.docketId = docketId;
   if (typeof thread === "string" && thread.length > 0) seed.thread = thread;
-  if (typeof editSketch === "string" && editSketch.length > 0) seed.editSketch = editSketch;
   if (showRetired === true) seed.showRetired = true;
   return seed;
 }
@@ -131,16 +126,11 @@ export function openDocketInCard(
     });
     if (existing !== null) {
       existing.entry.setTarget(target);
-    } else if ((target.thread !== undefined || target.editSketch !== undefined) && page.isShell) {
-      // The card is in its own page, which marks the thread and enters the
-      // editor. The bus holds the verb until that page has said hello.
+    } else if (target.thread !== undefined && page.isShell) {
+      // The card is in its own page, which marks the thread. The bus holds
+      // the verb until that page has said hello.
       docketMarkThread.dispatch(
-        {
-          projectDir: target.projectDir,
-          docketId: target.docketId,
-          thread: target.thread,
-          editSketch: target.editSketch,
-        },
+        { projectDir: target.projectDir, docketId: target.docketId, thread: target.thread },
         { card: existingId },
       );
     }
@@ -151,7 +141,6 @@ export function openDocketInCard(
     projectDir: target.projectDir,
     docketId: target.docketId,
     ...(target.thread !== undefined ? { thread: target.thread } : {}),
-    ...(target.editSketch !== undefined ? { editSketch: target.editSketch } : {}),
   };
   // Save-before-activation ([L23]): `addCard` activates the fresh card, so
   // the card the gesture was made in banks its focus bag first.

@@ -9,10 +9,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   _resetShownDocketsForTest,
   findDocketCardInDeck,
-  openDocketInCard,
   recordShownDocket,
 } from "@/lib/open-docket-in-card";
-import type { CardDeck } from "@/card-deck";
 
 function deck(cards: Array<{ id: string; componentId: string; content?: unknown }>) {
   return {
@@ -53,28 +51,5 @@ describe("findDocketCardInDeck", () => {
     recordShownDocket("S", TARGET);
     const store = deck([{ id: "S", componentId: "session" }]);
     expect(findDocketCardInDeck(store, TARGET)).toBeNull();
-  });
-});
-
-describe("openDocketInCard", () => {
-  test("a fresh card's seed carries the editor to open, beside the thread", () => {
-    const added: Array<{ componentId: string; seed: unknown }> = [];
-    const store = {
-      getSnapshot: () => ({ cards: [], panes: [] }),
-      getCardState: () => undefined,
-      getFirstResponderCardId: () => null,
-      invokeSaveCallback: () => {},
-      addCard: (componentId: string, seed: unknown) => {
-        added.push({ componentId, seed });
-        return null;
-      },
-    } as unknown as CardDeck;
-    openDocketInCard(store, { ...TARGET, thread: "idea:1a2b3c4d", editSketch: "3f9a1c2e" });
-    expect(added).toEqual([
-      {
-        componentId: "docket",
-        seed: { ...TARGET, thread: "idea:1a2b3c4d", editSketch: "3f9a1c2e" },
-      },
-    ]);
   });
 });

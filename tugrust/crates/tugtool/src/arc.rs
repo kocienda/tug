@@ -1638,7 +1638,6 @@ fn run_documents(
     let plan = tugarc_core::plan_file(&root, name);
     let tasks = tugarc_core::tasks_file(&root, name);
     let sketch = tugarc_core::sketch_file(&root, name);
-    let (sketch_id, sketch_author) = documents_sketch(&Paths::from_env(), &root, name);
     let payload = DocumentsPayload {
         arc: name.to_string(),
         dir: dir.display().to_string(),
@@ -1650,8 +1649,6 @@ fn run_documents(
         plan_exists: plan.is_file(),
         tasks_exists: tasks.is_file(),
         sketch_exists: sketch.is_file(),
-        sketch_id,
-        sketch_author,
         bound_session,
     };
 
@@ -1676,24 +1673,6 @@ fn run_documents(
     Ok(())
 }
 
-/// The arc's newest generation's sketch id, and its latest version's author.
-fn documents_sketch(
-    paths: &Paths,
-    root: &Path,
-    name: &str,
-) -> (Option<String>, Option<tugarc_core::sketch::SketchAuthor>) {
-    let log_path = tugtool_core::paths::arc_log_path_at(paths, root);
-    let log = std::fs::read_to_string(log_path).unwrap_or_default();
-    let Some(id) = tugarc_core::log::generation_sketch_id(&log, name) else {
-        return (None, None);
-    };
-    let author = tugarc_core::sketch::find_sketch(paths, &id)
-        .into_iter()
-        .next()
-        .and_then(|(_, record)| record.latest_version().map(|v| v.author));
-    (Some(id), author)
-}
-
 /// `arc documents` — the directory and every document, with existence.
 #[derive(Debug, Serialize)]
 struct DocumentsPayload {
@@ -1710,15 +1689,6 @@ struct DocumentsPayload {
     plan_exists: bool,
     tasks_exists: bool,
     sketch_exists: bool,
-    /// The sketch record the arc's newest generation keeps its `sketch.md`
-    /// under, from the arc log's `arc-sketch` line; absent before one is kept.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sketch_id: Option<String>,
-    /// Who wrote that record's latest version: `model` or `user`. A stage
-    /// reads it before rewriting `sketch.md`, since a user's version is never
-    /// rewritten.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sketch_author: Option<tugarc_core::sketch::SketchAuthor>,
     /// The session `--bind` bound, as the server named it; absent without
     /// `--bind`.
     #[serde(skip_serializing_if = "Option::is_none")]

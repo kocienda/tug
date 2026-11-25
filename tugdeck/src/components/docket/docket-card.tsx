@@ -15,22 +15,6 @@
  * refusal — arrives, never on send. An ask nothing answers by its deadline
  * leaves the atoms where they are, says so, and Return files them again.
  *
- * **Typing is capturing an idea.** Return on a field holding text and no
- * atoms makes an idea of the line, filed on this docket. Ideas nothing has
- * been made from yet are the docket's inbox, listed first under its label.
- * A thread's gesture strip carries its work forward; Sketch it records a
- * fresh session on the idea and opens a Session card whose first turn is the
- * idea's line.
- *
- * **Every later rung opens a session too.** Keep sketch, Write brief, Revise
- * brief, Open arc and Reopen arc each open a fresh Session card whose first
- * turn is the plugin command that does the work; an arc opened on a brief
- * written from an older sketch asks first. Edit Sketch is the one gesture the
- * card answers itself: its editor keeps the user's text as a new version, and
- * its reader shows an older sketch version or a brief version's snapshot.
- * A stale brief, the brief an arc was opened on, and a sketch the user wrote
- * are said by attributes CSS draws ([L06]).
- *
  * **The record is the feed's, the gesture's outcome is the reply's.** What
  * the card lists is the `DOCKETS` snapshot ([L02]); the CONTROL reply only
  * says how a gesture went, on the quiet line under the field. A live arc's
@@ -60,8 +44,7 @@
 import "./docket-card.css";
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Prec } from "@codemirror/state";
-import { EditorView, keymap } from "@codemirror/view";
+import { EditorView } from "@codemirror/view";
 
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { ModalInputDialog } from "@/components/chrome/modal-input-dialog";
@@ -83,24 +66,6 @@ import {
   type TugMessageEditorHandle,
 } from "@/components/tugways/tug-message-editor";
 import { TugPopupButton, type TugPopupButtonItem } from "@/components/tugways/tug-popup-button";
-import { TugPushButton } from "@/components/tugways/tug-push-button";
-import { TugSectionLabel } from "@/components/tugways/tug-section-label";
-import { useControlDispatch } from "@/components/tugways/use-control-dispatch";
-import { dispatchCommand } from "@/command-dispatch";
-import type { TugAction } from "@/lib/action-vocabulary";
-import {
-  DOCKET_GESTURE_LABELS,
-  gesturesFor,
-  openingFor,
-  keptVersionRef,
-  needsStaleConfirm,
-  parseKeptVersionRef,
-  partitionInbox,
-  staleConfirmMessage,
-  type DocketGesture,
-} from "@/lib/docket-authoring";
-import { DocketReader, DocketSketchEditor, authorWords } from "./docket-sketch-editor";
-import { TUG_ATOM_CHAR } from "@/lib/tug-atom-char";
 import { type TugEditorContextMenuEntry } from "@/components/tugways/tug-editor-context-menu";
 import { getAtomsInState } from "@/components/tugways/tug-text-editor/atom-decoration";
 import { SessionCitation } from "@/components/tugways/cards/session-identity";
@@ -135,7 +100,7 @@ import type { CompletionItem, CompletionProvider } from "@/lib/tug-text-types";
 import { coerceDocketSeed, type DocketCardBag } from "@/lib/open-docket-in-card";
 import { docketShown } from "@/bus/declarations/verbs";
 import { page } from "@/bus/page";
-import type { DocketFileItem, SketchVersionRow } from "@/protocol";
+import type { DocketFileItem } from "@/protocol";
 
 /** The last path component, which an atom's `<project>/<name>` value leads with. */
 function projectLeaf(dir: string): string {
@@ -149,31 +114,6 @@ const FOLDED_COMMITS = 3;
 
 /** The line the card says when the sender's deadline passes. */
 export const UNANSWERED_FILING_LINE = "Tug did not answer — nothing was filed";
-
-/** The line the card says when an idea's capture goes unanswered. */
-export const UNANSWERED_IDEA_LINE = "Tug did not answer — no idea was added";
-
-/** The line the card says when Sketch it's ask goes unanswered. */
-export const UNANSWERED_SESSION_LINE = "Tug did not answer — no session opened";
-
-/** The line the card says when a sketch read goes unanswered. */
-export const UNANSWERED_READ_LINE = "Tug did not answer — the sketch was not read";
-
-/** The gestures this card's responder carries out, and the action each dispatches. */
-const GESTURE_ACTIONS: Partial<Record<DocketGesture, TugAction>> = {
-  "sketch-it": TUG_ACTIONS.SKETCH_IDEA,
-  "keep-sketch": TUG_ACTIONS.KEEP_SKETCH,
-  "edit-sketch": TUG_ACTIONS.EDIT_SKETCH,
-  "write-brief": TUG_ACTIONS.WRITE_BRIEF,
-  "revise-brief": TUG_ACTIONS.REVISE_BRIEF,
-  "open-arc": TUG_ACTIONS.OPEN_ARC_ON_BRIEF,
-  "reopen-arc": TUG_ACTIONS.REOPEN_ARC_ON_BRIEF,
-};
-
-/** The gestures `thread` offers that the card can carry out, in strip order. */
-function cardGestures(thread: DocketThread): DocketGesture[] {
-  return gesturesFor(thread).filter((g) => GESTURE_ACTIONS[g] !== undefined);
-}
 
 /** The open project section of CHANGESET_ALL whose workspace key is `key`. */
 function changesetProjectFor(
@@ -196,39 +136,22 @@ function arcEntryFor(project: ProjectChangeset | null, name: string): ArcChanges
 // The thread list
 // ---------------------------------------------------------------------------
 
-/** One row of the list: the inbox's label, or a thread. */
-type DocketRow = { kind: "label" } | { kind: "thread"; thread: DocketThread };
-
-/** The rows a docket draws: its inbox under a label, newest first, then the rest. */
-function docketRows(threads: readonly DocketThread[]): DocketRow[] {
-  const { inbox, rest } = partitionInbox(threads);
-  const rows: DocketRow[] = [];
-  if (inbox.length > 0) rows.push({ kind: "label" });
-  for (const thread of inbox) rows.push({ kind: "thread", thread });
-  for (const thread of rest) rows.push({ kind: "thread", thread });
-  return rows;
-}
-
-/** A flat, immutable source over one render's rows. */
+/** A flat, immutable source over one render's threads. */
 class DocketThreadSource implements TugListViewDataSource {
   constructor(
-    readonly rows: readonly DocketRow[],
+    readonly threads: readonly DocketThread[],
     readonly projectDir: string,
     readonly arcProject: ProjectChangeset | null,
     readonly open: ReadonlySet<string>,
   ) {}
   numberOfItems(): number {
-    return this.rows.length;
+    return this.threads.length;
   }
   idForIndex(index: number): string {
-    const row = this.rows[index]!;
-    return row.kind === "label" ? "docket-inbox-label" : row.thread.key;
+    return this.threads[index]!.key;
   }
-  kindForIndex(index: number): string {
-    return this.rows[index]!.kind;
-  }
-  roleForIndex(index: number): "cell" | "header" {
-    return this.rows[index]?.kind === "label" ? "header" : "cell";
+  kindForIndex(): string {
+    return "thread";
   }
   subscribe(): () => void {
     return () => {};
@@ -271,133 +194,20 @@ function ArcCell({
       </span>
     );
   }
-  const briefVersions = thread.brief?.versions ?? 0;
-  const onBrief =
-    typeof arc.brief_version === "number" && briefVersions > 0
-      ? `on brief v${arc.brief_version} of ${briefVersions}`
-      : null;
-  const runs = arc.runs ?? 1;
   return (
-    <span
-      className="docket-cell docket-cell-arc"
-      data-slot="docket-arc-cell"
-      data-fate={arc.fate}
-      data-stale={arc.stale === true ? "true" : undefined}
-    >
+    <span className="docket-cell docket-cell-arc" data-slot="docket-arc-cell" data-fate={arc.fate}>
       <TugArcAtom name={arc.name} />
       {state}
-      {onBrief !== null ? (
-        <span className="docket-cell-note" data-slot="docket-arc-brief">
-          {onBrief}
-        </span>
-      ) : null}
-      {runs > 1 ? (
-        <span className="docket-cell-note" data-slot="docket-arc-runs">{`${runs} runs`}</span>
-      ) : null}
     </span>
   );
 }
-
-/**
- * A row's brief cell: the brief, and — when it is a version kept on the
- * thread's sketch — a note naming the version, which opens a popup of every
- * kept brief version. A brief written from an older sketch version is marked
- * stale, and its title says from which.
- */
-function BriefCell({ thread }: { thread: DocketThread }): React.ReactElement | null {
-  const brief = thread.brief;
-  if (brief === undefined || brief === null) return null;
-  const stale = brief.stale === true;
-  const version = typeof brief.version === "number" ? brief.version : null;
-  const sketch = thread.sketch ?? null;
-  const count = brief.versions ?? 0;
-  const items: TugPopupButtonItem<string>[] =
-    sketch === null
-      ? []
-      : Array.from({ length: count }, (_, i) => count - i).map((n) => ({
-          action: TUG_ACTIONS.READ_BRIEF_VERSION,
-          value: keptVersionRef(sketch.id, n),
-          label: `Brief v${n}`,
-        }));
-  const note = version === null ? null : `v${version}${stale ? " · stale" : ""}`;
-  const title =
-    stale && typeof brief.sketch_version === "number" && sketch !== null
-      ? `Written from sketch v${brief.sketch_version}; the sketch is now v${sketch.versions}`
-      : undefined;
-  return (
-    <span
-      className="docket-cell"
-      data-slot="docket-brief-cell"
-      data-stale={stale ? "true" : undefined}
-      title={title}
-    >
-      {typeof brief.source_path === "string" ? (
-        <TugAtomChip
-          type="file"
-          label={brief.title ?? brief.source_path}
-          value={brief.source_path}
-          maxLabelWidth={220}
-        />
-      ) : (
-        <span className="docket-brief-title">{brief.title ?? "Brief"}</span>
-      )}
-      {note !== null ? (
-        items.length > 0 ? (
-          <span className="docket-brief-versions" data-slot="docket-brief-versions">
-            <TugPopupButton size="2xs" label={note} items={items} />
-          </span>
-        ) : (
-          <span className="docket-cell-note" data-slot="docket-brief-versions">
-            {note}
-          </span>
-        )
-      ) : null}
-    </span>
-  );
-}
-
-/**
- * A thread's gesture strip: one small button per gesture the card carries
- * out, each dispatched to the card's responder with the thread's key.
- */
-function DocketGestureStrip({ thread }: { thread: DocketThread }): React.ReactElement | null {
-  const { dispatch } = useControlDispatch();
-  const gestures = cardGestures(thread);
-  if (gestures.length === 0) return null;
-  return (
-    <span className="docket-thread-gestures" data-slot="docket-thread-gestures">
-      {gestures.map((gesture) => (
-        <TugPushButton
-          key={gesture}
-          size="2xs"
-          emphasis="ghost"
-          data-tug-focus="refuse"
-          data-gesture={gesture}
-          onClick={(event) => {
-            // The row is a door of its own (it folds); this press is not.
-            event?.stopPropagation();
-            event?.preventDefault();
-            dispatch({ action: GESTURE_ACTIONS[gesture]!, value: thread.key, phase: "discrete" });
-          }}
-        >
-          {DOCKET_GESTURE_LABELS[gesture]}
-        </TugPushButton>
-      ))}
-    </span>
-  );
-}
-
-const DocketInboxLabel: TugListViewCellRenderer<DocketThreadSource> = () => (
-  <TugSectionLabel label={{ name: "Inbox" }} data-slot="docket-inbox-label" />
-);
 
 const DocketThreadCell: TugListViewCellRenderer<DocketThreadSource> = ({
   index,
   dataSource,
 }: TugListViewCellProps<DocketThreadSource>) => {
-  const row = dataSource.rows[index];
-  if (row === undefined || row.kind !== "thread") return null;
-  const thread = row.thread;
+  const thread = dataSource.threads[index];
+  if (thread === undefined) return null;
   const open = dataSource.open.has(thread.key);
   const sessions = open ? thread.sessions : thread.sessions.slice(0, FOLDED_SESSIONS);
   const commits = open ? thread.commits : thread.commits.slice(0, FOLDED_COMMITS);
@@ -413,17 +223,8 @@ const DocketThreadCell: TugListViewCellRenderer<DocketThreadSource> = ({
       data-open={open ? "true" : undefined}
     >
       <span className="docket-thread-cells">
-        {thread.idea ? (
-          <span className="docket-cell docket-cell-idea" data-slot="docket-idea-cell">
-            {thread.idea.text}
-          </span>
-        ) : null}
         {thread.sketch ? (
-          <span
-            className="docket-cell"
-            data-slot="docket-sketch-cell"
-            data-author={thread.sketch.author === "user" ? "user" : undefined}
-          >
+          <span className="docket-cell" data-slot="docket-sketch-cell">
             <TugAtomChip
               type="sketch"
               label={thread.sketch.want ?? thread.sketch.id}
@@ -434,14 +235,22 @@ const DocketThreadCell: TugListViewCellRenderer<DocketThreadSource> = ({
             {thread.sketch.versions > 1 ? (
               <span className="docket-cell-note">{`v${thread.sketch.versions}`}</span>
             ) : null}
-            {thread.sketch.author === "user" ? (
-              <span className="docket-cell-note" data-slot="docket-sketch-author">
-                yours
-              </span>
-            ) : null}
           </span>
         ) : null}
-        <BriefCell thread={thread} />
+        {thread.brief ? (
+          <span className="docket-cell" data-slot="docket-brief-cell">
+            {typeof thread.brief.source_path === "string" ? (
+              <TugAtomChip
+                type="file"
+                label={thread.brief.title ?? thread.brief.source_path}
+                value={thread.brief.source_path}
+                maxLabelWidth={220}
+              />
+            ) : (
+              <span className="docket-brief-title">{thread.brief.title ?? "Brief"}</span>
+            )}
+          </span>
+        ) : null}
         <ArcCell thread={thread} arcProject={dataSource.arcProject} />
         {sessions.map((session) => (
           <span key={session.uuid} className="docket-cell" data-slot="docket-session-cell">
@@ -466,12 +275,11 @@ const DocketThreadCell: TugListViewCellRenderer<DocketThreadSource> = ({
           <span className="docket-cell-more" data-slot="docket-thread-more">{`+${hidden}`}</span>
         ) : null}
       </span>
-      <DocketGestureStrip thread={thread} />
     </TugListRow>
   );
 };
 
-const THREAD_CELL_RENDERERS = { label: DocketInboxLabel, thread: DocketThreadCell };
+const THREAD_CELL_RENDERERS = { thread: DocketThreadCell };
 
 // ---------------------------------------------------------------------------
 // The name dialog
@@ -540,20 +348,6 @@ export function DocketCardContent({ cardId }: { cardId: string }): React.ReactEl
   // never drawn from React state.
   const pendingThreadRef = useRef<string | null>(null);
   const [markGeneration, setMarkGeneration] = useState(0);
-  // The sketch whose editor an open asked for, once; consumed like the
-  // thread, when the sketch's thread is in the snapshot and the sender is up.
-  const pendingEditRef = useRef<string | null>(null);
-  const [editGeneration, setEditGeneration] = useState(0);
-  // What the body shows: the threads, the sketch editor, or the reader.
-  const [view, setView] = useState<DocketView>(THREADS_VIEW);
-  const [verbsReady, setVerbsReady] = useState(false);
-  // An arc gesture on a stale brief, waiting on the confirm.
-  const [staleAsk, setStaleAsk] = useState<{
-    key: string;
-    gesture: DocketGesture;
-    message: string;
-    anchor: HTMLElement | null;
-  } | null>(null);
 
   useCardStatePreservation<DocketCardBag | undefined>({
     onSave: () => ({
@@ -571,10 +365,6 @@ export function DocketCardContent({ cardId }: { cardId: string }): React.ReactEl
       if (seed.thread !== undefined) {
         pendingThreadRef.current = seed.thread;
         setMarkGeneration((g) => g + 1);
-      }
-      if (seed.editSketch !== undefined) {
-        pendingEditRef.current = seed.editSketch;
-        setEditGeneration((g) => g + 1);
       }
     },
   });
@@ -621,7 +411,6 @@ export function DocketCardContent({ cardId }: { cardId: string }): React.ReactEl
     if (connection === null) return;
     const verbs = docketVerbs(connection);
     verbsRef.current = verbs;
-    setVerbsReady(true);
     return () => {
       verbs.dispose();
       if (verbsRef.current === verbs) verbsRef.current = null;
@@ -643,10 +432,6 @@ export function DocketCardContent({ cardId }: { cardId: string }): React.ReactEl
           pendingThreadRef.current = next.thread;
           setMarkGeneration((g) => g + 1);
         }
-        if (next.editSketch !== undefined) {
-          pendingEditRef.current = next.editSketch;
-          setEditGeneration((g) => g + 1);
-        }
       },
     });
     return () => unregisterOpenDocketCard(cardId);
@@ -656,54 +441,11 @@ export function DocketCardContent({ cardId }: { cardId: string }): React.ReactEl
 
   const editorRef = useRef<TugMessageEditorHandle | null>(null);
   const fieldAtomsRef = useRef<readonly AtomSegment[]>([]);
-  // The field's text with its atoms taken out: what Return makes an idea of.
-  const fieldTextRef = useRef("");
   const filingRef = useRef(false);
-
-  const captureIdea = useCallback((text: string): void => {
-    const { effectiveProjectDir: dir, docket: d } = liveRef.current;
-    if (dir === null || d === null) {
-      setFilingLine("Choose or create a docket to file on");
-      return;
-    }
-    const verbs = verbsRef.current;
-    if (verbs === null) {
-      setFilingLine(UNANSWERED_IDEA_LINE);
-      return;
-    }
-    filingRef.current = true;
-    setFilingLine(null);
-    void verbs.ideaCreate({ projectDir: dir, docketId: d.id, text }).then((result) => {
-      filingRef.current = false;
-      if (result.kind === "unanswered") {
-        setFilingLine(UNANSWERED_IDEA_LINE);
-        return;
-      }
-      editorRef.current?.clear();
-      fieldAtomsRef.current = [];
-      fieldTextRef.current = "";
-      if (result.kind === "refused") {
-        setFilingLine(result.message);
-        return;
-      }
-      // The idea is kept even when the docket refused it; say why.
-      const outcome = result.reply.outcome;
-      setFilingLine(
-        outcome.outcome === "refused"
-          ? (outcome.reason ?? "The idea was kept but not filed")
-          : null,
-      );
-    });
-  }, []);
 
   const fileField = useCallback((): void => {
     const segments = fieldAtomsRef.current;
-    if (filingRef.current) return;
-    if (segments.length === 0) {
-      const text = fieldTextRef.current;
-      if (text.length > 0) captureIdea(text);
-      return;
-    }
+    if (segments.length === 0 || filingRef.current) return;
     const { effectiveProjectDir: dir, docket: d, docketProject: p } = liveRef.current;
     if (dir === null || d === null) {
       setFilingLine("Choose or create a docket to file on");
@@ -746,7 +488,7 @@ export function DocketCardContent({ cardId }: { cardId: string }): React.ReactEl
         result.kind === "ok" ? filingSentence(result.reply.outcomes, names) : result.message;
       setFilingLine([said, refusedClause].filter((s) => s.length > 0).join(" · "));
     });
-  }, [captureIdea]);
+  }, []);
 
   // The field's atoms, read whole — with each atom's session and arc
   // identity — off the editor state on every user edit. The substrate the
@@ -756,24 +498,10 @@ export function DocketCardContent({ cardId }: { cardId: string }): React.ReactEl
   const fileFieldRef = useRef(fileField);
   fileFieldRef.current = fileField;
   const fieldExtensions = useMemo(
-    () => [
-      // Return is the field's submit: it captures the typed line as an idea,
-      // or files the atoms again. The editor beneath keeps Cmd-Return too.
-      Prec.high(
-        keymap.of([
-          {
-            key: "Enter",
-            run: () => {
-              fileFieldRef.current();
-              return true;
-            },
-          },
-        ]),
-      ),
+    () =>
       EditorView.updateListener.of((update) => {
         if (!update.docChanged) return;
         fieldAtomsRef.current = getAtomsInState(update.state).map((a) => a.segment);
-        fieldTextRef.current = update.state.doc.toString().split(TUG_ATOM_CHAR).join("").trim();
         const userEdit = update.transactions.some(
           (t) =>
             (t.isUserEvent("input") || t.isUserEvent("delete") || t.isUserEvent("undo") ||
@@ -782,7 +510,6 @@ export function DocketCardContent({ cardId }: { cardId: string }): React.ReactEl
         );
         if (userEdit && fieldAtomsRef.current.length > 0) fileFieldRef.current();
       }),
-    ],
     [],
   );
 
@@ -801,93 +528,6 @@ export function DocketCardContent({ cardId }: { cardId: string }): React.ReactEl
     [],
   );
 
-  // ---- Authoring ----
-
-  // Open a fresh Session card whose first turn is `gesture`'s opening.
-  const openGesture = useCallback(
-    (gesture: DocketGesture, key: string): void => {
-      const { docket: d, effectiveProjectDir: dir } = liveRef.current;
-      if (d === null || dir === null) return;
-      const thread = d.threads.find((t) => t.key === key);
-      if (thread === undefined || !gesturesFor(thread).includes(gesture)) return;
-      const opening = openingFor(gesture, thread);
-      if (opening === null) return;
-      setFilingLine(null);
-      dispatchCommand(TUG_ACTIONS.OPEN_AUTHORING_SESSION, {
-        projectDir: dir,
-        sessionId: crypto.randomUUID(),
-        opening,
-        originCardId: cardId,
-      });
-    },
-    [cardId],
-  );
-
-  // An arc gesture: on a stale brief, ask first, anchored on the row's strip.
-  const openArcGesture = useCallback(
-    (gesture: DocketGesture, key: string): void => {
-      const thread = liveRef.current.docket?.threads.find((t) => t.key === key);
-      if (thread === undefined) return;
-      if (!needsStaleConfirm(gesture, thread)) {
-        openGesture(gesture, key);
-        return;
-      }
-      const index = rowsRef.current.findIndex((r) => r.kind === "thread" && r.thread.key === key);
-      const rowEl = index === -1 ? null : (listRef.current?.getElementForIndex(index) ?? null);
-      const anchor =
-        rowEl?.querySelector<HTMLElement>('[data-slot="docket-thread-gestures"]') ?? rowEl;
-      setStaleAsk({ key, gesture, message: staleConfirmMessage(thread), anchor });
-    },
-    [openGesture],
-  );
-
-  // Read a sketch's latest version into the editor.
-  const enterEditor = useCallback((id: string): void => {
-    const verbs = verbsRef.current;
-    const dir = liveRef.current.effectiveProjectDir;
-    if (verbs === null || dir === null) return;
-    void verbs.sketchRead({ projectDir: dir, id }).then((result) => {
-      if (result.kind === "ok") {
-        setView({
-          kind: "edit-sketch",
-          id,
-          base: result.reply.version,
-          text: result.reply.text,
-          versions: result.reply.versions,
-        });
-      } else if (result.kind === "refused") setFilingLine(result.message);
-      else setFilingLine(UNANSWERED_READ_LINE);
-    });
-  }, []);
-
-  // Read one kept text into the reader: a sketch version, or a brief version.
-  const readKept = useCallback(
-    (id: string, which: { version: number } | { brief: number }): void => {
-      const verbs = verbsRef.current;
-      const dir = liveRef.current.effectiveProjectDir;
-      if (verbs === null || dir === null) return;
-      void verbs.sketchRead({ projectDir: dir, id, ...which }).then((result) => {
-        if (result.kind === "ok") {
-          const reply = result.reply;
-          let title: string;
-          if ("brief" in which) {
-            const row = reply.briefs.find((b) => b.n === which.brief);
-            title =
-              row !== undefined && row.title.length > 0
-                ? `Brief v${which.brief} · ${row.title}`
-                : `Brief v${which.brief}`;
-          } else {
-            const row = reply.versions.find((v) => v.n === which.version);
-            title = `Sketch v${which.version} · ${authorWords(row?.author)}`;
-          }
-          setView({ kind: "read", title, text: reply.text });
-        } else if (result.kind === "refused") setFilingLine(result.message);
-        else setFilingLine(UNANSWERED_READ_LINE);
-      });
-    },
-    [],
-  );
-
   const chooserRef = useRef<HTMLDivElement | null>(null);
 
   const responderId = React.useId();
@@ -899,13 +539,11 @@ export function DocketCardContent({ cardId }: { cardId: string }): React.ReactEl
         setProjectDir(event.value);
         setDocketId(null);
         setFilingLine(null);
-        setView(THREADS_VIEW);
       },
       [TUG_ACTIONS.SELECT_DOCKET]: (event: ActionEvent) => {
         if (typeof event.value !== "string") return;
         setDocketId(event.value);
         setFilingLine(null);
-        setView(THREADS_VIEW);
       },
       [TUG_ACTIONS.NEW_DOCKET]: () => setNaming("new"),
       [TUG_ACTIONS.RENAME_DOCKET]: () => {
@@ -943,69 +581,6 @@ export function DocketCardContent({ cardId }: { cardId: string }): React.ReactEl
             else if (result.kind === "refused") setFilingLine(result.message);
             else setFilingLine("Tug did not answer — nothing was moved");
           });
-      },
-      [TUG_ACTIONS.SKETCH_IDEA]: (event: ActionEvent) => {
-        const { docket: d, effectiveProjectDir: dir } = liveRef.current;
-        if (d === null || dir === null) return;
-        const thread = d.threads.find((t) => t.key === event.value);
-        const idea = thread?.idea ?? null;
-        if (thread === undefined || idea === null) return;
-        if (!gesturesFor(thread).includes("sketch-it")) return;
-        const opening = openingFor("sketch-it", thread);
-        if (opening === null) return;
-        const verbs = verbsRef.current;
-        if (verbs === null) {
-          setFilingLine(UNANSWERED_SESSION_LINE);
-          return;
-        }
-        // The card mints the session's id so the idea names the session
-        // before the session exists; a refusal or silence opens nothing.
-        const sessionId = crypto.randomUUID();
-        void verbs.ideaAddSession({ projectDir: dir, id: idea.id, uuid: sessionId }).then((result) => {
-          if (result.kind === "unanswered") {
-            setFilingLine(UNANSWERED_SESSION_LINE);
-            return;
-          }
-          if (result.kind === "refused") {
-            setFilingLine(result.message);
-            return;
-          }
-          setFilingLine(null);
-          dispatchCommand(TUG_ACTIONS.OPEN_AUTHORING_SESSION, {
-            projectDir: dir,
-            sessionId,
-            opening,
-            originCardId: cardId,
-          });
-        });
-      },
-      [TUG_ACTIONS.KEEP_SKETCH]: (event: ActionEvent) => {
-        if (typeof event.value === "string") openGesture("keep-sketch", event.value);
-      },
-      [TUG_ACTIONS.WRITE_BRIEF]: (event: ActionEvent) => {
-        if (typeof event.value === "string") openGesture("write-brief", event.value);
-      },
-      [TUG_ACTIONS.REVISE_BRIEF]: (event: ActionEvent) => {
-        if (typeof event.value === "string") openGesture("revise-brief", event.value);
-      },
-      [TUG_ACTIONS.OPEN_ARC_ON_BRIEF]: (event: ActionEvent) => {
-        if (typeof event.value === "string") openArcGesture("open-arc", event.value);
-      },
-      [TUG_ACTIONS.REOPEN_ARC_ON_BRIEF]: (event: ActionEvent) => {
-        if (typeof event.value === "string") openArcGesture("reopen-arc", event.value);
-      },
-      [TUG_ACTIONS.EDIT_SKETCH]: (event: ActionEvent) => {
-        const thread = liveRef.current.docket?.threads.find((t) => t.key === event.value);
-        const sketch = thread?.sketch ?? null;
-        if (sketch !== null) enterEditor(sketch.id);
-      },
-      [TUG_ACTIONS.READ_SKETCH_VERSION]: (event: ActionEvent) => {
-        const ref = parseKeptVersionRef(event.value);
-        if (ref !== null) readKept(ref.id, { version: ref.n });
-      },
-      [TUG_ACTIONS.READ_BRIEF_VERSION]: (event: ActionEvent) => {
-        const ref = parseKeptVersionRef(event.value);
-        if (ref !== null) readKept(ref.id, { brief: ref.n });
       },
       [TUG_ACTIONS.REMOVE_THREAD_FROM_DOCKET]: (event: ActionEvent) => {
         const { docket: d, effectiveProjectDir: dir } = liveRef.current;
@@ -1050,12 +625,9 @@ export function DocketCardContent({ cardId }: { cardId: string }): React.ReactEl
 
   const listRef = useRef<TugListViewHandle | null>(null);
   const threads = docket?.threads ?? NO_THREADS;
-  const rows = useMemo(() => docketRows(threads), [threads]);
-  const rowsRef = useRef(rows);
-  rowsRef.current = rows;
   const source = useMemo(
-    () => new DocketThreadSource(rows, effectiveProjectDir ?? "", arcProject, open),
-    [rows, effectiveProjectDir, arcProject, open],
+    () => new DocketThreadSource(threads, effectiveProjectDir ?? "", arcProject, open),
+    [threads, effectiveProjectDir, arcProject, open],
   );
   const toggleFold = useCallback((key: string): void => {
     setOpen((prev) => {
@@ -1068,11 +640,11 @@ export function DocketCardContent({ cardId }: { cardId: string }): React.ReactEl
   const delegate = useMemo<TugListViewDelegate>(
     () => ({
       onActivate: (index: number) => {
-        const row = rows[index];
-        if (row !== undefined && row.kind === "thread") toggleFold(row.thread.key);
+        const thread = threads[index];
+        if (thread !== undefined) toggleFold(thread.key);
       },
     }),
-    [rows, toggleFold],
+    [threads, toggleFold],
   );
 
   // Mark the thread an open asked for: scroll it into view and set the
@@ -1080,7 +652,7 @@ export function DocketCardContent({ cardId }: { cardId: string }): React.ReactEl
   useLayoutEffect(() => {
     const key = pendingThreadRef.current;
     if (key === null) return;
-    const index = rows.findIndex((r) => r.kind === "thread" && r.thread.key === key);
+    const index = threads.findIndex((t) => t.key === key);
     if (index === -1) return;
     pendingThreadRef.current = null;
     const list = listRef.current;
@@ -1096,17 +668,7 @@ export function DocketCardContent({ cardId }: { cardId: string }): React.ReactEl
       return true;
     };
     if (!mark()) requestAnimationFrame(() => void mark());
-  }, [rows, markGeneration]);
-
-  // Enter the editor an open asked for, once the sketch's thread has arrived
-  // and the sender is up to read it.
-  useLayoutEffect(() => {
-    const id = pendingEditRef.current;
-    if (id === null || !verbsReady) return;
-    if (!threads.some((t) => t.sketch?.id === id)) return;
-    pendingEditRef.current = null;
-    enterEditor(id);
-  }, [threads, editGeneration, verbsReady, enterEditor]);
+  }, [threads, markGeneration]);
 
   // ---- The row menu ----
 
@@ -1134,12 +696,6 @@ export function DocketCardContent({ cardId }: { cardId: string }): React.ReactEl
     if (key === undefined || docket === null || docketProject === null) return [];
     const targets = docketProject.dockets.filter((d) => !d.retired && d.id !== docket.id);
     const entries: TugEditorContextMenuEntry[] = [];
-    const thread = docket.threads.find((t) => t.key === key);
-    const gestures = thread === undefined ? [] : cardGestures(thread);
-    for (const gesture of gestures) {
-      entries.push({ action: GESTURE_ACTIONS[gesture]!, value: key, label: DOCKET_GESTURE_LABELS[gesture] });
-    }
-    if (gestures.length > 0) entries.push({ type: "separator" });
     if (targets.length > 0) {
       entries.push({ type: "label", label: "Move to Docket" });
       for (const target of targets) {
@@ -1206,23 +762,6 @@ export function DocketCardContent({ cardId }: { cardId: string }): React.ReactEl
       <TugEmptyLine data-slot="docket-empty">
         {dockets.length === 0 ? "No dockets" : "Choose a docket"}
       </TugEmptyLine>
-    );
-  } else if (view.kind === "edit-sketch") {
-    body = (
-      <DocketSketchEditor
-        key={`${view.id}@${view.base}`}
-        projectDir={effectiveProjectDir}
-        sketchId={view.id}
-        baseVersion={view.base}
-        text={view.text}
-        versions={view.versions}
-        verbs={verbsRef.current}
-        onDone={() => setView(THREADS_VIEW)}
-      />
-    );
-  } else if (view.kind === "read") {
-    body = (
-      <DocketReader title={view.title} text={view.text} onDone={() => setView(THREADS_VIEW)} />
     );
   } else if (threads.length === 0) {
     body = <TugEmptyLine data-slot="docket-empty">Nothing filed</TugEmptyLine>;
@@ -1291,7 +830,7 @@ export function DocketCardContent({ cardId }: { cardId: string }): React.ReactEl
           <TugMessageEditor
             ref={editorRef}
             maxRows={1}
-            placeholder="Type an idea, or paste to file"
+            placeholder="Paste or drop to file"
             borderless={false}
             extensions={fieldExtensions}
             onSubmit={fileField}
@@ -1322,20 +861,6 @@ export function DocketCardContent({ cardId }: { cardId: string }): React.ReactEl
           }}
           onCancel={() => setConfirmingRetire(false)}
         />
-        <TugConfirmPopover
-          open={staleAsk !== null}
-          anchorEl={staleAsk?.anchor ?? null}
-          message={staleAsk?.message ?? ""}
-          confirmLabel="Open"
-          side="bottom"
-          align="end"
-          onConfirm={() => {
-            const ask = staleAsk;
-            setStaleAsk(null);
-            if (ask !== null) openGesture(ask.gesture, ask.key);
-          }}
-          onCancel={() => setStaleAsk(null)}
-        />
         {naming !== null ? (
           <DocketNameDialog
             placeholder={naming === "new" ? "Name the new docket" : "Rename the docket"}
@@ -1348,20 +873,6 @@ export function DocketCardContent({ cardId }: { cardId: string }): React.ReactEl
     </ResponderScope>
   );
 }
-
-/** What the card's body shows. */
-type DocketView =
-  | { kind: "threads" }
-  | {
-      kind: "edit-sketch";
-      id: string;
-      base: number;
-      text: string;
-      versions: readonly SketchVersionRow[];
-    }
-  | { kind: "read"; title: string; text: string };
-
-const THREADS_VIEW: DocketView = { kind: "threads" };
 
 const NO_THREADS: readonly DocketThread[] = [];
 
