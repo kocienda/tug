@@ -480,7 +480,18 @@ final class MenuStateSync: NSObject, NSMenuDelegate {
         guard !menuState.panes.isEmpty else { return }
         let anchor = menus.windowPaneListAnchor
         var index = menu.index(of: anchor) + 1
+        var previousSection: String?
         for (n, pane) in menuState.panes.enumerated() {
+            // Sidebar cards, session cards and the other cards are sections
+            // of their own: a separator where one gives way to the next. It
+            // carries the slice's prefix so the removal above sweeps it with
+            // the rows.
+            if n > 0, previousSection != pane.section {
+                let separator = NSMenuItem.separator().identified("window.pane.separator")
+                menu.insertItem(separator, at: index)
+                index += 1
+            }
+            previousSection = pane.section
             // Positional identifiers: the harness addresses slots, not pane
             // ids (which are session-random).
             let item = NSMenuItem(title: pane.title, action: #selector(AppDelegate.focusPaneFromMenu(_:)), keyEquivalent: "").identified("window.pane.\(n)")

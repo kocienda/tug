@@ -21,6 +21,10 @@ struct MenuState: Decodable {
         let id: String
         let title: String
         let focused: Bool
+        /// The row's Window-menu section: `sidebar`, `session` or `other`.
+        /// The list arrives grouped in that order, and the menu draws a
+        /// separator wherever the section changes.
+        let section: String?
     }
 
     /// One workspace row for the Window menu's Workspaces section, in the

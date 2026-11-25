@@ -134,7 +134,7 @@ describe("projectDeckState", () => {
     expect(after.panes.map((p) => p.focused)).toEqual([true, false, false]);
   });
 
-  test("sidebar panes list after deck panes, wherever their cards sit", () => {
+  test("sidebar panes list before deck panes, wherever their cards sit", () => {
     const rail = { id: "r", componentId: "menu-state-rail", title: "Rail", closable: true };
     // Live: the rail card predates the newest deck card.
     const live = projectDeckState(
@@ -144,8 +144,42 @@ describe("projectDeckState", () => {
     const restored = projectDeckState(
       deck([card("a"), card("b"), rail], [pane("p1", ["a"]), pane("p2", ["b"]), pane("pr", ["r"])]),
     );
-    expect(live.panes.map((p) => p.id)).toEqual(["p1", "p2", "pr"]);
-    expect(restored.panes.map((p) => p.id)).toEqual(["p1", "p2", "pr"]);
+    expect(live.panes.map((p) => p.id)).toEqual(["pr", "p1", "p2"]);
+    expect(restored.panes.map((p) => p.id)).toEqual(["pr", "p1", "p2"]);
+    // The section the host draws its separators from.
+    expect(restored.panes.map((p) => p.section)).toEqual(["sidebar", "session", "session"]);
+  });
+
+  test("rows list sidebar cards, then session cards, then the other cards", () => {
+    const rail = { id: "r", componentId: "menu-state-rail", title: "Rail", closable: true };
+    const session = (id: string) => ({ id, componentId: "session", title: "", closable: true });
+    const text = (id: string) => ({ id, componentId: "menu-state-titled", title: "", closable: true });
+    // Created text, session, rail, text, session — and the sections regroup them.
+    const projection = projectDeckState(
+      deck(
+        [text("t1"), session("s1"), rail, text("t2"), session("s2")],
+        [pane("pt1", ["t1"]), pane("ps1", ["s1"]), pane("pr", ["r"]), pane("pt2", ["t2"]), pane("ps2", ["s2"])],
+      ),
+    );
+    expect(projection.panes.map((p) => p.id)).toEqual(["pr", "ps1", "ps2", "pt1", "pt2"]);
+    expect(projection.panes.map((p) => p.section)).toEqual([
+      "sidebar",
+      "session",
+      "session",
+      "other",
+      "other",
+    ]);
+  });
+
+  test("a newly opened card takes the last row", () => {
+    const rail = { id: "r", componentId: "menu-state-rail", title: "Rail", closable: true };
+    const opened = projectDeckState(
+      deck(
+        [card("a"), rail, card("b"), card("new")],
+        [pane("p1", ["a"]), pane("pr", ["r"]), pane("p2", ["b"]), pane("pn", ["new"])],
+      ),
+    );
+    expect(opened.panes.map((p) => p.id)).toEqual(["pr", "p1", "p2", "pn"]);
   });
 
   test("no spaces snapshot projects an empty workspace list", () => {

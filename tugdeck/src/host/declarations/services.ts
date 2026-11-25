@@ -272,7 +272,7 @@ const menuCardBlocks = {
 };
 
 const menuStatePayload: Codec<MenuStatePayload> = obj({
-  panes: arr(obj({ id: str, title: str, focused: bool, cardCount: num, closable: bool })),
+  panes: arr(obj({ id: str, title: str, focused: bool, cardCount: num, closable: bool, section: literal("sidebar", "session", "other") })),
   spaces: arr(obj({ id: str, name: str, active: bool })),
   activeCard: nullable(obj({ cardId: str, component: str, closable: bool })),
   selectionActive: bool,
@@ -325,7 +325,7 @@ export const menuStateToHost = defineToHost<MenuStatePayload | MenuStateBodyPayl
   codec: oneOf(menuStatePayload, menuStateBodyPayload),
   samples: [
     {
-      panes: [{ id: "p1", title: "Session", focused: true, cardCount: 1, closable: true }],
+      panes: [{ id: "p1", title: "Session", focused: true, cardCount: 1, closable: true, section: "session" }],
       spaces: [{ id: "s1", name: "Main", active: true }],
       activeCard: { cardId: "c1", component: "session", closable: true },
       selectionActive: true,

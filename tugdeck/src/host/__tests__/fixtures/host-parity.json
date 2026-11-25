@@ -1252,7 +1252,8 @@
               "title": "Session",
               "focused": true,
               "cardCount": 1,
-              "closable": true
+              "closable": true,
+              "section": "session"
             }
           ],
           "spaces": [

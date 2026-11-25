@@ -432,7 +432,25 @@ export interface MenuStatePaneEntry {
   focused: boolean;
   cardCount: number;
   closable: boolean;
+  /**
+   * The Window menu section the pane's row belongs to. The list arrives
+   * sidebar cards first, then session cards, then every other card, and the
+   * host draws a separator wherever the section changes.
+   */
+  section: MenuStatePaneSection;
 }
+
+/** A pane row's section in the Window menu, in the order the sections list. */
+export type MenuStatePaneSection = "sidebar" | "session" | "other";
+
+const PANE_SECTION_ORDER: Record<MenuStatePaneSection, number> = {
+  sidebar: 0,
+  session: 1,
+  other: 2,
+};
+
+/** The Session card's component id — the one kind with a section of its own. */
+const SESSION_COMPONENT_ID = "session";
 
 /**
  * One workspace row for the Window menu's Workspaces section ([P12], [B10]).
@@ -808,12 +826,19 @@ export function projectDeckState(
   // keeps its row however often it is raised. The focused pane is still
   // marked by `focused`, which is all the checkmark reads.
   //
-  // Sidebar panes sort as a group of their own, after every deck pane. The
+  // The rows fall in three sections, in this order: sidebar cards, session
+  // cards, then every other card (text cards and the rest). A pane holding a
+  // session card is a session row whatever else is tabbed into it.
+  //
+  // Sidebar panes sort as a group of their own, BEFORE every deck pane. The
   // window rail is saved apart from each workspace's deck and rejoined behind
   // it at load and on a workspace switch, so a sidebar card's place in
   // `state.cards` relative to a deck card does not survive either one; an
-  // interleaved order would move rows across a relaunch. Within each group
-  // the creation order does survive.
+  // interleaved order would move rows across a relaunch. The sidebar group
+  // takes the registry's order, which is the same on every launch, so those
+  // rows are a fixed head to the list. The deck panes follow, each section in
+  // creation order, which is what puts a newly opened card on the last row of
+  // its own section.
   const cardOrder = new Map(state.cards.map((c, i) => [c.id, i]));
   const creationRank = (s: (typeof stacks)[number]): number => {
     let rank = Number.POSITIVE_INFINITY;
@@ -823,14 +848,32 @@ export function projectDeckState(
     }
     return rank;
   };
-  const isRailPane = (s: (typeof stacks)[number]): boolean =>
-    s.cardIds.some((cid) => {
+  const sidebarOrder = new Map<string, number>();
+  for (const [componentId, registration] of getAllRegistrations()) {
+    if (registration.layoutRole === "sidebar") {
+      sidebarOrder.set(componentId, sidebarOrder.size);
+    }
+  }
+  /** A sidebar pane's place in the registry's order; undefined for a deck pane. */
+  const railRank = (s: (typeof stacks)[number]): number | undefined => {
+    let rank: number | undefined;
+    for (const cid of s.cardIds) {
       const c = cardsById.get(cid);
-      return c !== undefined && isSidebarCard(c.componentId);
-    });
+      const i = c === undefined ? undefined : sidebarOrder.get(c.componentId);
+      if (i !== undefined && (rank === undefined || i < rank)) rank = i;
+    }
+    return rank;
+  };
   const panes = stacks
     .map((s, zIndex) => {
       const activeCard = cardsById.get(s.activeCardId);
+      const sidebarRank = railRank(s);
+      const section: MenuStatePaneSection =
+        sidebarRank !== undefined
+          ? "sidebar"
+          : s.cardIds.some((cid) => cardsById.get(cid)?.componentId === SESSION_COMPONENT_ID)
+            ? "session"
+            : "other";
       return {
         entry: {
           id: s.id,
@@ -838,13 +881,14 @@ export function projectDeckState(
           focused: s.id === focusedId,
           cardCount: s.cardIds.length,
           closable: activeCard?.closable ?? false,
+          section,
         },
-        rail: isRailPane(s) ? 1 : 0,
-        rank: creationRank(s),
+        group: PANE_SECTION_ORDER[section],
+        rank: sidebarRank ?? creationRank(s),
         zIndex,
       };
     })
-    .sort((a, b) => a.rail - b.rail || a.rank - b.rank || a.zIndex - b.zIndex)
+    .sort((a, b) => a.group - b.group || a.rank - b.rank || a.zIndex - b.zIndex)
     .map(({ entry }) => entry);
 
   const focusedActiveCard = focusedStack
