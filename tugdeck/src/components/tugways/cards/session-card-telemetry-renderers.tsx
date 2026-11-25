@@ -86,6 +86,7 @@ import {
 import {
   useSessionJoinReady,
   useSessionTurnEndUnseen,
+  useSessionWheelDriving,
 } from "@/lib/code-session-store/use-session-phase";
 import { ARC_JOIN_READY_CELL_WORD } from "@/lib/arc-join-register";
 import type { CodeSessionStore } from "@/lib/code-session-store";
@@ -1182,6 +1183,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // and the masthead dot cannot disagree about one arc.
   const joinReady = useSessionJoinReady(snap.tugSessionId);
   const turnEndUnseen = useSessionTurnEndUnseen(snap.tugSessionId);
+  const wheelDriving = useSessionWheelDriving(snap.tugSessionId);
   // Live intra-turn usage rides the streaming document's per-path
   // observers ([L02]) — a `streaming_usage` frame ticks only this row,
   // never the whole-store snapshot (and so never the transcript list).
@@ -1422,6 +1424,9 @@ export const SessionTelemetryStatusRow = React.forwardRef<
     // A turn that finished while the user looked elsewhere reads Done, the
     // same fact the dot reads, so the cell and the dot cannot disagree.
     turnEndUnseen,
+    // An arc the Wheel is still walking reads Working between its steps, the
+    // same fact the dot reads.
+    wheelDriving,
   };
   const statePhaseKey = sessionSessionPhaseKey(indicatorState);
   // STATE cell value — the human-readable phase title. The two

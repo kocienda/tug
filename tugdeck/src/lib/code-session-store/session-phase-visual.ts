@@ -60,6 +60,19 @@
  * from the reducer — whose `idle` is again true about the turn and
  * silent about the session. Like `ready` it keeps `canSubmit` true.
  *
+ * `wheel` is the fifth, and the one that keeps a quiet reducer from
+ * reading as a finished session: an arc seated on this session is being
+ * walked by the Wheel, which asks for one step per turn. Between two
+ * steps no turn is in flight, so the reducer says `idle`, and the turn
+ * that just ended has stamped the unread mark — true about the turn, and
+ * a lie about the session, whose work is not done and whose next move is
+ * the Wheel's, not a person's. Without it every step boundary turned the
+ * dot green and still, bounced the dock and posted a notification. It
+ * wears the working triple, so the dot breathes on through the boundary
+ * without a repaint, and it ends when the Wheel does — stopped, done, or
+ * signed off by its audit — which is the one moment the session is
+ * handed back.
+ *
  * Migrated from the legacy `TugStateIndicator` — the visual
  * vocabulary is preserved; the API shape is reshaped to the unified
  * indicator's phase axis.
@@ -122,6 +135,13 @@ export interface SessionPhaseInput {
    * to consult, and absent correctly reads as "makes no claim".
    */
   readonly turnEndUnseen?: boolean;
+  /**
+   * Whether the Wheel is still walking the arc seated on this session —
+   * a run record with a rotated stage, neither done nor stopped. Optional
+   * for the same reason as `joinReady`: a replayed historical row has no
+   * run to consult, and absent correctly reads as "makes no claim".
+   */
+  readonly wheelDriving?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -136,6 +156,7 @@ export type SessionPhaseKey =
   | "ready"
   | "done"
   | "background"
+  | "wheel"
   | CodeSessionPhase;
 
 /**
@@ -189,6 +210,13 @@ export type SessionPhaseKey =
  * its work to the background has handed nothing back yet. The mark is
  * not lost: it stands on the ledger row and reads the moment the session
  * goes quiet. A turn in flight keeps its own phase — the mark waits.
+ *
+ * `wheel` promotes from `idle` alone, below `background` and above
+ * `done`: a session whose arc the Wheel is still walking has not handed
+ * anything back, whatever the step that just ended said. Running jobs
+ * keep `background`, the more specific reading of the same not-done
+ * fact. `ready` outranks it, because a standing join offer is the
+ * Wheel's own sign-off.
  */
 export function sessionSessionPhaseKey(input: SessionPhaseInput): SessionPhaseKey {
   if (input.transportState === "offline") return "offline";
@@ -200,6 +228,7 @@ export function sessionSessionPhaseKey(input: SessionPhaseInput): SessionPhaseKe
   if (input.phase === "idle" && (input.runningJobCount ?? 0) > 0) {
     return "background";
   }
+  if (input.phase === "idle" && input.wheelDriving === true) return "wheel";
   if (input.phase === "idle" && input.turnEndUnseen === true) return "done";
   return input.phase;
 }
@@ -238,6 +267,7 @@ export const SESSION_PHASE_LABELS: Record<SessionPhaseKey, string> = {
   ready: "Ready",
   done: "Done",
   background: "Running",
+  wheel: "Working",
   submitting: "Sending",
   awaiting_first_token: "Waiting",
   streaming: "Streaming",
@@ -335,6 +365,7 @@ export function sessionSessionPhaseVisual(phaseKey: string): TugProgressIndicato
     case "tool_work":
     case "replaying":
     case "waking":
+    case "wheel":
       return { tone: "action", state: "running" };
     case "idle":
     default:

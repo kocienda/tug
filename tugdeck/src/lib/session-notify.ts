@@ -11,6 +11,11 @@
  *   completion — the user asked for it, and its card passes through
  *   `interrupting` — and neither is a replay settling or a wire coming back,
  *   which pass through `replaying` and `restoring`.
+ *   **A step of an arc the Wheel walks is not a completion either.** The
+ *   Wheel asks for one step per turn, so every step ends a turn; between two
+ *   steps the card reads `wheel`, a live key, and the session completes only
+ *   when the Wheel hands it back — stopped, done, or at a standing join
+ *   offer. That is one event for the whole walk, not one per step.
  * - **input** — a working session raises a question or a permission request:
  *   its phase key becomes `awaiting_approval` from a live turn. A dialog that
  *   was already standing when the shell first saw the card, or that comes
@@ -46,7 +51,14 @@ import { bodyFactsStore } from "@/lib/body-facts-store";
 import { bodilessFactsStore } from "@/lib/bodiless-facts-store";
 import { getSessionLedgerStore } from "@/lib/session-ledger-store";
 import { getTugbankClient } from "@/lib/tugbank-singleton";
-import { reportedPhaseOf, sessionPhaseFromSnapshot } from "@/lib/code-session-store/use-session-phase";
+import {
+  cardWheelDriving,
+  reportedPhaseOf,
+  sessionPhaseFromSnapshot,
+  subscribeWheel,
+  withWheelDriving,
+} from "@/lib/code-session-store/use-session-phase";
+import { getChangesetAllStore } from "@/lib/changeset-all-store";
 import type { CodeSessionStore } from "@/lib/code-session-store";
 import {
   SESSION_NOTIFY_BANNER_KEYS,
@@ -66,6 +78,7 @@ const LIVE_TURN: ReadonlySet<string> = new Set([
   "tool_work",
   "waking",
   "awaiting_approval",
+  "wheel",
 ]);
 
 /** The phase keys of a session at rest with its turn handed back. */
@@ -154,11 +167,23 @@ export function deckSessionNotifySources(post: (note: SessionNotifyPost) => void
     cardIds: () => cardSessionBindingStore.getSnapshot().keys(),
     phaseOf: (cardId) => {
       const store = cardServicesStore.getServices(cardId)?.codeSessionStore ?? null;
-      return store !== null ? sessionPhaseFromSnapshot(store.getSnapshot()) : reportedPhaseOf(cardId);
+      const key = store !== null ? sessionPhaseFromSnapshot(store.getSnapshot()) : reportedPhaseOf(cardId);
+      // The quiet between two of the Wheel's steps reads `wheel`, a live
+      // key, so a step ending is never an edge.
+      return withWheelDriving(key, cardWheelDriving(cardId));
     },
     subscribe: (listener) => {
       const stores = new Map<CodeSessionStore, () => void>();
+      // The aggregate the Wheel's walk is read from attaches after the deck
+      // manager installs this, so it is followed once it is there: every
+      // source below re-checks when it speaks, and the first that finds it
+      // there subscribes.
+      let releaseWheel: (() => void) | null = null;
+      const followWheel = (): void => {
+        if (releaseWheel === null && getChangesetAllStore() !== null) releaseWheel = subscribeWheel(listener);
+      };
       const followStores = (): void => {
+        followWheel();
         const live = new Set<CodeSessionStore>();
         cardServicesStore.forEachCodeSessionStore((store) => {
           live.add(store);
@@ -172,17 +197,23 @@ export function deckSessionNotifySources(post: (note: SessionNotifyPost) => void
         }
       };
       followStores();
+      const heard = (): void => {
+        followWheel();
+        listener();
+      };
       const releases = [
         cardServicesStore.subscribe(() => {
           followStores();
           listener();
         }),
-        cardSessionBindingStore.subscribe(listener),
-        bodyFactsStore.subscribe(listener),
-        bodilessFactsStore.subscribe(listener),
+        cardSessionBindingStore.subscribe(heard),
+        bodyFactsStore.subscribe(heard),
+        bodilessFactsStore.subscribe(heard),
       ];
       return () => {
         for (const release of releases) release();
+        releaseWheel?.();
+        releaseWheel = null;
         for (const release of stores.values()) release();
         stores.clear();
       };

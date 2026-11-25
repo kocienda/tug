@@ -399,6 +399,44 @@ describe("sessionSessionPhaseKey — an unseen turn end reads Done", () => {
   });
 });
 
+describe("sessionSessionPhaseKey — the quiet between the Wheel's steps reads Working", () => {
+  // The Wheel asks for one step per turn: between two steps the reducer says
+  // `idle` and the step's end has stamped the unread mark, but the session's
+  // work is not done and its next move is the Wheel's.
+  test("idle under a live Wheel reads 'wheel', with or without the unread mark", () => {
+    expect(sessionSessionPhaseKey(input({ phase: "idle", wheelDriving: true }))).toBe("wheel");
+    expect(
+      sessionSessionPhaseKey(input({ phase: "idle", wheelDriving: true, turnEndUnseen: true })),
+    ).toBe("wheel");
+  });
+
+  test("the mark reads Done once the Wheel hands the session back", () => {
+    expect(
+      sessionSessionPhaseKey(input({ phase: "idle", wheelDriving: false, turnEndUnseen: true })),
+    ).toBe("done");
+  });
+
+  test("a standing join offer, a dialog and background work each outrank it", () => {
+    expect(sessionSessionPhaseKey(input({ phase: "idle", wheelDriving: true, joinReady: true }))).toBe("ready");
+    expect(sessionSessionPhaseKey(input({ phase: "idle", wheelDriving: true, pendingAsk: true }))).toBe(
+      "awaiting_approval",
+    );
+    expect(sessionSessionPhaseKey(input({ phase: "idle", wheelDriving: true, runningJobCount: 1 }))).toBe(
+      "background",
+    );
+  });
+
+  test("a turn in flight keeps its own phase", () => {
+    for (const phase of ["submitting", "streaming", "tool_work", "errored"] as const) {
+      expect(sessionSessionPhaseKey(input({ phase, wheelDriving: true }))).toBe(phase);
+    }
+  });
+
+  test("it wears the working triple, so a step boundary repaints nothing", () => {
+    expect(sessionSessionPhaseVisual("wheel")).toEqual(sessionSessionPhaseVisual("tool_work"));
+  });
+});
+
 describe("sessionSessionPhaseVisual — role/state mapping", () => {
   test("offline → danger/aborted", () => {
     expect(sessionSessionPhaseVisual("offline")).toEqual({
@@ -556,6 +594,7 @@ describe("SESSION_PHASE_LABELS — human-readable labels", () => {
     ["background", "Running"],
     ["ready", "Ready"],
     ["done", "Done"],
+    ["wheel", "Working"],
   ] as const)("key %s resolves to %s", (key, expected) => {
     expect(SESSION_PHASE_LABELS[key]).toBe(expected);
   });

@@ -55,6 +55,15 @@ describe("notifyEventFor", () => {
     expect(notifyEventFor("offline", "idle")).toBeNull();
   });
 
+  it("says nothing for a step of an arc the Wheel walks, and completes when it hands back", () => {
+    expect(notifyEventFor("tool_work", "wheel")).toBeNull();
+    expect(notifyEventFor("wheel", "submitting")).toBeNull();
+    for (const rest of ["idle", "done", "ready"]) {
+      expect(notifyEventFor("wheel", rest)).toBe("complete");
+    }
+    expect(notifyEventFor("wheel", "awaiting_approval")).toBe("input");
+  });
+
   it("says nothing for a turn that hands its work to the background or errors", () => {
     expect(notifyEventFor("tool_work", "background")).toBeNull();
     expect(notifyEventFor("streaming", "errored")).toBeNull();
@@ -130,6 +139,22 @@ describe("installSessionNotify", () => {
     deck.set("a", "idle");
     expect(deck.posts).toEqual([
       { event: "input", bounce: "continued", notification: true, cardId: "a", title: "input", body: "a" },
+      { event: "complete", bounce: "once", notification: false, cardId: "a", title: "complete", body: "a" },
+    ]);
+  });
+
+  it("posts one completion for a whole walk of the Wheel, not one per step", () => {
+    const deck = fakeDeck(both);
+    deck.set("a", "idle");
+    installSessionNotify(deck.sources);
+    for (let step = 0; step < 3; step += 1) {
+      deck.set("a", "submitting");
+      deck.set("a", "tool_work");
+      deck.set("a", "wheel");
+    }
+    expect(deck.posts).toEqual([]);
+    deck.set("a", "done");
+    expect(deck.posts).toEqual([
       { event: "complete", bounce: "once", notification: false, cardId: "a", title: "complete", body: "a" },
     ]);
   });

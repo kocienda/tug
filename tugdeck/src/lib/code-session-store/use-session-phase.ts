@@ -51,6 +51,14 @@
  * this page has no store for, on the same terms as one it does — every page
  * holds the ledger.
  *
+ * **The Wheel's walk is the arc's, read from the aggregate.** While the
+ * Wheel is still walking the arc seated on a session, the quiet between two
+ * of its steps is not the session at rest, and reads `wheel` ([B01]). The
+ * run record rides the account-global `CHANGESET_ALL` aggregate, which every
+ * page holds, and is found by session through `arc-session-index` — so it
+ * reaches a card this page has no store for, and survives the seat moving
+ * under a stage rotation, on the same terms as a card it does.
+ *
  * Laws: [L02] every store read enters through `useSyncExternalStore`.
  *
  * @module lib/code-session-store/use-session-phase
@@ -77,6 +85,9 @@ import { bodilessFactsStore } from "@/lib/bodiless-facts-store";
 import { cardActivityElsewhere } from "@/lib/card-activity-elsewhere";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import type { ArcChangesetEntry } from "@/lib/changeset-types";
+import { arcForSessionNow, type ArcSessionFact } from "@/lib/arc-session-index";
+import { getChangesetAllStore } from "@/lib/changeset-all-store";
+import { sessionLineStore } from "@/lib/session-line-store";
 import type { TugProgressIndicatorPhaseVisual } from "@/components/tugways/tug-progress-indicator";
 import { countRunningJobs } from "@/lib/code-session-store/select-jobs";
 import {
@@ -178,6 +189,74 @@ export function withTurnEndUnseen(key: SessionPhaseKey, unseen: boolean): Sessio
   return unseen && key === "idle" ? "done" : key;
 }
 
+/**
+ * Whether the Wheel is still walking `fact`'s arc — the whole input to the
+ * `wheel` key.
+ *
+ * The same reading the join register makes of a live wheel: a run record
+ * with a rotated stage that is neither done nor stopped, on an arc whose
+ * audit has not signed off. Each of those three is the Wheel handing the
+ * session back, which is the one moment a quiet session is at rest. A
+ * hand-driven arc carries no run record and never reads as driven.
+ *
+ * Pure, so the rule is a unit test rather than a claim about a running app.
+ */
+export function wheelDrives(fact: Pick<ArcSessionFact, "stage" | "arc"> | null): boolean {
+  const run = fact?.arc ?? null;
+  if (fact === null || run === null) return false;
+  return (
+    (run.stage ?? "") !== "" &&
+    run.done !== true &&
+    (run.stopped ?? "") === "" &&
+    fact.stage !== "audited"
+  );
+}
+
+/**
+ * Whether the Wheel is walking the arc seated on `sessionId`, as the
+ * aggregate this page holds says now. `false` before the aggregate is
+ * attached: doubt reads quiet.
+ */
+export function sessionWheelDrivingNow(sessionId: string | null): boolean {
+  return wheelDrives(arcForSessionNow(sessionId));
+}
+
+/**
+ * Whether the Wheel is walking the arc seated on `cardId`'s session — the
+ * card-keyed door to {@link sessionWheelDrivingNow}, for the callers that
+ * hold a card rather than a session.
+ */
+export function cardWheelDriving(cardId: string): boolean {
+  return sessionWheelDrivingNow(cardSessionBindingStore.getBinding(cardId)?.tugSessionId ?? null);
+}
+
+/**
+ * Fold the Wheel's walk onto a key that was computed without it: a key some
+ * other page reported, or the doubt reading of a session with no store here.
+ *
+ * The same precedence {@link sessionSessionPhaseKey} keeps — `wheel`
+ * promotes from `idle`, and so from the `done` that promoted from it, and
+ * every other key outranks it. Apply it before {@link withTurnEndUnseen}.
+ */
+export function withWheelDriving(key: SessionPhaseKey, driving: boolean): SessionPhaseKey {
+  return driving && (key === "idle" || key === "done") ? "wheel" : key;
+}
+
+/**
+ * Everything {@link sessionWheelDrivingNow} reads, as one subscription: the
+ * aggregate, and the seat and line stores the session-to-arc walk consults.
+ */
+export function subscribeWheel(listener: () => void): () => void {
+  const releaseAggregate = getChangesetAllStore()?.subscribe(listener) ?? (() => {});
+  const releaseBinding = cardSessionBindingStore.subscribe(listener);
+  const releaseLines = sessionLineStore.subscribe(listener);
+  return () => {
+    releaseAggregate();
+    releaseBinding();
+    releaseLines();
+  };
+}
+
 /** The two stores {@link sessionTurnEndUnseenNow} reads, as one subscription. */
 function subscribeUnseen(listener: () => void): () => void {
   const releaseLedger = subscribeSessionLedger(listener);
@@ -240,8 +319,11 @@ export function sessionPhaseFromSnapshot(
   snap: SessionPhaseSource | null,
   joinReady?: boolean,
   turnEndUnseen?: boolean,
+  wheelDriving?: boolean,
 ): SessionPhaseKey {
-  if (snap === null) return withTurnEndUnseen("idle", turnEndUnseen === true);
+  if (snap === null) {
+    return withTurnEndUnseen(withWheelDriving("idle", wheelDriving === true), turnEndUnseen === true);
+  }
   return sessionSessionPhaseKey({
     phase: snap.phase,
     transportState: snap.transportState,
@@ -260,6 +342,9 @@ export function sessionPhaseFromSnapshot(
     // A turn that finished while the user looked elsewhere reads Done from a
     // list too — that row is how a card they left says its answer is in.
     turnEndUnseen,
+    // An arc the Wheel is still walking reads Working between its steps —
+    // the quiet after a step is the Wheel's to end, not a person's.
+    wheelDriving,
   });
 }
 
@@ -275,7 +360,10 @@ export function sessionPhaseNow(sessionId: string): SessionPhaseKey {
   const cardId = cardIdForSession(sessionId);
   const services = cardId === null ? null : cardServicesStore.getServices(cardId);
   const unseen = sessionTurnEndUnseenNow(sessionId, cardId);
-  if (cardId !== null && services === null) return withTurnEndUnseen(reportedPhaseOf(cardId), unseen);
+  const wheel = sessionWheelDrivingNow(sessionId);
+  if (cardId !== null && services === null) {
+    return withTurnEndUnseen(withWheelDriving(reportedPhaseOf(cardId), wheel), unseen);
+  }
   const joinReady = joinOfferStands(
     arcIdForCard(cardId),
     services?.changesController?.getSnapshot().arcs ?? [],
@@ -284,6 +372,7 @@ export function sessionPhaseNow(sessionId: string): SessionPhaseKey {
     services?.codeSessionStore?.getSnapshot() ?? null,
     joinReady,
     unseen,
+    wheel,
   );
 }
 
@@ -341,21 +430,26 @@ export function useSessionPhase(sessionId: string): SessionPhaseKey {
   const unseen = useSyncExternalStore(subscribeUnseen, () =>
     sessionTurnEndUnseenNow(sessionId, cardId),
   );
+  // A boolean, so a beat of the aggregate that leaves the walk where it was
+  // re-renders nobody.
+  const wheel = useSyncExternalStore(subscribeWheel, () => sessionWheelDrivingNow(sessionId));
   // The key is the selection: a publish that leaves it where it was — a tool
   // row, a cost line — re-renders nobody.
   const selectPhase = useCallback(
     (): SessionPhaseKey =>
-      sessionPhaseFromSnapshot(store?.getSnapshot() ?? null, joinReady, unseen),
-    [store, joinReady, unseen],
+      sessionPhaseFromSnapshot(store?.getSnapshot() ?? null, joinReady, unseen, wheel),
+    [store, joinReady, unseen, wheel],
   );
   const phase = useSyncExternalStore(store?.subscribe ?? NOOP_SUBSCRIBE, selectPhase, () =>
-    sessionPhaseFromSnapshot(null, joinReady, unseen),
+    sessionPhaseFromSnapshot(null, joinReady, unseen, wheel),
   );
   // A card this page has no store for answers from what was reported for it.
   const reported = useSyncExternalStore(subscribeReported, () =>
     cardId === null ? "idle" : reportedPhaseOf(cardId),
   );
-  return cardId !== null && store === null ? withTurnEndUnseen(reported, unseen) : phase;
+  return cardId !== null && store === null
+    ? withTurnEndUnseen(withWheelDriving(reported, wheel), unseen)
+    : phase;
 }
 
 /**
@@ -420,6 +514,15 @@ export function useCardJoinReady(cardId: string | null): boolean {
 export function useSessionTurnEndUnseen(sessionId: string): boolean {
   const cardId = useCardIdForSession(sessionId);
   return useSyncExternalStore(subscribeUnseen, () => sessionTurnEndUnseenNow(sessionId, cardId));
+}
+
+/**
+ * The Wheel's-walk fact for a **session**, live — the same derivation
+ * {@link useSessionPhase} folds in, for the Z2 STATE cell, which builds its
+ * own {@link SessionPhaseInput} rather than reading the key.
+ */
+export function useSessionWheelDriving(sessionId: string): boolean {
+  return useSyncExternalStore(subscribeWheel, () => sessionWheelDrivingNow(sessionId));
 }
 
 /**

@@ -30,7 +30,9 @@ import {
   reportedPhaseOf,
   sessionPhaseFromSnapshot,
   sessionPhaseNow,
+  wheelDrives,
   withTurnEndUnseen,
+  withWheelDriving,
   type SessionPhaseSource,
 } from "../use-session-phase";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
@@ -274,6 +276,45 @@ describe("withTurnEndUnseen — the mark on a key computed without it", () => {
   test("a spent mark moves nothing", () => {
     expect(withTurnEndUnseen("idle", false)).toBe("idle");
     expect(withTurnEndUnseen("background", false)).toBe("background");
+  });
+});
+
+describe("wheelDrives — the Wheel is still walking the arc", () => {
+  test("a rotated stage, neither done nor stopped, is a live walk", () => {
+    expect(wheelDrives({ stage: "working", arc: { stage: "implement" } })).toBe(true);
+  });
+
+  test("each way the Wheel hands the session back ends it", () => {
+    expect(wheelDrives({ stage: "working", arc: { stage: "implement", done: true } })).toBe(false);
+    expect(wheelDrives({ stage: "working", arc: { stage: "implement", stopped: "refused" } })).toBe(false);
+    expect(wheelDrives({ stage: "audited", arc: { stage: "audit" } })).toBe(false);
+  });
+
+  test("a hand-driven arc, or no arc, is never driven", () => {
+    expect(wheelDrives({ stage: "working", arc: null })).toBe(false);
+    expect(wheelDrives({ stage: "working", arc: {} })).toBe(false);
+    expect(wheelDrives(null)).toBe(false);
+  });
+});
+
+describe("the fold folds the Wheel's walk in", () => {
+  test("the quiet between two steps reads wheel, over the unread mark", () => {
+    expect(sessionPhaseFromSnapshot(snapshot(), false, true, true)).toBe("wheel");
+    expect(sessionPhaseFromSnapshot(null, false, true, true)).toBe("wheel");
+  });
+
+  test("withWheelDriving promotes idle and done alone", () => {
+    expect(withWheelDriving("idle", true)).toBe("wheel");
+    expect(withWheelDriving("done", true)).toBe("wheel");
+    for (const key of ["ready", "background", "streaming", "awaiting_approval", "offline", "errored"] as const) {
+      expect(withWheelDriving(key, true)).toBe(key);
+    }
+    expect(withWheelDriving("idle", false)).toBe("idle");
+  });
+
+  test("a reported key folds the walk before the mark", () => {
+    expect(withTurnEndUnseen(withWheelDriving("idle", true), true)).toBe("wheel");
+    expect(withTurnEndUnseen(withWheelDriving("idle", false), true)).toBe("done");
   });
 });
 
