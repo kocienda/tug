@@ -134,6 +134,20 @@ describe("projectDeckState", () => {
     expect(after.panes.map((p) => p.focused)).toEqual([true, false, false]);
   });
 
+  test("sidebar panes list after deck panes, wherever their cards sit", () => {
+    const rail = { id: "r", componentId: "menu-state-rail", title: "Rail", closable: true };
+    // Live: the rail card predates the newest deck card.
+    const live = projectDeckState(
+      deck([card("a"), rail, card("b")], [pane("p1", ["a"]), pane("pr", ["r"]), pane("p2", ["b"])]),
+    );
+    // After a relaunch: the rail is rejoined behind the deck's cards.
+    const restored = projectDeckState(
+      deck([card("a"), card("b"), rail], [pane("p1", ["a"]), pane("p2", ["b"]), pane("pr", ["r"])]),
+    );
+    expect(live.panes.map((p) => p.id)).toEqual(["p1", "p2", "pr"]);
+    expect(restored.panes.map((p) => p.id)).toEqual(["p1", "p2", "pr"]);
+  });
+
   test("no spaces snapshot projects an empty workspace list", () => {
     expect(projectDeckState(deck([], [])).spaces).toEqual([]);
   });

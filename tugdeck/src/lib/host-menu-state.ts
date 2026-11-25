@@ -807,6 +807,13 @@ export function projectDeckState(
   // leaves `cards` alone. A pane sorts by the earliest card it holds, so it
   // keeps its row however often it is raised. The focused pane is still
   // marked by `focused`, which is all the checkmark reads.
+  //
+  // Sidebar panes sort as a group of their own, after every deck pane. The
+  // window rail is saved apart from each workspace's deck and rejoined behind
+  // it at load and on a workspace switch, so a sidebar card's place in
+  // `state.cards` relative to a deck card does not survive either one; an
+  // interleaved order would move rows across a relaunch. Within each group
+  // the creation order does survive.
   const cardOrder = new Map(state.cards.map((c, i) => [c.id, i]));
   const creationRank = (s: (typeof stacks)[number]): number => {
     let rank = Number.POSITIVE_INFINITY;
@@ -816,6 +823,11 @@ export function projectDeckState(
     }
     return rank;
   };
+  const isRailPane = (s: (typeof stacks)[number]): boolean =>
+    s.cardIds.some((cid) => {
+      const c = cardsById.get(cid);
+      return c !== undefined && isSidebarCard(c.componentId);
+    });
   const panes = stacks
     .map((s, zIndex) => {
       const activeCard = cardsById.get(s.activeCardId);
@@ -827,11 +839,12 @@ export function projectDeckState(
           cardCount: s.cardIds.length,
           closable: activeCard?.closable ?? false,
         },
+        rail: isRailPane(s) ? 1 : 0,
         rank: creationRank(s),
         zIndex,
       };
     })
-    .sort((a, b) => a.rank - b.rank || a.zIndex - b.zIndex)
+    .sort((a, b) => a.rail - b.rail || a.rank - b.rank || a.zIndex - b.zIndex)
     .map(({ entry }) => entry);
 
   const focusedActiveCard = focusedStack
