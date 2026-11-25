@@ -19,9 +19,16 @@
 # expected, it is outside this repository, and it is not a hang.
 #
 # A run is three jobs: `full-lane` (the tests) and `build` (that step) run at
-# once, and `publish` follows when both are green. So a step is named with its
-# job — two jobs both have a `Set up job` — and the live line carries every
-# step in flight, one per job.
+# once, and `publish` follows when both are green and a reviewer has approved
+# the `release` environment's deployment. So a step is named with its job — two
+# jobs both have a `Set up job` — and the live line carries every step in
+# flight, one per job.
+#
+# While `publish` waits for that approval the run's status is `waiting` and no
+# step is in flight, so without a word here the watcher would sit silent for as
+# long as the check takes. It says once that the release is paused, names the
+# rehearsal that checks the build that would ship and the commands that approve
+# or reject it, and goes on watching: an approval shows as `publish`'s steps.
 #
 # A step is announced the moment it starts rather than when it ends. The
 # running step holds the last line of the terminal with a counter that ticks
@@ -95,8 +102,8 @@ echo "==> Watching run $RUN_ID"
 [ -n "$URL" ] && echo "    $URL"
 echo
 echo "    The full lane (the tests) and the build run side by side, and publishing"
-echo "    waits for both. The build is mostly signing and notarizing the DMG, and"
-echo "    notarization waits on Apple."
+echo "    waits for both and then for your approval. The build is mostly signing"
+echo "    and notarizing the DMG, and notarization waits on Apple."
 echo
 
 WATCH_STARTED="$(date +%s)"
@@ -117,6 +124,8 @@ LIVE_PRINTED=0
 SNAPSHOT=""
 LAST_POLL=0
 POLL_FAILING=0
+# Whether the pause before `publish` has been announced; once per run.
+WAIT_ANNOUNCED=0
 
 # Where a poll leaves its answer. The poll runs in a child and the loop never
 # waits on it, because a `gh` call costs most of a second and a loop that
@@ -265,6 +274,23 @@ while :; do
             gh run view "$RUN_ID" --log-failed 2>/dev/null | tail -40 || true
         fi
         exit 1
+    fi
+
+    # The approval gate. The build is uploaded and the full lane is green, so
+    # this is the point the release is checked at, and the watcher says how.
+    if [ "$RUN_STATUS" = "waiting" ] && [ "$WAIT_ANNOUNCED" -eq 0 ]; then
+        WAIT_ANNOUNCED=1
+        clear_line
+        echo
+        echo "==> Paused before publish: the build and the full lane are green."
+        echo "    Nothing has shipped. Check the build that would ship, in another terminal:"
+        echo "        just lab-update-rehearsal tahoe --run $RUN_ID"
+        echo "    Then approve to publish, or reject to throw the build away:"
+        echo "        scripts/release-gate.sh approve $RUN_ID"
+        echo "        scripts/release-gate.sh reject $RUN_ID"
+        [ -n "$URL" ] && echo "    (or Review deployments at $URL)"
+        echo "    This watcher keeps going and follows publish once it is approved."
+        echo
     fi
 
     # The in-flight steps: each announced on the first poll that sees it, then

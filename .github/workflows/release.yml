@@ -23,6 +23,15 @@ name: Stable Release
 # notarizing, and run end to end they made a release wait for the sum.
 # `publish` needs both, so a red full lane still keeps the release
 # unpublished — the build is thrown away, never shipped.
+#
+# `publish` also runs in the `release` environment, which has a required
+# reviewer, so a green run stops before shipping and waits for a person to
+# approve it. That pause is where the release is checked: `build` has already
+# uploaded `release-products`, so `just lab-update-rehearsal <os> --run <id>`
+# installs the exact Tug.dmg that would ship, in a lab guest, with no race
+# against the full lane. Approve the deployment and it ships; reject it and the
+# build is thrown away, as with a red full lane. The environment is a repo
+# setting (Settings > Environments > release), not something this file creates.
 
 on:
   workflow_dispatch:
@@ -221,9 +230,11 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # Ships what `build` made, and only once the full lane is green too.
+  # Ships what `build` made, and only once the full lane is green too and a
+  # reviewer has approved the `release` environment's deployment.
   publish:
     needs: [full-lane, build]
+    environment: release
     runs-on: ubuntu-latest
     timeout-minutes: 15
 

@@ -1022,8 +1022,10 @@ def step_dispatch(st):
     prior = newest_run_id()
     row(
         ["gh", "workflow", "run", "release.yml", "--ref", f"v{st.version}"],
-        why=f"Dispatch Stable Release for {st.version} on its tag v{st.version}. This is\n"
-            f"the row that ships {st.version} to everyone running Tug:",
+        why=f"Dispatch Stable Release for {st.version} on its tag v{st.version}. The run\n"
+            f"builds and tests, then pauses before publishing until you approve it,\n"
+            f"which is when its build is rehearsed. Approving ships {st.version} to\n"
+            f"everyone running Tug:",
     )
 
     if DRY_RUN:
