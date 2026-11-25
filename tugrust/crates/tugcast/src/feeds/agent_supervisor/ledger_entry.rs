@@ -638,8 +638,7 @@ impl LedgerEntry {
         let last = self.report_marks.get(&label);
         let last_done = last.and_then(|m| m.done);
         let done_rose = report.done.unwrap_or(0) > last_done.unwrap_or(0);
-        let units_moved =
-            report.units.is_some() && last.map(|m| &m.units) != Some(&report.units);
+        let units_moved = report.units.is_some() && last.map(|m| &m.units) != Some(&report.units);
         if !self.report_marks.contains_key(&label) && self.report_marks.len() >= REPORT_MARKS_CAP {
             // A forgotten label costs at most one beat when it reports again.
             self.report_marks.clear();

@@ -339,13 +339,12 @@ fn json_carries_the_same_verdict_counts_and_receipt_as_the_text() {
     // `--fresh`, so the second run checks what the first checked rather than
     // relying on the record the first wrote: the two outputs are compared
     // over the same kind of run.
-    let json: serde_json::Value =
-        serde_json::from_str(&stdout_of(&verify(
-            tmp.path(),
-            &root,
-            &["--json", "--fresh"],
-        )))
-        .expect("valid JSON");
+    let json: serde_json::Value = serde_json::from_str(&stdout_of(&verify(
+        tmp.path(),
+        &root,
+        &["--json", "--fresh"],
+    )))
+    .expect("valid JSON");
     assert_eq!(json["command"], "arc verify");
     assert_eq!(json["data"]["verdict"], "verified");
     assert_eq!(json["data"]["checked"], 1);

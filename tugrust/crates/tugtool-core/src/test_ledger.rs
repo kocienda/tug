@@ -1340,7 +1340,11 @@ assertion `left == right` failed
             reusable_check(conn, Path::new(&root), cmd, key, now).unwrap()
         };
 
-        assert_eq!(reuse(&conn, cmd, "k"), None, "an empty ledger answers nothing");
+        assert_eq!(
+            reuse(&conn, cmd, "k"),
+            None,
+            "an empty ledger answers nothing"
+        );
 
         for (status, exit) in [
             (check_status::FAIL, Some(1)),
@@ -1393,7 +1397,13 @@ assertion `left == right` failed
         let cmd = "cd tugrust && cargo nextest run";
         record_check(
             &mut conn,
-            &check(&root, "k", check_status::PASS, Some(0), now - CHECK_REUSE_SECS - 1),
+            &check(
+                &root,
+                "k",
+                check_status::PASS,
+                Some(0),
+                now - CHECK_REUSE_SECS - 1,
+            ),
         )
         .unwrap();
         assert_eq!(
@@ -1402,7 +1412,13 @@ assertion `left == right` failed
         );
         record_check(
             &mut conn,
-            &check(&root, "k", check_status::PASS, Some(0), now - CHECK_REUSE_SECS),
+            &check(
+                &root,
+                "k",
+                check_status::PASS,
+                Some(0),
+                now - CHECK_REUSE_SECS,
+            ),
         )
         .unwrap();
         assert!(
@@ -1425,7 +1441,11 @@ assertion `left == right` failed
             other.to_string_lossy().into_owned(),
         );
         let mut conn = ledger(dir.path());
-        record_check(&mut conn, &check(&other, "k", check_status::PASS, Some(0), 1)).unwrap();
+        record_check(
+            &mut conn,
+            &check(&other, "k", check_status::PASS, Some(0), 1),
+        )
+        .unwrap();
         for idx in 0..=MAX_CHECKS_PER_ROOT {
             record_check(
                 &mut conn,

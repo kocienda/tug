@@ -570,13 +570,7 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     // chart mark name the same file, commit or session, read only from the
     // payload the resolvers stamp, and what it decides is observable only as
     // two annotations lighting together.
-    //
-    // Raised to 27 for `detect-docket-ref.ts` and `docket-resolution.ts`, which
-    // arrived with the docket's reference and were not counted then. They are
-    // the docket's pair of what the arc's and the session's already are here —
-    // a detector for the marker and a resolver for its verdict — so a test of
-    // how a reference is inked already exercises the way they are reached.
-    "tugdeck/src/lib/annotator/": 27,
+    "tugdeck/src/lib/annotator/": 25,
 
     // Raised from 30 for `hooks/use-session-fields.ts`, which is not new
     // reach: it is the store's own field selector, the one door every session

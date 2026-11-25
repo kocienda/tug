@@ -39,6 +39,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, warn};
 use tugcast_core::protocol::{FeedId, Frame, TugSessionId};
 
+use super::activity::tape::ActivityTapes;
 use super::agent_bridge::{
     AuthProbe, ChildSpawner, CrashBudget, DEFAULT_RETRY_DELAY, RelocateOrigin, SessionMode,
     TugcodeSpawner, run_session_bridge,
@@ -49,7 +50,6 @@ use super::session_metadata::{
     is_session_capabilities, is_stop_all_work_done, is_system_metadata, is_task_edge,
     is_task_progress, is_tool_result, is_tool_use, is_turn_end, is_wake_started,
 };
-use super::activity::tape::ActivityTapes;
 use super::session_scoped::SessionScopedFeed;
 use super::workspace_registry::{WorkspaceError, WorkspaceKey, WorkspaceRegistry};
 use crate::background_session::background_card_id;
@@ -1433,7 +1433,10 @@ fn rekey_moved_run(
 /// tugcode's own samples in the bin it lands in.
 fn report_beat_channels() -> serde_json::Map<String, serde_json::Value> {
     let mut channels = serde_json::Map::new();
-    channels.insert("tools".into(), serde_json::json!(AgentSupervisor::REPORT_BEAT_UNITS));
+    channels.insert(
+        "tools".into(),
+        serde_json::json!(AgentSupervisor::REPORT_BEAT_UNITS),
+    );
     channels
 }
 
@@ -8474,8 +8477,14 @@ mod tests {
         // The merger handles a session's frames in order, so by the time the
         // ordinary frame is out the delta is on the session's tape, and the
         // feed has heard nothing from the merger itself.
-        assert_eq!(sup.activity_tapes.window_total("sess-act", "text"), Some(42.0));
-        assert!(activity_rx.try_recv().is_err(), "the merger publishes no ACTIVITY frame");
+        assert_eq!(
+            sup.activity_tapes.window_total("sess-act", "text"),
+            Some(42.0)
+        );
+        assert!(
+            activity_rx.try_recv().is_err(),
+            "the merger publishes no ACTIVITY frame"
+        );
 
         cancel.cancel();
         let _ = merger_handle.await;
@@ -9393,7 +9402,10 @@ mod tests {
     /// How many report beats `live`'s activity tape holds on `tools`. A
     /// test's beats all land inside one window, so the count only grows.
     fn beats(sup: &AgentSupervisor, live: &str) -> u64 {
-        let total = sup.activity_tapes.window_total(live, "tools").unwrap_or(0.0);
+        let total = sup
+            .activity_tapes
+            .window_total(live, "tools")
+            .unwrap_or(0.0);
         (total / AgentSupervisor::REPORT_BEAT_UNITS as f64) as u64
     }
 
@@ -9412,7 +9424,11 @@ mod tests {
             .await;
         let answer = sup.publish_report("sess-beat", report(&[])).await;
         assert_eq!(answer, Some((true, Some("toolu_B".to_owned()))));
-        assert_eq!(beats(&sup, "sess-beat"), 1, "an advancing report beats once");
+        assert_eq!(
+            beats(&sup, "sess-beat"),
+            1,
+            "an advancing report beats once"
+        );
         assert!(
             activity_rx.try_recv().is_err(),
             "the tape publishes the beat, not the report"
@@ -9439,11 +9455,17 @@ mod tests {
                 ..report(&[])
             }
         };
-        sup.publish_report("sess-beat", rows(serde_json::json!([{ "name": "a", "status": "running" }])))
-            .await;
+        sup.publish_report(
+            "sess-beat",
+            rows(serde_json::json!([{ "name": "a", "status": "running" }])),
+        )
+        .await;
         assert_eq!(beats(&sup, "sess-beat"), 3, "unit rows that moved beat");
-        sup.publish_report("sess-beat", rows(serde_json::json!([{ "name": "a", "status": "running" }])))
-            .await;
+        sup.publish_report(
+            "sess-beat",
+            rows(serde_json::json!([{ "name": "a", "status": "running" }])),
+        )
+        .await;
         assert_eq!(beats(&sup, "sess-beat"), 3, "the same rows do not");
     }
 

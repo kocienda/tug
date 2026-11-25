@@ -451,7 +451,14 @@ impl MemoRun<'_> {
         }
     }
 
-    fn record(&mut self, command: &str, key: String, exit_code: Option<i64>, status: &str, secs: f64) {
+    fn record(
+        &mut self,
+        command: &str,
+        key: String,
+        exit_code: Option<i64>,
+        status: &str,
+        secs: f64,
+    ) {
         let check = CheckRun {
             recorded_at: Self::now(),
             run_root: self.worktree.to_string_lossy().into_owned(),
@@ -1985,7 +1992,10 @@ mod fit_tests {
             counting(&docs_count)
         );
         let worktree = project(&root, &config, &[("src/a.rs", "a\n"), ("docs/a.md", "a\n")]);
-        assert_eq!(memo_verify(&paths, &root, &ledger, false).verdict, "verified");
+        assert_eq!(
+            memo_verify(&paths, &root, &ledger, false).verdict,
+            "verified"
+        );
 
         std::fs::write(worktree.join("docs/a.md"), "a, revised\n").unwrap();
         git(&worktree, &["add", "-A"]);
@@ -2014,7 +2024,11 @@ mod fit_tests {
              [[tugtool.arc.surface]]\nname = \"docs\"\npaths = [\"docs/\"]\ncheck = [{:?}]\ninputs = [\"docs/\"]\n",
             counting(&docs_count)
         );
-        let worktree = project(&root, &config, &[("src/a.rs", "bad\n"), ("docs/a.md", "a\n")]);
+        let worktree = project(
+            &root,
+            &config,
+            &[("src/a.rs", "bad\n"), ("docs/a.md", "a\n")],
+        );
 
         let red = memo_verify(&paths, &root, &ledger, false);
         assert_eq!(red.verdict, "red");
@@ -2025,7 +2039,11 @@ mod fit_tests {
         git(&worktree, &["commit", "-m", "the fix"]);
         let fixed = memo_verify(&paths, &root, &ledger, false);
         assert_eq!(fixed.verdict, "verified");
-        assert_eq!(runs(&docs_count), 1, "the green surface relied on the record");
+        assert_eq!(
+            runs(&docs_count),
+            1,
+            "the green surface relied on the record"
+        );
         assert!(surface_of(&fixed, "docs").relied_on_record);
         let src = surface_of(&fixed, "src");
         assert!(!src.relied_on_record);

@@ -30,8 +30,8 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use serde::Serialize;
 use parking_lot::{Mutex, MutexGuard};
+use serde::Serialize;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
@@ -52,7 +52,10 @@ pub const GAUGE_CHANNELS: [&str; 4] = ["cpu_pct", "rss_bytes", "disk_read_bps", 
 
 /// The bin index of a moment on tugcast's clock.
 pub fn bin_index_at(at: SystemTime) -> u64 {
-    let ms = at.duration_since(UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+    let ms = at
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
     (ms / u128::from(BIN_MS)) as u64
 }
 
@@ -144,7 +147,10 @@ impl SessionTape {
         let from = match self.closed_through {
             Some(c) if c >= last => return Vec::new(),
             Some(c) => (c + 1).max(oldest_in_window),
-            None => self.last_work.map_or(last, |w| w.min(last)).max(oldest_in_window),
+            None => self
+                .last_work
+                .map_or(last, |w| w.min(last))
+                .max(oldest_in_window),
         };
         self.closed_through = Some(last);
         (from..=last).filter_map(|b| self.bin(b)).collect()
@@ -247,7 +253,10 @@ impl SessionTape {
             .filter(|(_, row)| row[at] > 0.0)
             .map(|(key, row)| (*key, row[at]))
             .collect();
-        (!channels.is_empty()).then_some(Bin { index: bin, channels })
+        (!channels.is_empty()).then_some(Bin {
+            index: bin,
+            channels,
+        })
     }
 
     /// The window a page that starts listening is sent: the [`WINDOW_BINS`]
@@ -258,7 +267,12 @@ impl SessionTape {
     pub fn window(&self) -> Window {
         let gauges = self.gauges.clone();
         let (Some(through), Some(head)) = (self.closed_through, self.head) else {
-            return Window { base: 0, through: None, rates: BTreeMap::new(), gauges };
+            return Window {
+                base: 0,
+                through: None,
+                rates: BTreeMap::new(),
+                gauges,
+            };
         };
         let base = through.saturating_sub(WINDOW_BINS as u64 - 1);
         let mut rates = BTreeMap::new();
@@ -266,14 +280,23 @@ impl SessionTape {
             let bins: Vec<f64> = (base..=through)
                 .map(|b| {
                     // A slot the head has lapped holds a newer bin's work.
-                    if b > head || head - b >= WINDOW_BINS as u64 { 0.0 } else { row[ring(b)] }
+                    if b > head || head - b >= WINDOW_BINS as u64 {
+                        0.0
+                    } else {
+                        row[ring(b)]
+                    }
                 })
                 .collect();
             if bins.iter().any(|v| *v > 0.0) {
                 rates.insert(*key, bins);
             }
         }
-        Window { base, through: Some(through), rates, gauges }
+        Window {
+            base,
+            through: Some(through),
+            rates,
+            gauges,
+        }
     }
 
     /// The sum of a rate channel over every bin the tape holds, published or
@@ -331,7 +354,10 @@ impl ActivityTapes {
         let bin = bin_index_at(at);
         let mut tapes = self.lock();
         let made = !tapes.contains_key(session);
-        tapes.entry(session.to_owned()).or_default().record_channels(channels, bin);
+        tapes
+            .entry(session.to_owned())
+            .or_default()
+            .record_channels(channels, bin);
         drop(tapes);
         if made {
             self.made.notify_one();
@@ -361,7 +387,11 @@ impl ActivityTapes {
         let mut tapes = self.lock();
         let mut out = Vec::new();
         for (session, tape) in tapes.iter_mut() {
-            out.extend(tape.close(now_bin).into_iter().map(|b| (session.clone(), b)));
+            out.extend(
+                tape.close(now_bin)
+                    .into_iter()
+                    .map(|b| (session.clone(), b)),
+            );
         }
         tapes.retain(|_, tape| !tape.droppable(now_bin));
         out
@@ -534,7 +564,11 @@ mod tests {
         let mut tape = SessionTape::new();
         tape.advance(T0 + 4);
         tape.record("text", 7.0, T0 + 1);
-        assert_eq!(tape.head(), Some(T0 + 4), "a late frame does not move the head");
+        assert_eq!(
+            tape.head(),
+            Some(T0 + 4),
+            "a late frame does not move the head"
+        );
         assert_eq!(tape.bin(T0 + 1).map(|b| b.channels["text"]), Some(7.0));
         assert_eq!(tape.bin(T0 + 4), None);
     }
@@ -577,7 +611,10 @@ mod tests {
         assert_eq!(text[WINDOW_BINS - 2], 0.0);
         assert_eq!(text[WINDOW_BINS - 3], 1.0);
         assert_eq!(window.rates["machine"][WINDOW_BINS - 2], 600.0);
-        assert!(!window.rates.contains_key("tokens"), "an idle channel is absent");
+        assert!(
+            !window.rates.contains_key("tokens"),
+            "an idle channel is absent"
+        );
     }
 
     #[test]
@@ -597,8 +634,16 @@ mod tests {
         tape.record("cpu_pct", 12.5, T0 + 3);
         tape.record("cpu_pct", 0.0, T0 + 1_000);
         let window = tape.window();
-        assert_eq!(window.gauges.get("cpu_pct"), Some(&0.0), "a zero is a level");
-        assert_eq!(window.gauges.get("rss_bytes"), Some(&1024.0), "held across the jump");
+        assert_eq!(
+            window.gauges.get("cpu_pct"),
+            Some(&0.0),
+            "a zero is a level"
+        );
+        assert_eq!(
+            window.gauges.get("rss_bytes"),
+            Some(&1024.0),
+            "held across the jump"
+        );
         assert!(tape.aged_out(T0 + 1_000), "gauges do not keep a tape alive");
     }
 
@@ -618,7 +663,10 @@ mod tests {
     #[test]
     fn a_tape_ages_out_a_window_after_its_last_work() {
         let mut tape = SessionTape::new();
-        assert!(tape.aged_out(T0), "a tape that never worked has nothing to keep");
+        assert!(
+            tape.aged_out(T0),
+            "a tape that never worked has nothing to keep"
+        );
         tape.record("subagents", 1.0, T0);
         assert!(!tape.aged_out(T0 + WINDOW_BINS as u64 - 1));
         assert!(tape.aged_out(T0 + WINDOW_BINS as u64));
@@ -631,9 +679,15 @@ mod tests {
         tape.record("cpu_pct", 7.5, T0);
         tape.close(T0 + 1);
         let json = serde_json::to_value(tape.window()).expect("serializes");
-        assert_eq!(json["base"], serde_json::json!(T0 - (WINDOW_BINS as u64 - 1)));
+        assert_eq!(
+            json["base"],
+            serde_json::json!(T0 - (WINDOW_BINS as u64 - 1))
+        );
         assert_eq!(json["through"], serde_json::json!(T0));
-        assert_eq!(json["rates"]["text"].as_array().map(Vec::len), Some(WINDOW_BINS));
+        assert_eq!(
+            json["rates"]["text"].as_array().map(Vec::len),
+            Some(WINDOW_BINS)
+        );
         assert_eq!(json["gauges"]["cpu_pct"], serde_json::json!(7.5));
     }
 
@@ -658,7 +712,10 @@ mod tests {
         tape.record("rss_bytes", 2048.0, T0);
         let window = tape.window();
         assert_eq!(window.through, None);
-        assert!(window.rates.is_empty(), "its bin is published when it closes");
+        assert!(
+            window.rates.is_empty(),
+            "its bin is published when it closes"
+        );
         assert_eq!(window.gauges.get("rss_bytes"), Some(&2048.0));
     }
 
@@ -671,8 +728,14 @@ mod tests {
         tape.record("tools", 4.0, T0 + WINDOW_BINS as u64);
         let window = tape.window();
         assert_eq!(window.through, Some(T0));
-        assert!(!window.rates.contains_key("tools"), "a newer bin's work is not the window's");
-        assert!(!window.rates.contains_key("text"), "bin T0 has left the tape");
+        assert!(
+            !window.rates.contains_key("tools"),
+            "a newer bin's work is not the window's"
+        );
+        assert!(
+            !window.rates.contains_key("text"),
+            "bin T0 has left the tape"
+        );
     }
 
     #[test]
@@ -685,8 +748,14 @@ mod tests {
             serde_json::from_slice(&window_payload(&tape.window())).expect("parses");
         assert_eq!(json["type"], "activity_window");
         assert_eq!(json["through"], serde_json::json!(T0));
-        assert_eq!(json["base"], serde_json::json!(T0 - (WINDOW_BINS as u64 - 1)));
-        assert_eq!(json["rates"]["text"][WINDOW_BINS - 1], serde_json::json!(4.0));
+        assert_eq!(
+            json["base"],
+            serde_json::json!(T0 - (WINDOW_BINS as u64 - 1))
+        );
+        assert_eq!(
+            json["rates"]["text"][WINDOW_BINS - 1],
+            serde_json::json!(4.0)
+        );
         assert_eq!(json["gauges"]["cpu_pct"], serde_json::json!(1.5));
     }
 
@@ -713,7 +782,10 @@ mod tests {
         assert_eq!(closed[0].index, T0);
         assert_eq!(closed[0].channels["text"], 3.0);
         assert!(tape.close(T0 + 1).is_empty(), "a bin is handed out once");
-        assert!(tape.close(T0 + 2).is_empty(), "an empty bin is not handed out");
+        assert!(
+            tape.close(T0 + 2).is_empty(),
+            "an empty bin is not handed out"
+        );
     }
 
     #[test]
@@ -733,9 +805,15 @@ mod tests {
         tape.record("text", 1.0, T0);
         tape.record("rss_bytes", 4096.0, T0);
         let later = T0 + WINDOW_BINS as u64;
-        assert!(!tape.droppable(later), "a live session's level keeps its tape");
+        assert!(
+            !tape.droppable(later),
+            "a live session's level keeps its tape"
+        );
         tape.record("rss_bytes", 0.0, later);
-        assert!(tape.droppable(later), "its tugcode ended and its work aged out");
+        assert!(
+            tape.droppable(later),
+            "its tugcode ended and its work aged out"
+        );
         tape.record("text", 1.0, later);
         assert!(!tape.droppable(later), "new work keeps it");
     }
@@ -755,7 +833,10 @@ mod tests {
         bins.sort_by(|x, y| x.0.cmp(&y.0));
         assert_eq!(bins.len(), 2);
         assert_eq!((bins[0].0.as_str(), bins[0].1.channels["text"]), ("a", 5.0));
-        assert_eq!((bins[1].0.as_str(), bins[1].1.channels["tools"]), ("b", 2.0));
+        assert_eq!(
+            (bins[1].0.as_str(), bins[1].1.channels["tools"]),
+            ("b", 2.0)
+        );
         assert_eq!(tapes.window_total("b", "tools"), Some(2.0));
         assert_eq!(tapes.gauge("a", "cpu_pct"), Some(0.0));
         assert_eq!(tapes.len(), 2);
@@ -768,25 +849,37 @@ mod tests {
         let tapes = ActivityTapes::default();
         assert!(tapes.is_empty(), "an idle tugcast holds no tape");
         let channels = serde_json::json!({"text": 1});
-        tapes.record_channels("a", channels.as_object().expect("an object"), SystemTime::now());
+        tapes.record_channels(
+            "a",
+            channels.as_object().expect("an object"),
+            SystemTime::now(),
+        );
         assert!(!tapes.is_empty());
         // The record came before the wait; its permit is what ends it.
         tokio::time::timeout(Duration::from_secs(1), tapes.tape_made())
             .await
             .expect("the tape's making is not lost");
         // A record onto a tape that already exists makes nothing.
-        tapes.record_channels("a", channels.as_object().expect("an object"), SystemTime::now());
+        tapes.record_channels(
+            "a",
+            channels.as_object().expect("an object"),
+            SystemTime::now(),
+        );
         assert!(
-            tokio::time::timeout(Duration::from_millis(50), tapes.tape_made()).await.is_err(),
+            tokio::time::timeout(Duration::from_millis(50), tapes.tape_made())
+                .await
+                .is_err(),
             "only a new tape wakes the publisher"
         );
     }
 
     #[test]
     fn a_bin_frame_carries_its_index_and_its_channels() {
-        let bin = Bin { index: T0, channels: [("text", 4.0)].into_iter().collect() };
-        let json: serde_json::Value =
-            serde_json::from_slice(&bin_payload(&bin)).expect("parses");
+        let bin = Bin {
+            index: T0,
+            channels: [("text", 4.0)].into_iter().collect(),
+        };
+        let json: serde_json::Value = serde_json::from_slice(&bin_payload(&bin)).expect("parses");
         assert_eq!(json["type"], "activity_bin");
         assert_eq!(json["bin"], serde_json::json!(T0));
         assert_eq!(json["channels"], serde_json::json!({"text": 4.0}));

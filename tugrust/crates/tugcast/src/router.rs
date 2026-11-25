@@ -1606,9 +1606,15 @@ impl ClientSink {
         });
         self.activity_heard = heard;
         for session in due {
-            let Some(window) = tapes.window(&session) else { continue };
+            let Some(window) = tapes.window(&session) else {
+                continue;
+            };
             let payload = splice_tug_session_id(&window_payload(&window), &session);
-            if self.send_frame(Frame::new(FeedId::ACTIVITY, payload)).await.is_disconnected() {
+            if self
+                .send_frame(Frame::new(FeedId::ACTIVITY, payload))
+                .await
+                .is_disconnected()
+            {
                 return true;
             }
         }
@@ -1982,7 +1988,10 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id
     let (mut stream_map, lag_policies) = build_stream_map(&router.stream_outputs);
     // The tapes a page that starts listening is sent a window from, and the
     // dormancy declarations that move whether a body is listening.
-    let activity_tapes = router.supervisor.as_ref().map(|sup| sup.activity_tapes.clone());
+    let activity_tapes = router
+        .supervisor
+        .as_ref()
+        .map(|sup| sup.activity_tapes.clone());
     let mut dormancy = router.pages.dormant_cards();
 
     let mut state = ClientState::Live;
@@ -4538,25 +4547,73 @@ mod tests {
     #[test]
     fn who_listens_to_a_sessions_activity() {
         let watch_feeds: HashSet<FeedId> = [FeedId::ACTIVITY].into();
-        let only = |ids: &[&str]| {
-            SessionSubscription::Only(ids.iter().map(|s| s.to_string()).collect())
-        };
+        let only =
+            |ids: &[&str]| SessionSubscription::Only(ids.iter().map(|s| s.to_string()).collect());
         let none = SessionSubscription::none();
         let all = SessionSubscription::All;
         let activity: HashSet<FeedId> = [FeedId::ACTIVITY].into();
         let no_activity: HashSet<FeedId> = [FeedId::CODE_OUTPUT].into();
 
         // A page that never subscribed takes everything.
-        assert!(listens_to_activity(None, &all, &none, &watch_feeds, false, "s-a"));
+        assert!(listens_to_activity(
+            None,
+            &all,
+            &none,
+            &watch_feeds,
+            false,
+            "s-a"
+        ));
         // Bound to the session, or watching it.
-        assert!(listens_to_activity(Some(&activity), &only(&["s-a"]), &none, &watch_feeds, false, "s-a"));
-        assert!(listens_to_activity(Some(&activity), &none, &only(&["s-a"]), &watch_feeds, false, "s-a"));
-        assert!(!listens_to_activity(Some(&activity), &only(&["s-b"]), &only(&["s-c"]), &watch_feeds, false, "s-a"));
+        assert!(listens_to_activity(
+            Some(&activity),
+            &only(&["s-a"]),
+            &none,
+            &watch_feeds,
+            false,
+            "s-a"
+        ));
+        assert!(listens_to_activity(
+            Some(&activity),
+            &none,
+            &only(&["s-a"]),
+            &watch_feeds,
+            false,
+            "s-a"
+        ));
+        assert!(!listens_to_activity(
+            Some(&activity),
+            &only(&["s-b"]),
+            &only(&["s-c"]),
+            &watch_feeds,
+            false,
+            "s-a"
+        ));
         // Watching counts only on a feed the router watches.
-        assert!(!listens_to_activity(Some(&activity), &none, &only(&["s-a"]), &HashSet::new(), false, "s-a"));
+        assert!(!listens_to_activity(
+            Some(&activity),
+            &none,
+            &only(&["s-a"]),
+            &HashSet::new(),
+            false,
+            "s-a"
+        ));
         // Not taking the feed, or dormant, hears nothing.
-        assert!(!listens_to_activity(Some(&no_activity), &all, &none, &watch_feeds, false, "s-a"));
-        assert!(!listens_to_activity(None, &all, &all, &watch_feeds, true, "s-a"));
+        assert!(!listens_to_activity(
+            Some(&no_activity),
+            &all,
+            &none,
+            &watch_feeds,
+            false,
+            "s-a"
+        ));
+        assert!(!listens_to_activity(
+            None,
+            &all,
+            &all,
+            &watch_feeds,
+            true,
+            "s-a"
+        ));
     }
 
     /// A window is owed when a page starts listening to a session — at

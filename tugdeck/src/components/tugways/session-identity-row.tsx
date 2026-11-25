@@ -221,6 +221,7 @@ import {
   type SessionIdentityContext,
 } from "@/lib/session-identity";
 import { useSessionLedgerRow } from "@/lib/session-ledger-store";
+import { ArcSigil } from "@/components/tugways/arc-sigil";
 import type { SessionRow } from "@/protocol";
 
 /**

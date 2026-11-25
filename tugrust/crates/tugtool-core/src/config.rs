@@ -1255,7 +1255,10 @@ mod tests {
         // `rust`, so its key reads `rust`'s inputs; `docs`'s own inputs are
         // what an own check of `docs` would be keyed by.
         assert_eq!(check_inputs(surfaces, "docs"), ["docs/"]);
-        assert_ne!(check_inputs(surfaces, "docs"), check_inputs(surfaces, "rust"));
+        assert_ne!(
+            check_inputs(surfaces, "docs"),
+            check_inputs(surfaces, "rust")
+        );
     }
 
     /// The runner table's refusals, in the same shape as the surface table's:
