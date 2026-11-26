@@ -579,7 +579,12 @@ impl ArcRecord {
 pub fn read_arc(paths: &Paths, repo_root: &Path, arc: &str) -> Option<ArcRecord> {
     let path = tugtool_core::paths::arc_log_path_at(paths, repo_root);
     let text = std::fs::read_to_string(&path).ok()?;
+    read_arc_in(&text, arc)
+}
 
+/// [`read_arc`] over arc log text already in hand, so a caller reading many
+/// arcs from one checkout reads its log once.
+pub fn read_arc_in(text: &str, arc: &str) -> Option<ArcRecord> {
     let mut found: Option<ArcRecord> = None;
     for line in text.lines() {
         let Some((timestamp, name, marker, note)) = split_log_line(line) else {

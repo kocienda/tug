@@ -156,6 +156,65 @@
           "steps_done": 0,
           "steps_begun": 0
         }
+      ],
+      "cycles": [
+        {
+          "id": "3f9a1c2e",
+          "name": "Arc hardening",
+          "created": "2026-11-20T10:00:00Z",
+          "updated": "2026-11-22T14:00:00Z",
+          "project_dir": "/Users/dev/src/tugtool",
+          "created_by": "sess-0197a2b4-c8d1-7e02-9f3a-b5c6d7e8f901",
+          "entries": [
+            {
+              "n": 1,
+              "brief": "briefs/arc-cockpit-brief.md",
+              "brief_path": "/Users/dev/src/tugtool/briefs/arc-cockpit-brief.md",
+              "brief_title": "The arc cockpit",
+              "arc": { "name": "arc-cockpit", "created": "2026-11-20T11:00:00Z" },
+              "waits": [],
+              "from": ["A"],
+              "added": "2026-11-20T10:05:00Z",
+              "state": "joined"
+            },
+            {
+              "n": 2,
+              "brief": "briefs/fix-join-brief.md",
+              "brief_path": "/Users/dev/src/tugtool/briefs/fix-join-brief.md",
+              "brief_title": "Fix the join",
+              "arc": { "name": "fix-join", "created": "2026-11-21T09:00:00Z" },
+              "waits": [1],
+              "added": "2026-11-20T10:06:00Z",
+              "state": "running",
+              "stages": [
+                { "stage": "review", "session_id": "sess-0197a2b4-aaaa-7e02-9f3a-b5c6d7e8f901", "model": null, "at": "2026-11-21T09:01:00Z" },
+                { "stage": "implement", "session_id": "sess-0197a2b4-c8d1-7e02-9f3a-b5c6d7e8f901", "model": "opus", "at": "2026-11-21T09:30:00Z" }
+              ],
+              "owner_id": "tugarc/fix-join#1723500000000-a1b2c3",
+              "bound_session": "sess-0197a2b4-c8d1-7e02-9f3a-b5c6d7e8f901",
+              "bound_callsign": "odd-kiln"
+            },
+            {
+              "n": 3,
+              "brief": "briefs/arc-hardening-brief.md",
+              "waits": [1],
+              "note": "after the release",
+              "added": "2026-11-20T10:07:00Z",
+              "state": "ready"
+            },
+            {
+              "n": 4,
+              "brief": "briefs/arc-polish-brief.md",
+              "waits": [2, 3],
+              "added": "2026-11-20T10:08:00Z",
+              "state": "waiting"
+            }
+          ],
+          "sketches": [
+            { "letter": "A", "id": "0a1b2c3d", "added": "2026-11-20T10:01:00Z" }
+          ],
+          "landed": 1
+        }
       ]
     },
     {

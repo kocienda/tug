@@ -16,8 +16,8 @@ use std::sync::{Arc, OnceLock};
 use tugcore::instance::Paths;
 
 use tugcast_core::types::{
-    ArcStep, ChangesetDraft, ChangesetEntry, ChangesetFile, ChangesetSnapshot, DocumentArcEntry,
-    OrphanReason, OrphanedFile, SharedOwner, UnattributedFile,
+    ArcStep, ChangesetDraft, ChangesetEntry, ChangesetFile, ChangesetSnapshot, CycleWire,
+    DocumentArcEntry, OrphanReason, OrphanedFile, SharedOwner, UnattributedFile,
 };
 use tugchanges_core::{OwnerPlace, owner_place};
 
@@ -2066,6 +2066,163 @@ fn document_arc_entries_in(
         .collect()
 }
 
+/// The bound card's callsign per arc owner key, for every arc `bound_by_arc`
+/// binds: the one read both the arc rows and the cycle entries name a card by,
+/// so the two cannot disagree about which card an arc is on.
+fn callsigns_by_arc(
+    ledger: Option<&crate::session_ledger::SessionLedger>,
+    bound_by_arc: &HashMap<String, String>,
+) -> HashMap<String, String> {
+    bound_by_arc
+        .iter()
+        .filter_map(|(arc_id, session)| {
+            let row = ledger?.get(session).ok().flatten()?;
+            Some((arc_id.clone(), row.tag?))
+        })
+        .collect()
+}
+
+/// The repository's cycles, most recently changed first, each entry's state
+/// derived from the arc log the arc rows beside them read.
+///
+/// Composed by the project that composes the repository's arcs, and hidden
+/// exactly when they are: an app-test's aggregate lists no cycle the
+/// developer is carrying in the checkout under test.
+pub(crate) async fn cycle_entries(
+    project_dir: &Path,
+    ledger: Option<&crate::session_ledger::SessionLedger>,
+) -> Vec<CycleWire> {
+    let Some(root) = repo_root_for(project_dir).await else {
+        return Vec::new();
+    };
+    if arcs_hidden_for(&root) {
+        return Vec::new();
+    }
+    let bound_by_arc = ledger
+        .and_then(|l| l.bound_session_by_arc().ok())
+        .unwrap_or_default();
+    let callsign_by_arc = callsigns_by_arc(ledger, &bound_by_arc);
+    tokio::task::spawn_blocking(move || {
+        cycle_entries_in(&Paths::from_env(), &root, &bound_by_arc, &callsign_by_arc)
+    })
+    .await
+    .unwrap_or_default()
+}
+
+/// The synchronous body of [`cycle_entries`]: every cycle of `root`, read
+/// against one read of its arc log.
+fn cycle_entries_in(
+    paths: &Paths,
+    root: &Path,
+    bound_by_arc: &HashMap<String, String>,
+    callsign_by_arc: &HashMap<String, String>,
+) -> Vec<CycleWire> {
+    let records = tugarc_core::cycle::cycles(paths, root);
+    if records.is_empty() {
+        return Vec::new();
+    }
+    let log_path = tugtool_core::paths::arc_log_path_at(paths, root);
+    let log = std::fs::read_to_string(&log_path).unwrap_or_default();
+    records
+        .iter()
+        .map(|record| {
+            let view = tugarc_core::cycle::view_cycle_in(&log, record);
+            cycle_wire(root, view, bound_by_arc, callsign_by_arc)
+        })
+        .collect()
+}
+
+/// One cycle view on the wire. The live session — the owner key, the bound
+/// session and its callsign — is filled only for an entry whose arc is
+/// running, which is to say whose linked generation is the arc's open one; an
+/// entry whose arc joined names no live card, and carries no stages, since its
+/// generation is no longer the one the arc record holds.
+fn cycle_wire(
+    root: &Path,
+    view: tugarc_core::cycle::CycleView,
+    bound_by_arc: &HashMap<String, String>,
+    callsign_by_arc: &HashMap<String, String>,
+) -> CycleWire {
+    use tugarc_core::cycle::EntryState;
+    use tugcast_core::types::{CycleArcWire, CycleEntryWire, CycleSketchWire, CycleStageWire};
+    let project = PathBuf::from(&view.project_dir);
+    let entries = view
+        .entries
+        .into_iter()
+        .map(|entry| {
+            let owner_id = entry
+                .entry
+                .arc
+                .as_ref()
+                .filter(|_| entry.state == EntryState::Running)
+                .map(|link| tugarc_core::ops::arc_owner_key(root, &link.name));
+            let bound_session = owner_id.as_ref().and_then(|k| bound_by_arc.get(k)).cloned();
+            // Absent exactly when the binding is, as on the arc row.
+            let bound_callsign = owner_id
+                .as_ref()
+                .filter(|_| bound_session.is_some())
+                .and_then(|k| callsign_by_arc.get(k))
+                .cloned();
+            let brief_file = project.join(&entry.entry.brief);
+            let (brief_path, brief_title) = if brief_file.is_file() {
+                let title = std::fs::read_to_string(&brief_file)
+                    .ok()
+                    .and_then(|text| tugarc_core::ops::first_heading(&text));
+                (Some(brief_file.to_string_lossy().into_owned()), title)
+            } else {
+                (None, None)
+            };
+            CycleEntryWire {
+                n: entry.entry.n,
+                brief: entry.entry.brief,
+                brief_path,
+                brief_title,
+                arc: entry.entry.arc.map(|link| CycleArcWire {
+                    name: link.name,
+                    created: link.created,
+                }),
+                waits: entry.entry.waits,
+                from: entry.entry.from,
+                note: entry.entry.note,
+                added: entry.entry.added,
+                state: entry.state.as_str().to_owned(),
+                stages: entry
+                    .stages
+                    .into_iter()
+                    .map(|line| CycleStageWire {
+                        stage: line.stage.as_str().to_owned(),
+                        session_id: line.session_id,
+                        model: line.model,
+                        at: line.at,
+                    })
+                    .collect(),
+                owner_id,
+                bound_session,
+                bound_callsign,
+            }
+        })
+        .collect();
+    CycleWire {
+        id: view.id,
+        name: view.name,
+        created: view.created,
+        updated: view.updated,
+        project_dir: view.project_dir,
+        created_by: view.created_by,
+        entries,
+        sketches: view
+            .sketches
+            .into_iter()
+            .map(|s| CycleSketchWire {
+                letter: s.letter,
+                id: s.id,
+                added: s.added,
+            })
+            .collect(),
+        landed: view.landed as u32,
+    }
+}
+
 /// Base paths a live session **other than this arc's own** is working, mapped
 /// to that session's `(owner_id, display_name)` — the id is what a notice to
 /// the holder is addressed by, the name is what a sentence about them says.
@@ -2203,13 +2360,7 @@ async fn arc_entries(
         .collect();
     // The bound card's callsign, read in the same pass as its line so a
     // sentence naming the card costs no query per arc per frame.
-    let callsign_by_arc: std::collections::HashMap<String, String> = bound_by_arc
-        .iter()
-        .filter_map(|(arc_id, session)| {
-            let row = ledger?.get(session).ok().flatten()?;
-            Some((arc_id.clone(), row.tag?))
-        })
-        .collect();
+    let callsign_by_arc = callsigns_by_arc(ledger, &bound_by_arc);
     // Who is still working. Read once for the whole recompute, from the
     // supervisor's in-memory ledger — the only place a session's turn and its
     // open background jobs are known ([P08]).
@@ -5450,6 +5601,148 @@ Some context.
                 .await
                 .is_empty(),
             "a fixture repo outside the universe is untouched"
+        );
+    }
+
+    /// A scratch cycle on `root` under `paths`: entry 1 tied to `aa`, which
+    /// joins, entry 2 tied to `bb`, which is open, entry 3 waiting on 2 and
+    /// entry 4 waiting on 1 alone. Entry 1's brief is on disk; the rest are not.
+    fn scratch_cycle(paths: &Paths, root: &Path) -> String {
+        use tugarc_core::cycle::{NewEntry, add_entry, attach, create_cycle};
+        let entry = |brief: &str, waits: &[u32]| NewEntry {
+            brief: brief.to_owned(),
+            waits: waits.to_vec(),
+            from: Vec::new(),
+            note: None,
+        };
+        std::fs::create_dir_all(root.join("briefs")).unwrap();
+        std::fs::write(root.join("briefs/a.md"), "# The first brief\n\nBody.\n").unwrap();
+        let id = create_cycle(paths, root, "Cycle", Some("sess-writer"))
+            .unwrap()
+            .id;
+        add_entry(paths, root, &id, entry("briefs/a.md", &[])).unwrap();
+        add_entry(paths, root, &id, entry("briefs/b.md", &[])).unwrap();
+        add_entry(paths, root, &id, entry("briefs/c.md", &[2])).unwrap();
+        add_entry(paths, root, &id, entry("briefs/d.md", &[1])).unwrap();
+        tugarc_core::append_arc_start(paths, root, "aa", ".tug/arcs/aa/brief.md").unwrap();
+        tugarc_core::append_arc_stage(
+            paths,
+            root,
+            "aa",
+            tugarc_core::ArcStage::Implement,
+            "sess-a",
+            None,
+        )
+        .unwrap();
+        tugarc_core::append_arc_start(paths, root, "bb", ".tug/arcs/bb/brief.md").unwrap();
+        tugarc_core::append_arc_stage(
+            paths,
+            root,
+            "bb",
+            tugarc_core::ArcStage::Implement,
+            "sess-b",
+            Some("opus"),
+        )
+        .unwrap();
+        attach(paths, root, &id, 1, "aa").unwrap();
+        attach(paths, root, &id, 2, "bb").unwrap();
+        tugarc_core::append_arc_log(paths, root, "aa", "302d43b5d1", "joined").unwrap();
+        id
+    }
+
+    /// Composition derives each entry's state from the arc log, names the
+    /// live card only for the running entry — by the owner key its arc row
+    /// wears — and names none for the joined entry, even when the ledger
+    /// still holds a binding under its arc's key.
+    #[test]
+    fn cycles_compose_states_and_the_live_session_of_a_running_arc() {
+        let data = tempfile::tempdir().unwrap();
+        let paths = Paths::under(data.path());
+        let (_dir, root) = init_repo();
+        let id = scratch_cycle(&paths, &root);
+        let running_key = tugarc_core::ops::arc_owner_key(&root, "bb");
+        let joined_key = tugarc_core::ops::arc_owner_key(&root, "aa");
+        let bound: HashMap<String, String> = [
+            (running_key.clone(), "sess-b".to_owned()),
+            (joined_key, "sess-a".to_owned()),
+        ]
+        .into();
+        let callsigns: HashMap<String, String> =
+            [(running_key.clone(), "odd-kiln".to_owned())].into();
+
+        let cycles = cycle_entries_in(&paths, &root, &bound, &callsigns);
+        assert_eq!(cycles.len(), 1);
+        let cycle = &cycles[0];
+        assert_eq!(cycle.id, id);
+        assert_eq!(cycle.created_by.as_deref(), Some("sess-writer"));
+        assert_eq!(cycle.landed, 1);
+        let states: Vec<&str> = cycle.entries.iter().map(|e| e.state.as_str()).collect();
+        assert_eq!(states, ["joined", "running", "waiting", "ready"]);
+
+        let running = &cycle.entries[1];
+        assert_eq!(running.owner_id.as_deref(), Some(running_key.as_str()));
+        assert_eq!(running.bound_session.as_deref(), Some("sess-b"));
+        assert_eq!(running.bound_callsign.as_deref(), Some("odd-kiln"));
+        assert_eq!(running.stages.len(), 1);
+        assert_eq!(running.stages[0].stage, "implement");
+        assert_eq!(running.stages[0].session_id, "sess-b");
+        assert_eq!(running.stages[0].model.as_deref(), Some("opus"));
+
+        let joined = &cycle.entries[0];
+        assert!(joined.owner_id.is_none());
+        assert!(joined.bound_session.is_none() && joined.bound_callsign.is_none());
+        assert!(joined.stages.is_empty(), "an ended generation has no stages");
+        let brief = root.join("briefs/a.md");
+        assert_eq!(
+            joined.brief_path.as_deref(),
+            Some(brief.to_string_lossy().as_ref())
+        );
+        assert_eq!(joined.brief_title.as_deref(), Some("The first brief"));
+
+        // A brief not on disk carries the record's relative path alone, and
+        // an entry tied to no arc names no arc and no card.
+        let waiting = &cycle.entries[2];
+        assert_eq!(waiting.brief, "briefs/c.md");
+        assert!(waiting.brief_path.is_none() && waiting.brief_title.is_none());
+        assert!(waiting.arc.is_none() && waiting.owner_id.is_none());
+
+        // A binding with no callsign yet names the session and no callsign.
+        let cycles = cycle_entries_in(&paths, &root, &bound, &HashMap::new());
+        assert_eq!(
+            cycles[0].entries[1].bound_session.as_deref(),
+            Some("sess-b")
+        );
+        assert!(cycles[0].entries[1].bound_callsign.is_none());
+    }
+
+    /// A checkout with no cycles composes none, and an app-test instance hides
+    /// the universe checkout's cycles exactly as it hides its arcs.
+    ///
+    /// Env-mutating, safe under nextest's process-per-test model.
+    #[tokio::test]
+    async fn an_apptest_instance_hides_the_universe_checkouts_cycles() {
+        let data = tempfile::tempdir().unwrap();
+        // SAFETY: single-threaded setup, and this process runs one test.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", data.path());
+        }
+        let (_dir, root) = init_repo();
+        assert!(cycle_entries(&root, None).await.is_empty());
+        scratch_cycle(&Paths::from_env(), &root);
+        assert_eq!(
+            cycle_entries(&root, None).await.len(),
+            1,
+            "the cycle composes in an ordinary instance"
+        );
+
+        // SAFETY: as above.
+        unsafe {
+            std::env::set_var("TUG_INSTANCE_ID", "apptest-0000");
+            std::env::set_var(tugtool_core::REPO_UNIVERSE_ENV, &root);
+        }
+        assert!(
+            cycle_entries(&root, None).await.is_empty(),
+            "the universe checkout's cycles are hidden from an app-test instance"
         );
     }
 

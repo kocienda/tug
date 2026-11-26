@@ -1794,6 +1794,7 @@ fn draft_session_snapshot(
             },
             unattributed_draft: None,
             document_arcs: vec![],
+            cycles: vec![],
         }],
     }
 }

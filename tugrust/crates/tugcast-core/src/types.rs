@@ -1316,6 +1316,115 @@ pub struct DocumentArcEntry {
     pub bound_session: Option<String>,
 }
 
+/// A cycle, as the aggregate sends it: a set of briefs the user means to land
+/// together, each tied to the arc that carries it, with every entry's state
+/// derived from the arc log on the server.
+///
+/// Composed in tugcast from `tugarc-core`'s cycle view, which this crate
+/// cannot name; the fields are that view's, as they are. Mirrored in
+/// `tugdeck/src/lib/changeset-types.ts` and guarded by the aggregate golden
+/// fixture.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CycleWire {
+    /// The cycle's id, eight hex characters.
+    pub id: String,
+    pub name: String,
+    pub created: String,
+    /// When the record last changed; the list is ordered by it, newest first.
+    pub updated: String,
+    /// The checkout the cycle belongs to, absolute.
+    pub project_dir: String,
+    /// The session that wrote the cycle, when one did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<String>,
+    pub entries: Vec<CycleEntryWire>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sketches: Vec<CycleSketchWire>,
+    /// How many entries have joined.
+    pub landed: u32,
+}
+
+/// One entry of a cycle: a brief, the arc it is tied to, and its state.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CycleEntryWire {
+    /// The entry's number, from 1, in the order added.
+    pub n: u32,
+    /// The brief's path as the record holds it, relative to the project.
+    pub brief: String,
+    /// The brief's absolute path, present only when the file is on disk —
+    /// the deck has no filesystem, so a surface that names the brief cannot
+    /// open it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brief_path: Option<String>,
+    /// The brief's first heading, read beside `brief_path`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brief_title: Option<String>,
+    /// The arc the entry is tied to, by name and generation start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arc: Option<CycleArcWire>,
+    /// The entries this one waits on, by number.
+    #[serde(default)]
+    pub waits: Vec<u32>,
+    /// The letters of the cycle's sketches this entry came from.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub from: Vec<String>,
+    /// Free text, for a gate that is not an entry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    pub added: String,
+    /// `joined` | `running` | `ready` | `waiting`, derived from the arc log
+    /// in the same pass that composes the arc rows beside it.
+    pub state: String,
+    /// Every stage rotation of the linked arc's current generation, oldest
+    /// first: the history of the sessions that worked the entry.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stages: Vec<CycleStageWire>,
+    /// `arc_owner_key` of the linked arc, present only when the link is the
+    /// arc's current generation — the key its arc row wears in the same
+    /// frame, so a surface goes from entry to row without matching names.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_id: Option<String>,
+    /// The session bound to the linked arc, this instance's view, read as
+    /// the arc row reads it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bound_session: Option<String>,
+    /// The bound session's callsign, absent exactly when `bound_session` is
+    /// or when the ledger has not named the line yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bound_callsign: Option<String>,
+}
+
+/// The arc a cycle entry is tied to: its name and its generation's start.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CycleArcWire {
+    pub name: String,
+    /// The generation's start in the arc log's ISO form; absent when the log
+    /// never recorded the arc.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created: Option<String>,
+}
+
+/// One stage rotation of an entry's arc. The session id travels bare; the
+/// deck's session identity stores resolve it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CycleStageWire {
+    /// The stage's lowercase name: `devise`, `review`, `implement`, `audit`.
+    pub stage: String,
+    pub session_id: String,
+    /// The model the stage was rotated with; `None` is the account default.
+    #[serde(default)]
+    pub model: Option<String>,
+    pub at: String,
+}
+
+/// One sketch on a cycle: the sketch store's id under the cycle's letter.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CycleSketchWire {
+    pub letter: String,
+    pub id: String,
+    pub added: String,
+}
+
 /// One project's slice of the account-global aggregate changeset snapshot.
 ///
 /// Carries the project's identity (`project_dir` — the absolute checkout root,
@@ -1347,6 +1456,10 @@ pub struct ProjectChangeset {
     /// Arcs that exist only as documents — no branch yet — sorted by name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub document_arcs: Vec<DocumentArcEntry>,
+    /// The repository's cycles, most recently changed first. Listed only by
+    /// the project that lists the repository's arcs, and omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cycles: Vec<CycleWire>,
 }
 
 /// The account-global aggregate changeset snapshot, delivered process-level on
@@ -2431,6 +2544,7 @@ mod tests {
             },
             unattributed_draft: None,
             document_arcs: vec![],
+            cycles: vec![],
         };
         let json = serde_json::to_string(&project).unwrap();
         assert!(json.contains(r#""project_dir":"/tmp/proj""#));
@@ -2441,6 +2555,7 @@ mod tests {
         // A project with no document-only arc carries no `document_arcs`
         // key at all, so older readers see the payload they already understand.
         assert!(!json.contains("document_arcs"));
+        assert!(!json.contains("cycles"), "no cycles, no key");
     }
 
     #[test]
@@ -2494,5 +2609,52 @@ mod tests {
             Some("/repo/.tug/arcs/fix-join/plan.md")
         );
         assert!(!documents.is_empty());
+    }
+
+    /// The golden's one cycle holds an entry in each state, a live binding on
+    /// the running one, and a sketch; the other project carries none.
+    #[test]
+    fn test_project_changeset_carries_cycles() {
+        let snapshot: WorkspacesChangesetSnapshot =
+            serde_json::from_str(WORKSPACES_CHANGESET_GOLDEN).unwrap();
+        let cycles = &snapshot.projects[0].cycles;
+        assert_eq!(cycles.len(), 1);
+        let cycle = &cycles[0];
+        assert_eq!(cycle.id, "3f9a1c2e");
+        assert_eq!(cycle.landed, 1);
+        let states: Vec<&str> = cycle.entries.iter().map(|e| e.state.as_str()).collect();
+        assert_eq!(states, ["joined", "running", "ready", "waiting"]);
+
+        let running = &cycle.entries[1];
+        assert_eq!(
+            running.owner_id.as_deref(),
+            Some("tugarc/fix-join#1723500000000-a1b2c3")
+        );
+        assert_eq!(running.bound_callsign.as_deref(), Some("odd-kiln"));
+        // The running entry's history, oldest first: an earlier session's
+        // review, then the bound session's implement.
+        assert_eq!(running.stages.len(), 2);
+        assert_eq!(running.stages[0].model, None);
+        assert_eq!(running.stages[1].model.as_deref(), Some("opus"));
+        assert_eq!(
+            running.arc.as_ref().map(|a| a.name.as_str()),
+            Some("fix-join")
+        );
+
+        // An ended generation is no longer the one the arc record holds, so
+        // it carries no stages and no live session.
+        let joined = &cycle.entries[0];
+        assert!(joined.owner_id.is_none() && joined.bound_session.is_none());
+        assert!(joined.stages.is_empty());
+        assert_eq!(joined.from, ["A"]);
+
+        // An entry not yet tied to an arc, or whose brief is not on disk,
+        // carries neither the link nor the absolute path.
+        let waiting = &cycle.entries[3];
+        assert!(waiting.arc.is_none() && waiting.brief_path.is_none());
+        assert_eq!(waiting.waits, [2, 3]);
+
+        assert_eq!(cycle.sketches[0].letter, "A");
+        assert!(snapshot.projects[1].cycles.is_empty());
     }
 }

@@ -26,7 +26,7 @@ use tugcore::instance::Paths;
 use tugtool_core::paths::project_state_dir_at;
 use tugtool_core::session::now_iso8601;
 
-use crate::arc::{ArcStageLine, read_arc};
+use crate::arc::{ArcStageLine, read_arc_in};
 use crate::error::ArcError;
 use crate::log::{generation_started_at, is_terminal, split_log_line, validate_arc_name};
 use crate::ops::main_repo_root;
@@ -380,6 +380,18 @@ pub enum EntryState {
     Ready,
 }
 
+impl EntryState {
+    /// The state's wire spelling, the same word its serde form writes.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EntryState::Joined => "joined",
+            EntryState::Running => "running",
+            EntryState::Waiting => "waiting",
+            EntryState::Ready => "ready",
+        }
+    }
+}
+
 /// What the arc log says about one linked arc generation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LinkStatus {
@@ -541,7 +553,16 @@ pub fn view_cycle(paths: &Paths, record: &CycleRecord) -> CycleView {
     let repo = Path::new(&record.project_dir);
     let log_path = tugtool_core::paths::arc_log_path_at(paths, repo);
     let log = fs::read_to_string(&log_path).unwrap_or_default();
-    let states = entry_states(&log, record);
+    view_cycle_in(&log, record)
+}
+
+/// Read `record` against arc log text already in hand.
+///
+/// The text must be the log of the cycle's own `project_dir`. Every cycle of
+/// one checkout reads the same log, so a caller composing all of them reads
+/// it once and passes it to each; [`view_cycle`] is this over a fresh read.
+pub fn view_cycle_in(log: &str, record: &CycleRecord) -> CycleView {
+    let states = entry_states(log, record);
     let entries: Vec<EntryView> = record
         .entries
         .iter()
@@ -550,8 +571,8 @@ pub fn view_cycle(paths: &Paths, record: &CycleRecord) -> CycleView {
             let stages = entry
                 .arc
                 .as_ref()
-                .filter(|link| generation_started_at(&log, &link.name) == link.created)
-                .and_then(|link| read_arc(paths, repo, &link.name))
+                .filter(|link| generation_started_at(log, &link.name) == link.created)
+                .and_then(|link| read_arc_in(log, &link.name))
                 .map(|arc| arc.stages)
                 .unwrap_or_default();
             EntryView {
@@ -1077,5 +1098,64 @@ mod tests {
         let json = serde_json::to_value(&view).unwrap();
         assert_eq!(json["entries"][0]["state"], "joined");
         assert_eq!(json["entries"][0]["n"], 1, "the entry is flattened");
+    }
+
+    #[test]
+    fn several_cycles_view_from_one_log_text() {
+        let (_t, repo, paths) = scratch();
+        let first = create_cycle(&paths, &repo, "First", None).unwrap().id;
+        let second = create_cycle(&paths, &repo, "Second", None).unwrap().id;
+        add_entry(&paths, &repo, &first, entry("briefs/a.md", &[])).unwrap();
+        add_entry(&paths, &repo, &second, entry("briefs/b.md", &[])).unwrap();
+        add_entry(&paths, &repo, &second, entry("briefs/c.md", &[1])).unwrap();
+        log_append(
+            &paths,
+            &repo,
+            "2026-11-01T00:00:00Z  aa  arc-start  brief.md",
+        );
+        log_append(
+            &paths,
+            &repo,
+            "2026-11-01T00:10:00Z  bb  arc-start  brief.md",
+        );
+        crate::arc::append_arc_stage(
+            &paths,
+            &repo,
+            "bb",
+            crate::arc::ArcStage::Implement,
+            "sess-b",
+            None,
+        )
+        .unwrap();
+        attach(&paths, &repo, &first, 1, "aa").unwrap();
+        attach(&paths, &repo, &second, 1, "bb").unwrap();
+        log_append(
+            &paths,
+            &repo,
+            "2026-11-01T02:00:00Z  aa  302d43b5d1  joined",
+        );
+
+        let log_path = tugtool_core::paths::arc_log_path_at(&paths, &repo);
+        let log = fs::read_to_string(&log_path).unwrap();
+        let records = cycles(&paths, &repo);
+        assert_eq!(records.len(), 2);
+        for record in &records {
+            assert_eq!(
+                view_cycle_in(&log, record),
+                view_cycle(&paths, record),
+                "the one-text view is the file-reading view"
+            );
+        }
+
+        let by_id = |id: &str| records.iter().find(|r| r.id == id).unwrap();
+        let one = view_cycle_in(&log, by_id(&first));
+        assert_eq!(one.landed, 1);
+        assert_eq!(one.entries[0].state, EntryState::Joined);
+        assert!(one.entries[0].stages.is_empty());
+        let two = view_cycle_in(&log, by_id(&second));
+        assert_eq!(two.landed, 0);
+        assert_eq!(two.entries[0].state, EntryState::Running);
+        assert_eq!(two.entries[0].stages[0].session_id, "sess-b");
+        assert_eq!(two.entries[1].state, EntryState::Waiting);
     }
 }

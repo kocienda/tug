@@ -825,6 +825,13 @@ pub(crate) async fn supervisor(
         changeset_all_tx,
         cancel.clone(),
     );
+    // A cycle written out of process — `cycle.json`, or the arc log an
+    // entry's state is read from — bumps the aggregate through a watch, so
+    // the deck sees the cycle as soon as it is written.
+    tokio::spawn(feeds::cycle_watch::run_cycle_watch(
+        Arc::clone(&changeset_all_bump),
+        cancel.clone(),
+    ));
 
     // The base-motion engine: replay an arc onto its base the moment the base
     // moves and it is safe to. It subscribes to the same GIT_HEAD broadcast the

@@ -1099,6 +1099,12 @@ export interface ProjectChangeset extends ChangesetSnapshot {
    * branch yet — sorted by name. Absent when there are none.
    */
   document_arcs?: DocumentArcEntry[];
+  /**
+   * The repository's cycles, most recently changed first. Listed only by the
+   * project that lists the repository's arcs; absent when there are none, and
+   * from a server older than cycles.
+   */
+  cycles?: CycleWire[];
 }
 
 /**
@@ -1206,6 +1212,154 @@ export function isDocumentArcEntry(
   );
 }
 
+/** The state of a cycle entry, derived from the arc log on the server. */
+export type CycleEntryState = "joined" | "running" | "ready" | "waiting";
+
+/** The arc a cycle entry is tied to: its name and its generation's start. */
+export interface CycleArcWire {
+  name: string;
+  /** The generation's start, ISO; absent when the log never recorded the arc. */
+  created?: string;
+}
+
+/** One stage rotation of an entry's arc. The session id travels bare. */
+export interface CycleStageWire {
+  /** `devise` | `review` | `implement` | `audit`. */
+  stage: string;
+  session_id: string;
+  /** The model the stage was rotated with; null is the account default. */
+  model: string | null;
+  at: string;
+}
+
+/** One entry of a cycle: a brief, the arc it is tied to, and its state. */
+export interface CycleEntryWire {
+  /** The entry's number, from 1, in the order added. */
+  n: number;
+  /** The brief's path as the record holds it, relative to the project. */
+  brief: string;
+  /** The brief's absolute path, present only when the file is on disk. */
+  brief_path?: string;
+  /** The brief's first heading, read beside `brief_path`. */
+  brief_title?: string;
+  arc?: CycleArcWire;
+  /** The entries this one waits on, by number. */
+  waits: number[];
+  /** The letters of the cycle's sketches this entry came from. */
+  from?: string[];
+  /** Free text, for a gate that is not an entry. */
+  note?: string;
+  added: string;
+  state: CycleEntryState;
+  /** Every stage rotation of the linked arc's current generation, oldest first. */
+  stages?: CycleStageWire[];
+  /**
+   * The linked arc's owner key, present only while the arc is running — the
+   * key its arc row wears in the same frame.
+   */
+  owner_id?: string;
+  /** The session bound to the running arc, this instance's view. */
+  bound_session?: string;
+  /** That session's callsign, absent when the ledger has not named it. */
+  bound_callsign?: string;
+}
+
+/** One sketch on a cycle: the sketch store's id under the cycle's letter. */
+export interface CycleSketchWire {
+  letter: string;
+  id: string;
+  added: string;
+}
+
+/**
+ * A cycle: a set of briefs the user means to land together, each tied to the
+ * arc that carries it. Everything here is composed on the server ([D138]).
+ */
+export interface CycleWire {
+  /** Eight hex characters. */
+  id: string;
+  name: string;
+  created: string;
+  updated: string;
+  /** The checkout the cycle belongs to, absolute. */
+  project_dir: string;
+  /** The session that wrote the cycle, when one did. */
+  created_by?: string;
+  entries: CycleEntryWire[];
+  sketches?: CycleSketchWire[];
+  /** How many entries have joined. */
+  landed: number;
+}
+
+const CYCLE_ENTRY_STATES: ReadonlySet<string> = new Set([
+  "joined",
+  "running",
+  "ready",
+  "waiting",
+]);
+
+function isCycleStageWire(value: unknown): value is CycleStageWire {
+  return (
+    isRecord(value) &&
+    typeof value.stage === "string" &&
+    typeof value.session_id === "string" &&
+    (value.model === null ||
+      value.model === undefined ||
+      typeof value.model === "string") &&
+    typeof value.at === "string"
+  );
+}
+
+export function isCycleEntryWire(value: unknown): value is CycleEntryWire {
+  return (
+    isRecord(value) &&
+    typeof value.n === "number" &&
+    typeof value.brief === "string" &&
+    isOptionalString(value.brief_path) &&
+    isOptionalString(value.brief_title) &&
+    (value.arc === undefined ||
+      (isRecord(value.arc) &&
+        typeof value.arc.name === "string" &&
+        isOptionalString(value.arc.created))) &&
+    Array.isArray(value.waits) &&
+    value.waits.every((w) => typeof w === "number") &&
+    isOptionalStringArray(value.from) &&
+    isOptionalString(value.note) &&
+    typeof value.added === "string" &&
+    typeof value.state === "string" &&
+    CYCLE_ENTRY_STATES.has(value.state) &&
+    (value.stages === undefined ||
+      (Array.isArray(value.stages) && value.stages.every(isCycleStageWire))) &&
+    isOptionalString(value.owner_id) &&
+    isOptionalString(value.bound_session) &&
+    isOptionalString(value.bound_callsign)
+  );
+}
+
+export function isCycleWire(value: unknown): value is CycleWire {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.name === "string" &&
+    typeof value.created === "string" &&
+    typeof value.updated === "string" &&
+    typeof value.project_dir === "string" &&
+    isOptionalString(value.created_by) &&
+    Array.isArray(value.entries) &&
+    value.entries.every(isCycleEntryWire) &&
+    (value.sketches === undefined ||
+      (Array.isArray(value.sketches) &&
+        value.sketches.every(
+          (s) =>
+            isRecord(s) &&
+            typeof s.letter === "string" &&
+            typeof s.id === "string" &&
+            typeof s.added === "string",
+        ))) &&
+    typeof value.landed === "number"
+  );
+}
+
 /** The account-global aggregate changeset snapshot (CHANGESET_ALL feed, 0x24). */
 export interface WorkspacesChangesetSnapshot {
   /** One entry per open project, in registry-enumeration order. */
@@ -1229,6 +1383,8 @@ export function isProjectChangeset(value: unknown): value is ProjectChangeset {
     (value.document_arcs === undefined ||
       (Array.isArray(value.document_arcs) &&
         value.document_arcs.every(isDocumentArcEntry))) &&
+    (value.cycles === undefined ||
+      (Array.isArray(value.cycles) && value.cycles.every(isCycleWire))) &&
     isChangesetSnapshot(value)
   );
 }

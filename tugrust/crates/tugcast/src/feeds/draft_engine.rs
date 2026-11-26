@@ -911,6 +911,7 @@ mod tests {
                 },
                 unattributed_draft: None,
                 document_arcs: vec![],
+                cycles: vec![],
             }],
         }
     }
@@ -943,6 +944,7 @@ mod tests {
                 },
                 unattributed_draft: None,
                 document_arcs: vec![],
+                cycles: vec![],
             }],
         }
     }

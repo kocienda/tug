@@ -327,6 +327,7 @@ pub(crate) async fn compose_aggregate(
             snapshot,
             unattributed_draft,
             document_arcs: Vec::new(),
+            cycles: Vec::new(),
         });
     }
 
@@ -421,6 +422,7 @@ async fn attach_arcs_per_repo(
         }
         projects[index].document_arcs =
             super::changeset::document_arc_entries(project_dir, ledger).await;
+        projects[index].cycles = super::changeset::cycle_entries(project_dir, ledger).await;
     }
 }
 
@@ -512,6 +514,7 @@ mod tests {
             snapshot: empty_snapshot("wk".to_owned()),
             unattributed_draft: None,
             document_arcs: Vec::new(),
+            cycles: Vec::new(),
         }
     }
 
@@ -553,6 +556,59 @@ mod tests {
         assert!(
             wt_project.document_arcs.is_empty(),
             "document arcs stay with the owner too"
+        );
+    }
+
+    /// A repository's cycles ride the project that owns its arcs: the base
+    /// checkout lists them, and its open worktree does not list them again.
+    #[tokio::test]
+    async fn cycles_ride_the_project_that_owns_the_arcs() {
+        let data = tempfile::tempdir().unwrap();
+        // SAFETY: nextest runs one process per test, so this cannot reach
+        // another test.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", data.path());
+        }
+        let base_dir = tempfile::tempdir().unwrap();
+        let base = base_dir.path().canonicalize().unwrap();
+        init_repo(&base);
+        add_arc(&base, "demo");
+        let wt_parent = tempfile::tempdir().unwrap();
+        let wt = wt_parent.path().canonicalize().unwrap().join("wt");
+        git(
+            &base,
+            &["worktree", "add", "-q", wt.to_str().unwrap(), "tugarc/demo"],
+        );
+        let cycle = tugarc_core::cycle::create_cycle(
+            &tugcore::instance::Paths::from_env(),
+            &base,
+            "Together",
+            None,
+        )
+        .unwrap();
+
+        let cancel = CancellationToken::new();
+        let registry = Arc::new(WorkspaceRegistry::new_for_test());
+        let _base_entry = registry.get_or_create(&base, cancel.clone()).unwrap();
+        let _wt_entry = registry.get_or_create(&wt, cancel.clone()).unwrap();
+
+        let snapshot = compose_aggregate(&registry, None, &BusyProbe::default()).await;
+        let project = |dir: &Path| {
+            snapshot
+                .projects
+                .iter()
+                .find(|p| Path::new(&p.project_dir) == dir)
+                .expect("an open project")
+        };
+        let listed: Vec<&str> = project(&base)
+            .cycles
+            .iter()
+            .map(|c| c.id.as_str())
+            .collect();
+        assert_eq!(listed, [cycle.id.as_str()], "the base lists the cycle");
+        assert!(
+            project(&wt).cycles.is_empty(),
+            "the worktree does not repeat it"
         );
     }
 

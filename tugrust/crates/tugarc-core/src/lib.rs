@@ -78,7 +78,7 @@ pub mod timeline;
 pub use arc::{
     ArcKind, ArcRecord, ArcStage, ArcStageLine, append_arc_done, append_arc_kind, append_arc_note,
     append_arc_plan, append_arc_resume, append_arc_stage, append_arc_start, append_arc_stop,
-    read_arc,
+    read_arc, read_arc_in,
 };
 pub use doctor::{ArcDiagnosis, ArcFinding, ArcRepair, DoctorOutcome, diagnose, doctor};
 pub use error::ArcError;
