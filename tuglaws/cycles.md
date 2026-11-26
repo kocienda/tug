@@ -109,7 +109,7 @@ Every row is a keyboard stop, and the map is never the only door: each tile and 
 
 ## Drawn and deferred
 
-Four controls were drawn while the cycle surfaces were explored, and none of them is built. The deferral was the user's: starting things from these surfaces waits until the surfaces themselves have settled. The drawing can be read at `54475b519`, which is the last commit that carries it. This section records a design that has no other home. It is not a commitment to build it.
+Four controls were drawn while the cycle surfaces were explored, and none of them is built. The deferral was the user's: starting things from these surfaces waits until the surfaces themselves have settled. The drawing is in the Cycle Band spike (`tugdeck/src/spikes/spike-cycle-band.tsx`), which stays in the tree as the reference the shipped surfaces are checked against until the user has confirmed them. This section records a design that has no other home. It is not a commitment to build it.
 
 - **Start on a ready entry.** A button on a ready entry's asset, and on the footer's Next line, that starts that entry's arc in this session.
 - **Start in a new session.** A second, smaller button beside it that opens a new session for the entry.
