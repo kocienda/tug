@@ -2935,5 +2935,30 @@ export const ELEMENT_SURFACE_PAIRING_MAP: ElementSurfacePairing[] = [
   { element: "--tug7-surface-toggle-primary-normal-off-hover", surface: "--tug7-surface-global-primary-normal-content-rest", role: "informational" },
   { element: "--tug7-surface-toggle-primary-normal-on-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "informational" },
 
+  // ---- cycle-map.css ----
+  //
+  // Tiles and seals are raised chips; each one's border and mark take the
+  // tone of how its entry stands. The wires, their heads and the elsewhere
+  // dot are drawn on the map's ground, which both hosts paint as the well.
+  // Role decorative where the tone only reinforces what the tile already
+  // says in its mark, its tooltip and its accessible name: the ready and
+  // running borders, the lit wire under the pointer, the current step's pip
+  // and the elsewhere dot. The map keeps the colours it was reviewed in.
+  { element: "--tug7-element-global-text-normal-default-rest", surface: "--tug7-surface-global-primary-normal-raised-rest", role: "content" },
+  { element: "--tug7-element-global-text-normal-muted-rest", surface: "--tug7-surface-global-primary-normal-raised-rest", role: "content" },
+  { element: "--tug7-element-tone-icon-normal-accent-rest", surface: "--tug7-surface-global-primary-normal-raised-rest", role: "informational" },
+  { element: "--tug7-element-tone-icon-normal-success-rest", surface: "--tug7-surface-global-primary-normal-raised-rest", role: "informational" },
+  { element: "--tug7-element-tone-border-normal-accent-rest", surface: "--tug7-surface-global-primary-normal-raised-rest", role: "decorative" },
+  { element: "--tug7-element-tone-border-normal-active-rest", surface: "--tug7-surface-global-primary-normal-raised-rest", role: "decorative" },
+  { element: "--tug7-element-tone-border-normal-success-rest", surface: "--tug7-surface-global-primary-normal-raised-rest", role: "informational" },
+  { element: "--tug7-element-tone-border-normal-data-rest", surface: "--tug7-surface-global-primary-normal-raised-rest", role: "informational" },
+  { element: "--tug7-element-tone-fill-normal-success-rest", surface: "--tug7-surface-global-primary-normal-raised-rest", role: "informational" },
+  { element: "--tug7-element-tone-fill-normal-active-rest", surface: "--tug7-surface-global-primary-normal-raised-rest", role: "decorative" },
+  { element: "--tug7-element-tone-fill-normal-agent-rest", surface: "--tug7-surface-card-primary-normal-well-rest", role: "decorative" },
+  { element: "--tug7-element-global-text-normal-muted-rest", surface: "--tug7-surface-card-primary-normal-well-rest", role: "informational" },
+  { element: "--tug7-element-tone-border-normal-success-rest", surface: "--tug7-surface-card-primary-normal-well-rest", role: "informational" },
+  { element: "--tug7-element-tone-border-normal-data-rest", surface: "--tug7-surface-card-primary-normal-well-rest", role: "informational" },
+  { element: "--tug7-element-tone-border-normal-accent-rest", surface: "--tug7-surface-card-primary-normal-well-rest", role: "decorative" },
+
 ];
 

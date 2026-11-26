@@ -1,0 +1,276 @@
+/* @tug-pairings {
+  --tug7-element-global-text-normal-default-rest       | --tug7-surface-global-primary-normal-raised-rest | content
+  --tug7-element-global-text-normal-muted-rest         | --tug7-surface-global-primary-normal-raised-rest | content
+  --tug7-element-tone-icon-normal-accent-rest          | --tug7-surface-global-primary-normal-raised-rest | informational
+  --tug7-element-tone-icon-normal-success-rest         | --tug7-surface-global-primary-normal-raised-rest | informational
+  --tug7-element-tone-border-normal-accent-rest        | --tug7-surface-global-primary-normal-raised-rest | decorative
+  --tug7-element-tone-border-normal-active-rest        | --tug7-surface-global-primary-normal-raised-rest | decorative
+  --tug7-element-tone-border-normal-success-rest       | --tug7-surface-global-primary-normal-raised-rest | informational
+  --tug7-element-tone-border-normal-data-rest          | --tug7-surface-global-primary-normal-raised-rest | informational
+  --tug7-element-tone-fill-normal-success-rest         | --tug7-surface-global-primary-normal-raised-rest | informational
+  --tug7-element-tone-fill-normal-active-rest          | --tug7-surface-global-primary-normal-raised-rest | decorative
+  --tug7-element-tone-fill-normal-agent-rest           | --tug7-surface-card-primary-normal-well-rest     | decorative
+  --tug7-element-global-text-normal-muted-rest         | --tug7-surface-card-primary-normal-well-rest     | informational
+  --tug7-element-tone-border-normal-success-rest       | --tug7-surface-card-primary-normal-well-rest     | informational
+  --tug7-element-tone-border-normal-data-rest          | --tug7-surface-card-primary-normal-well-rest     | informational
+  --tug7-element-tone-border-normal-accent-rest        | --tug7-surface-card-primary-normal-well-rest     | decorative
+} */
+
+/**
+ * @tug-pairings
+ * | Element                                        | Surface                                          | Role          | Context                                                         |
+ * |------------------------------------------------|--------------------------------------------------|---------------|-----------------------------------------------------------------|
+ * | --tug7-element-global-text-normal-default-rest | --tug7-surface-global-primary-normal-raised-rest | content       | .tug-cycle-map-tile, .tug-cycle-map-seal (color)                |
+ * | --tug7-element-global-text-normal-muted-rest   | --tug7-surface-global-primary-normal-raised-rest | content       | .tug-cycle-map-tile[data-state="waiting"] (color, border-color) |
+ * | --tug7-element-tone-icon-normal-accent-rest    | --tug7-surface-global-primary-normal-raised-rest | informational | [data-state="ready"] > .tug-cycle-map-tile-mark (color)         |
+ * | --tug7-element-tone-icon-normal-success-rest   | --tug7-surface-global-primary-normal-raised-rest | informational | [data-state="joined"] > .tug-cycle-map-tile-mark (color)        |
+ * | --tug7-element-tone-border-normal-accent-rest  | --tug7-surface-global-primary-normal-raised-rest | decorative    | [data-state="ready"], [data-chosen] tile (border-color, outline)|
+ * | --tug7-element-tone-border-normal-active-rest  | --tug7-surface-global-primary-normal-raised-rest | decorative    | [data-state="running"] tile (border-color)                      |
+ * | --tug7-element-tone-border-normal-success-rest | --tug7-surface-global-primary-normal-raised-rest | informational | [data-state="joined"] tile (border-color)                       |
+ * | --tug7-element-tone-border-normal-data-rest    | --tug7-surface-global-primary-normal-raised-rest | informational | .tug-cycle-map-seal (border, outline)                           |
+ * | --tug7-element-tone-fill-normal-success-rest   | --tug7-surface-global-primary-normal-raised-rest | informational | .tug-cycle-map-pips > [data-pip="done"] (background)            |
+ * | --tug7-element-tone-fill-normal-active-rest    | --tug7-surface-global-primary-normal-raised-rest | decorative    | .tug-cycle-map-pips > [data-pip="now"] (background)             |
+ * | --tug7-element-tone-fill-normal-agent-rest     | --tug7-surface-card-primary-normal-well-rest     | decorative    | .tug-cycle-map-tile[data-elsewhere]::after (background)         |
+ * | --tug7-element-global-text-normal-muted-rest   | --tug7-surface-card-primary-normal-well-rest     | informational | .tug-cycle-map-wire-line (stroke), -wire-head (fill)            |
+ * | --tug7-element-tone-border-normal-success-rest | --tug7-surface-card-primary-normal-well-rest     | informational | .tug-cycle-map-wire[data-met] (stroke, fill)                    |
+ * | --tug7-element-tone-border-normal-data-rest    | --tug7-surface-card-primary-normal-well-rest     | informational | .tug-cycle-map-wire[data-sketch] (stroke, fill)                 |
+ * | --tug7-element-tone-border-normal-accent-rest  | --tug7-surface-card-primary-normal-well-rest     | decorative    | .tug-cycle-map-wire[data-hot] (stroke, fill)                    |
+ *
+ * The wires and the elsewhere dot are drawn on the map's ground, which the
+ * host paints; the well is the ground both hosts give it. The decorative rows only reinforce what a tile already says in its mark, its tooltip and its accessible name.
+ */
+
+/* cycle-map.css — a cycle's tiles, seals and wires, at two sizes.
+
+   The map owns its horizontal overflow and the positioned plane inside it.
+   It paints no well, padding, border or radius of its own: those are the
+   host's, set through the host's own class. A tile's and a seal's size and
+   place come from the layout's measures, written inline; nothing here sizes
+   them. The lengths a theme or a host might tune are `--tugx-cycle-map-*`,
+   with defaults at their point of use, and the compact size sets its own.
+
+   Laws: [L06] state, size, selection and hover are `data-*`; [L16] pairings
+   declared; [L19] component authoring guide; [L20] owns `--tugx-cycle-map-*`. */
+
+/* ---- The map ------------------------------------------------------------ */
+
+.tug-cycle-map {
+  flex: none;
+  overflow-x: auto;
+}
+
+.tug-cycle-map[data-size="compact"] {
+  --tugx-cycle-map-tile-gap: 2px;
+  --tugx-cycle-map-tile-pad: 5px;
+  --tugx-cycle-map-tile-radius: 6px;
+  --tugx-cycle-map-number-size: 12px;
+  --tugx-cycle-map-seal-size: 11px;
+  --tugx-cycle-map-pip-gap: 1px;
+  --tugx-cycle-map-pip-width: 2px;
+  --tugx-cycle-map-pip-height: 8px;
+  --tugx-cycle-map-dot-offset: -4px;
+  --tugx-cycle-map-dot-size: 7px;
+}
+
+.tug-cycle-map-plane {
+  position: relative;
+}
+
+.tug-cycle-map-wires {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* ---- Wires -------------------------------------------------------------- */
+
+/* A wire still waited on: dashed and quiet. */
+/* @tug-renders-on: --tug7-surface-card-primary-normal-well-rest */
+.tug-cycle-map-wire-line {
+  fill: none;
+  stroke: var(--tugx-block-text-color-muted);
+  stroke-width: var(--tugx-cycle-map-wire-width, 1.5);
+  stroke-dasharray: 4 4;
+  opacity: 0.7;
+}
+
+/* @tug-renders-on: --tug7-surface-card-primary-normal-well-rest */
+.tug-cycle-map-wire-head {
+  fill: var(--tugx-block-text-color-muted);
+  opacity: 0.7;
+}
+
+/* A wire out of an entry that has joined: solid, in the success tone. */
+/* @tug-renders-on: --tug7-surface-card-primary-normal-well-rest */
+.tug-cycle-map-wire[data-met] > .tug-cycle-map-wire-line {
+  stroke: var(--tug7-element-tone-border-normal-success-rest);
+  stroke-dasharray: none;
+  opacity: 1;
+}
+
+/* @tug-renders-on: --tug7-surface-card-primary-normal-well-rest */
+.tug-cycle-map-wire[data-met] > .tug-cycle-map-wire-head {
+  fill: var(--tug7-element-tone-border-normal-success-rest);
+  opacity: 1;
+}
+
+/* A wire from a sketch to an entry it heads: solid, in the sketch's tone. */
+/* @tug-renders-on: --tug7-surface-card-primary-normal-well-rest */
+.tug-cycle-map-wire[data-sketch] > .tug-cycle-map-wire-line {
+  stroke: var(--tug7-element-tone-border-normal-data-rest);
+  stroke-dasharray: none;
+  opacity: 1;
+}
+
+/* @tug-renders-on: --tug7-surface-card-primary-normal-well-rest */
+.tug-cycle-map-wire[data-sketch] > .tug-cycle-map-wire-head {
+  fill: var(--tug7-element-tone-border-normal-data-rest);
+  opacity: 1;
+}
+
+/* The wires into the tile under the pointer, or the chosen one. */
+/* @tug-renders-on: --tug7-surface-card-primary-normal-well-rest */
+.tug-cycle-map-wire[data-hot] > .tug-cycle-map-wire-line {
+  stroke: var(--tug7-element-tone-border-normal-accent-rest);
+  stroke-width: var(--tugx-cycle-map-wire-hot-width, 2.5);
+  opacity: 1;
+}
+
+/* @tug-renders-on: --tug7-surface-card-primary-normal-well-rest */
+.tug-cycle-map-wire[data-hot] > .tug-cycle-map-wire-head {
+  fill: var(--tug7-element-tone-border-normal-accent-rest);
+  opacity: 1;
+}
+
+/* Shift-presses have singled some assets out: the rest of the map draws
+   back, and stays pressable so more can be added. */
+.tug-cycle-map-plane[data-filtering] > .tug-cycle-map-wires,
+.tug-cycle-map-plane[data-filtering] > .tug-cycle-map-tile:not([data-chosen]),
+.tug-cycle-map-plane[data-filtering] > .tug-cycle-map-seal:not([data-chosen]) {
+  opacity: var(--tugx-cycle-map-fade, 0.35);
+}
+
+/* ---- Tiles -------------------------------------------------------------- */
+
+/* A tile: the entry's number, and beside it how it stands. */
+.tug-cycle-map-tile {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tugx-cycle-map-tile-gap, 4px);
+  padding: 0 var(--tugx-cycle-map-tile-pad, 8px);
+  border: 1.5px solid var(--tugx-block-hairline);
+  border-radius: var(--tugx-cycle-map-tile-radius, 8px);
+  background: var(--tugx-block-chrome-bg);
+  color: var(--tugx-block-text-color);
+  font: inherit;
+  cursor: pointer;
+}
+
+.tug-cycle-map-tile-number {
+  font-size: var(--tugx-cycle-map-number-size, 16px);
+  font-weight: var(--tug-font-weight-semibold);
+  line-height: 1;
+}
+
+.tug-cycle-map-tile-mark {
+  display: inline-flex;
+  align-items: center;
+}
+
+.tug-cycle-map[data-size="compact"] .tug-cycle-map-tile-mark svg {
+  width: var(--tugx-cycle-map-icon-size, 10px);
+  height: var(--tugx-cycle-map-icon-size, 10px);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-raised-rest */
+.tug-cycle-map-tile[data-state="waiting"] {
+  border-color: var(--tugx-block-text-color-muted);
+  color: var(--tugx-block-text-color-muted);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-raised-rest */
+.tug-cycle-map-tile[data-state="ready"] {
+  border-color: var(--tug7-element-tone-border-normal-accent-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-raised-rest */
+.tug-cycle-map-tile[data-state="ready"] > .tug-cycle-map-tile-mark {
+  color: var(--tug7-element-tone-icon-normal-accent-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-raised-rest */
+.tug-cycle-map-tile[data-state="running"] {
+  border-color: var(--tug7-element-tone-border-normal-active-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-raised-rest */
+.tug-cycle-map-tile[data-state="joined"] {
+  border-color: var(--tug7-element-tone-border-normal-success-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-raised-rest */
+.tug-cycle-map-tile[data-state="joined"] > .tug-cycle-map-tile-mark {
+  color: var(--tug7-element-tone-icon-normal-success-rest);
+}
+
+.tug-cycle-map-tile[data-chosen] {
+  outline: 2px solid var(--tug7-element-tone-border-normal-accent-rest);
+  outline-offset: 2px;
+}
+
+/* Running in another session: a dot on the tile's corner, in the agent tone. */
+.tug-cycle-map-tile[data-elsewhere]::after {
+  content: "";
+  position: absolute;
+  top: var(--tugx-cycle-map-dot-offset, -5px);
+  right: var(--tugx-cycle-map-dot-offset, -5px);
+  width: var(--tugx-cycle-map-dot-size, 9px);
+  height: var(--tugx-cycle-map-dot-size, 9px);
+  border-radius: 50%;
+  background: var(--tug7-element-tone-fill-normal-agent-rest);
+}
+
+/* How far a running entry has got: one pip a step. */
+.tug-cycle-map-pips {
+  display: inline-flex;
+  gap: var(--tugx-cycle-map-pip-gap, 2px);
+}
+
+.tug-cycle-map-pips > span {
+  width: var(--tugx-cycle-map-pip-width, 4px);
+  height: var(--tugx-cycle-map-pip-height, 10px);
+  border-radius: 1px;
+  background: var(--tugx-block-hairline);
+}
+
+.tug-cycle-map-pips > span[data-pip="done"] {
+  background: var(--tug7-element-tone-fill-normal-success-rest);
+}
+
+.tug-cycle-map-pips > span[data-pip="now"] {
+  background: var(--tug7-element-tone-fill-normal-active-rest);
+}
+
+/* ---- Seals -------------------------------------------------------------- */
+
+/* A sketch's seal: a wire runs from it to each entry it heads. */
+.tug-cycle-map-seal {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1.5px solid var(--tug7-element-tone-border-normal-data-rest);
+  border-radius: 50%;
+  background: var(--tugx-block-chrome-bg);
+  color: var(--tugx-block-text-color);
+  font: inherit;
+  font-size: var(--tugx-cycle-map-seal-size, var(--tug-font-size-sm));
+  font-weight: var(--tug-font-weight-semibold);
+  cursor: pointer;
+}
+
+.tug-cycle-map-seal[data-chosen] {
+  outline: 2px solid var(--tug7-element-tone-border-normal-data-rest);
+  outline-offset: 2px;
+}
