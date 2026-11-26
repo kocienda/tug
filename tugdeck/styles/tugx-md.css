@@ -590,6 +590,13 @@ body {
   overflow-x: auto;
 }
 
+/* A one-line fence soft-wraps instead of scrolling sideways. */
+.tugx-md-block .tugx-md-fenced-code[data-single-line] > pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-x: visible;
+}
+
 /* Pre-enhancement fallback: any `<pre>` that *isn't* yet wrapped (e.g.,
    measurement pass before `enhanceFencedCode` runs, or a consumer
    that bypasses the helper) still renders with the tool-block chrome

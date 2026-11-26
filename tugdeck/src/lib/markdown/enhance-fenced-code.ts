@@ -64,6 +64,13 @@ const FIGURE_FENCE_LABELS: Readonly<Record<string, string>> = {
   tugdiagram: "Drawing diagram…",
 };
 
+/** Whether a fence's text is one line: what is left once the newline
+ *  pulldown-cmark closes the body with is stripped holds no other. Such a
+ *  fence soft-wraps; a longer one keeps its columns. */
+export function isSingleLineFence(text: string): boolean {
+  return !text.replace(/\n+$/, "").includes("\n");
+}
+
 /** Parses the language tag off a `<code class="language-X">` element.
  *  Returns `null` for unspecified-language fenced blocks. */
 function readLanguage(codeEl: HTMLElement): string | null {
@@ -108,6 +115,12 @@ export function enhanceFencedCode(container: HTMLElement, options?: FenceHighlig
     const wrapper = document.createElement("div");
     wrapper.className = "tugx-md-fenced-code";
     if (lang !== null) wrapper.dataset.lang = lang;
+    // A one-line fence is prose-shaped (a prompt to paste, a sentence): it
+    // soft-wraps rather than scrolling off to the right. A fence of several
+    // lines keeps its columns, since its layout may be the point.
+    if (isSingleLineFence(codeEl?.textContent ?? pre.textContent ?? "")) {
+      wrapper.setAttribute("data-single-line", "");
+    }
 
     // Language label is the fence's identity, styled like a tool name.
     const langEl = document.createElement("span");
