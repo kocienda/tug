@@ -51,6 +51,8 @@ There are two kinds of arc, and the axis between them is **settling time** — w
 
 The sentence that defines them: **a planned arc is an arc that earns a plan before a step is walked.** Everything downstream of the opening is identical — one step per turn, compaction between steps, an audit of the whole diff by a session that never saw the run, the join offered through the Changes shade. A plain arc is not a lesser arc; it is the same arc entered by a door that has already answered what devise and review would have asked.
 
+Every arc is an entry on a **cycle**: the record of a run of related work, holding numbered entries, one brief and its one arc each, and the lettered sketches they came from; a bare arc is a cycle of one, and [cycles.md](cycles.md) is where the term is defined.
+
 ---
 
 ## The wheel, the door, the stages
