@@ -7,27 +7,28 @@
  * waits on. The model writes it; every surface here only reads it. The fixture
  * is the eight arcs of `liven/rotund-plaid`, reshaped to one brief per arc.
  *
- * Third round. The shade stands over an ordinary transcript, and holds, top
+ * Fourth round. The shade stands over an ordinary transcript, and holds, top
  * to bottom:
  *
  *   - **A header**, pinned: the lowering control at its top left, the cycle's
  *     name, and how much of it has landed.
- *   - **The map**, first in the content and scrolling with it. The cycle
- *     drawn as a graph: each entry is a tile, each wait a wire, and a tile's
- *     column is how deep its waits run, so the first column is what can start
- *     now. A wire is solid once what it leaves has landed. Pointing at a tile
- *     lights the wires into it. Laid out by `spike-cycle-band-layout.ts`. The
- *     tiles and wires are drawn here because they are the thing being
- *     explored; everything else is composed.
- *   - **What a press on the map shows**, always beneath the map: a tile's
- *     entry with its steps, or a seal's sketch. The shade of a cycle of
- *     several arcs keeps one height, and nothing above the map changes, so
- *     the point pressed stays under the pointer.
- *   - **The sketches** that drove the cycle, each a fold: shut, it is the one
- *     sentence of what is wanted; open, the whole record.
- *   - **The entries**, as rows: the arc, its brief as a file atom that opens
- *     it, the session running it when that is another session, and what it
- *     waits on as the same numbers the map wears.
+ *   - **The map.** The cycle drawn as a graph: each entry is a tile, each
+ *     wait a wire, and a tile's column is how deep its waits run. A sketch is
+ *     a seal with a wire to each entry it heads, seated in the column just
+ *     before them, so a sketch added late stands beside what it added. A wire
+ *     is solid once what it leaves has landed. Pointing at a tile lights the
+ *     wires into it. Laid out by `spike-cycle-band-layout.ts`. The tiles and
+ *     wires are drawn here because they are the thing being explored;
+ *     everything else is composed.
+ *   - **The assets**, one list under the map and the only other drawing of
+ *     anything on it: each sketch whole, then each entry it heads, an entry
+ *     being its arc, its brief as a file atom that opens it, the session
+ *     running it when that is another session, what it waits on as the
+ *     numbers the map wears, and its steps once it runs. The list scrolls by
+ *     itself. A press on the map scrolls the pressed asset to the top of the
+ *     list and moves nothing else, so the point pressed stays under the
+ *     pointer. Only when the shade is too short for the map and a few lines
+ *     of the list does the map scroll away with the content.
  *   - **A footer** of two lines: what this session is doing now, and what is
  *     ready next, with Start.
  *
@@ -47,11 +48,11 @@
 import "./spike.css";
 import "./spike-cycle-band.css";
 
-import React, { useId, useMemo, useState } from "react";
+import React, { useId, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Play, Search, SquareArrowOutUpRight } from "lucide-react";
 
 import type { SpikeDef } from "./spike-registry";
-import { cycleMap, type CycleMapSeat } from "./spike-cycle-band-layout";
+import { cycleMap, type CycleMapEntry, type CycleMapSeat } from "./spike-cycle-band-layout";
 import { ArcLifecycleBlock, ArcWorkerAtom } from "@/components/tugways/arc-lifecycle-block";
 import { ArcLifecycleMark } from "@/components/tugways/arc-lifecycle-mark";
 import { ArcStepItems } from "@/components/tugways/arc-step-list";
@@ -246,10 +247,9 @@ const COL_W = 108;
 const ROW_H = 58;
 const TILE_W = 64;
 const TILE_H = 42;
-const GUTTER = 58;
 const PAD = 10;
 
-const xOf = (seat: CycleMapSeat): number => GUTTER + seat.col * COL_W;
+const xOf = (seat: CycleMapSeat): number => PAD + seat.col * COL_W;
 const yOf = (seat: CycleMapSeat): number => PAD + seat.row * ROW_H + TILE_H / 2;
 
 /** A wire's path: a curve across each gap, and a straight run across a held seat. */
@@ -282,61 +282,88 @@ function wireHead(seats: readonly CycleMapSeat[]): string {
   return `M ${x} ${y} L ${x - 6} ${y - 3.5} L ${x - 6} ${y + 3.5} Z`;
 }
 
+/** A sketch's number on the map: negated, so it never meets an entry's. */
+const sealOf = (sketch: 1 | 2): number => -sketch;
+
+/** An asset's key, shared by its tile or seal on the map and its place in the list. */
+const entryKey = (n: number): string => `e${n}`;
+const sketchKey = (sketch: 1 | 2): string => `s${sketch}`;
+
+/**
+ * A sketch's name on the map and in the list. Sketches are lettered and
+ * entries numbered, so a digit always means work that can land and a letter
+ * always means where it came from.
+ */
+const letterOf = (sketch: 1 | 2): string => String.fromCharCode(64 + sketch);
+
+/** The entries a sketch heads: its own, less those that wait on another of its own. */
+function headsOf(sketch: 1 | 2, entries: readonly Entry[]): Entry[] {
+  return entries.filter(
+    (e) => e.sketch === sketch && !e.waits.some((w) => entries.find((o) => o.n === w)?.sketch === sketch),
+  );
+}
+
+/** What the map lays out: every entry, and every sketch as a seal its heads wait on. */
+function mapEntries(entries: readonly Entry[]): CycleMapEntry[] {
+  const sketches = [...new Set(entries.map((e) => e.sketch))];
+  const heads = new Set(sketches.flatMap((s) => headsOf(s, entries).map((e) => e.n)));
+  return [
+    ...sketches.map((s) => ({ n: sealOf(s), waits: [], late: true })),
+    ...entries.map((e) => ({ n: e.n, waits: heads.has(e.n) ? [...e.waits, sealOf(e.sketch)] : e.waits })),
+  ];
+}
+
 function CycleMapView({
   reading,
   chosen,
-  onChoose,
-  sketchOpen,
-  onSketch,
+  onPress,
 }: {
   reading: Reading;
-  chosen: number | null;
-  onChoose: (n: number) => void;
-  sketchOpen: Readonly<Record<1 | 2, boolean>>;
-  onSketch: (sketch: 1 | 2) => void;
+  /** The chosen asset's key. */
+  chosen: string | null;
+  onPress: (key: string) => void;
 }): React.ReactElement {
-  const map = useMemo(() => cycleMap(reading.entries), [reading.entries]);
+  const map = useMemo(() => cycleMap(mapEntries(reading.entries)), [reading.entries]);
   const [pointed, setPointed] = useState<number | null>(null);
-  const hot = pointed ?? chosen;
-  const sketches = [...new Set(reading.entries.map((e) => e.sketch))];
-  const width = GUTTER + map.cols * COL_W - (COL_W - TILE_W) + PAD;
-  const height = PAD * 2 + Math.max(map.rows, sketches.length) * ROW_H - (ROW_H - TILE_H);
+  const chosenEntry = reading.entries.find((e) => entryKey(e.n) === chosen)?.n ?? null;
+  const hot = pointed ?? chosenEntry;
+  const width = PAD * 2 + map.cols * COL_W - (COL_W - TILE_W);
+  const height = PAD * 2 + map.rows * ROW_H - (ROW_H - TILE_H);
   return (
     <div className="sp-cycle-map-scroll" data-slot="sp-cycle-map">
       <div className="sp-cycle-map" style={{ width, height }}>
         <svg className="sp-cycle-wires" width={width} height={height} aria-hidden>
-          {map.wires.map((wire) => {
-            const met = reading.runs.get(wire.from) === "joined";
-            const lit = hot === wire.to;
-            return (
-              <g
-                key={`${wire.from}-${wire.to}`}
-                className="sp-cycle-wire"
-                data-met={met || undefined}
-                data-hot={lit || undefined}
-              >
-                <path className="sp-cycle-wire-line" d={wirePath(wire.seats)} />
-                <path className="sp-cycle-wire-head" d={wireHead(wire.seats)} />
-              </g>
-            );
-          })}
-        </svg>
-        {sketches.map((sketch, index) => (
-          <TugTooltip key={sketch} content={wantOf(sketch)}>
-            <button
-              type="button"
-              className="sp-cycle-sketch-seal"
-              data-pressed={sketchOpen[sketch] || undefined}
-              aria-pressed={sketchOpen[sketch]}
-              aria-label={`Sketch ${sketch}`}
-              style={{ left: 0, top: PAD + index * ROW_H }}
-              onClick={() => onSketch(sketch)}
+          {map.wires.map((wire) => (
+            <g
+              key={`${wire.from}-${wire.to}`}
+              className="sp-cycle-wire"
+              data-sketch={wire.from < 0 || undefined}
+              data-met={reading.runs.get(wire.from) === "joined" || undefined}
+              data-hot={hot === wire.to || undefined}
             >
-              {`S${sketch}`}
-            </button>
-          </TugTooltip>
-        ))}
+              <path className="sp-cycle-wire-line" d={wirePath(wire.seats)} />
+              <path className="sp-cycle-wire-head" d={wireHead(wire.seats)} />
+            </g>
+          ))}
+        </svg>
         {map.nodes.map((node) => {
+          if (node.n < 0) {
+            const sketch = -node.n as 1 | 2;
+            return (
+              <TugTooltip key={node.n} content={wantOf(sketch)}>
+                <button
+                  type="button"
+                  className="sp-cycle-sketch-seal"
+                  data-chosen={chosen === sketchKey(sketch) || undefined}
+                  aria-label={`Sketch ${letterOf(sketch)}`}
+                  style={{ left: xOf(node) + TILE_W - TILE_H, top: PAD + node.row * ROW_H }}
+                  onClick={() => onPress(sketchKey(sketch))}
+                >
+                  {letterOf(sketch)}
+                </button>
+              </TugTooltip>
+            );
+          }
           const entry = reading.entries.find((e) => e.n === node.n)!;
           const state = stateOf(entry, reading.runs);
           const done = doneOf(entry, reading.runs);
@@ -346,11 +373,11 @@ function CycleMapView({
                 type="button"
                 className="sp-cycle-tile"
                 data-state={state}
-                data-chosen={chosen === node.n || undefined}
+                data-chosen={chosen === entryKey(node.n) || undefined}
                 data-elsewhere={reading.runs.get(node.n) === "elsewhere" || undefined}
                 aria-label={`${node.n}, ${entry.arc}, ${sentenceOf(entry, reading)}`}
                 style={{ left: xOf(node), top: PAD + node.row * ROW_H }}
-                onClick={() => onChoose(node.n)}
+                onClick={() => onPress(entryKey(node.n))}
                 onPointerEnter={() => setPointed(node.n)}
                 onPointerLeave={() => setPointed(null)}
               >
@@ -368,7 +395,6 @@ function CycleMapView({
                     </span>
                   ) : null}
                 </span>
-                {entry.sketch !== 1 ? <span className="sp-cycle-tile-tag">{`S${entry.sketch}`}</span> : null}
               </button>
             </TugTooltip>
           );
@@ -379,7 +405,7 @@ function CycleMapView({
 }
 
 // ---------------------------------------------------------------------------
-// The entry list — shared by the shade and the transcript block
+// The assets — the one list under the map
 // ---------------------------------------------------------------------------
 
 function EntryMark({ entry, reading }: { entry: Entry; reading: Reading }): React.ReactElement | null {
@@ -466,105 +492,109 @@ function Waits({ entry, reading }: { entry: Entry; reading: Reading }): React.Re
   );
 }
 
-function EntryList({
+/** A sketch in the list: whole, with the entries it heads. */
+function SketchAsset({
+  sketch,
   reading,
-  presses,
   chosen,
   onChoose,
-  only,
 }: {
+  sketch: 1 | 2;
   reading: Reading;
-  presses: Presses;
-  chosen?: number | null;
-  /** Draw this one entry alone. */
-  only?: number;
-  onChoose?: (n: number) => void;
+  chosen: string | null;
+  onChoose: (key: string) => void;
 }): React.ReactElement {
+  const key = sketchKey(sketch);
   return (
-    <div className="sp-cycle-entries" data-slot="sp-cycle-entries">
-      {reading.entries.map((entry, index) => {
-        if (only !== undefined && entry.n !== only) return null;
-        const appended = index > 0 && reading.entries[index - 1]?.sketch !== entry.sketch;
-        const run = reading.runs.get(entry.n);
-        const state = stateOf(entry, reading.runs);
-        const isChosen = chosen === entry.n;
-        return (
-          <React.Fragment key={entry.n}>
-            {appended ? (
-              <div className="sp-cycle-appended">
-                <TugLabel size="xs" emphasis="calm">
-                  {`Added later, from sketch ${entry.sketch}`}
-                </TugLabel>
-              </div>
-            ) : null}
-            <TugListRow
-              selected={isChosen}
-              leading={<span className="sp-cycle-number">{entry.n}</span>}
-              title={
-                <span className="sp-cycle-title">
-                  <TugArcAtom name={entry.arc} />
-                  {run === "elsewhere" ? (
-                    <span className="sp-cycle-elsewhere">
-                      <ArcWorkerAtom sessionId={OTHER} />
-                      <TugPushButton
-                        size="2xs"
-                        subtype="text"
-                        emphasis="ghost"
-                        aria-label={`Go to the session running ${entry.arc}`}
-                        onClick={(e) => {
-                          e?.stopPropagation();
-                          presses.goTo(entry);
-                        }}
-                      >
-                        Go to session
-                      </TugPushButton>
-                    </span>
-                  ) : run === "here" ? (
-                    <TugLabel size="2xs" emphasis="calm">
-                      this session
-                    </TugLabel>
-                  ) : null}
-                </span>
-              }
-              description={
-                <span className="sp-cycle-facts">
-                  <TugAtomRef entity={{ kind: "file", path: `${ROOT}/briefs/${entry.brief}` }} />
-                  <Waits entry={entry} reading={reading} />
-                  {entry.note !== undefined && state !== "joined" ? (
-                    <span className="sp-cycle-note">{entry.note}</span>
-                  ) : null}
-                </span>
-              }
-              trailing={
-                <span className="sp-cycle-trailing">
-                  <EntryMark entry={entry} reading={reading} />
-                  <EntryLead entry={entry} reading={reading} presses={presses} />
-                </span>
-              }
-              trailingReveal="always"
-              {...(onChoose !== undefined ? { onClick: () => onChoose(entry.n) } : {})}
-            />
-          </React.Fragment>
-        );
-      })}
+    <div className="sp-cycle-asset" data-asset={key} data-kind="sketch" data-chosen={chosen === key || undefined}>
+      <TugListRow
+        selected={chosen === key}
+        leading={<span className="sp-cycle-seal-mini">{letterOf(sketch)}</span>}
+        title={<span className="sp-cycle-sketch-label">{`Sketch ${letterOf(sketch)}`}</span>}
+        trailing={
+          <span className="sp-cycle-waits">
+            <span>Heads</span>
+            {headsOf(sketch, reading.entries).map((e) => (
+              <span key={e.n} className="sp-cycle-wait" data-met>
+                {e.n}
+              </span>
+            ))}
+          </span>
+        }
+        trailingReveal="always"
+        onClick={() => onChoose(key)}
+      />
+      <div className="sp-cycle-sketch-body">{recordPanel(SKETCHES[sketch]).body}</div>
     </div>
   );
 }
 
-/** What a press on a tile shows under the map: the entry, and how its arc stands. */
-function EntryDetail({
+/** An entry in the list: everything about it, in one place. */
+function EntryAsset({
   entry,
   reading,
   presses,
+  chosen,
+  onChoose,
 }: {
   entry: Entry;
   reading: Reading;
   presses: Presses;
+  chosen: string | null;
+  onChoose: (key: string) => void;
 }): React.ReactElement {
+  const key = entryKey(entry.n);
+  const run = reading.runs.get(entry.n);
   const state = stateOf(entry, reading.runs);
   return (
-    <div className="sp-cycle-detail" data-slot="sp-cycle-detail">
-      <EntryList reading={reading} presses={presses} only={entry.n} />
+    <div className="sp-cycle-asset" data-asset={key} data-kind="entry" data-chosen={chosen === key || undefined}>
+      <TugListRow
+        selected={chosen === key}
+        leading={<span className="sp-cycle-number">{entry.n}</span>}
+        title={
+          <span className="sp-cycle-title">
+            <TugArcAtom name={entry.arc} />
+            {run === "elsewhere" ? (
+              <span className="sp-cycle-elsewhere">
+                <ArcWorkerAtom sessionId={OTHER} />
+                <TugPushButton
+                  size="2xs"
+                  subtype="text"
+                  emphasis="ghost"
+                  aria-label={`Go to the session running ${entry.arc}`}
+                  onClick={(e) => {
+                    e?.stopPropagation();
+                    presses.goTo(entry);
+                  }}
+                >
+                  Go to session
+                </TugPushButton>
+              </span>
+            ) : run === "here" ? (
+              <TugLabel size="2xs" emphasis="calm">
+                this session
+              </TugLabel>
+            ) : null}
+          </span>
+        }
+        description={
+          <span className="sp-cycle-facts">
+            <TugAtomRef entity={{ kind: "file", path: `${ROOT}/briefs/${entry.brief}` }} />
+            <Waits entry={entry} reading={reading} />
+            {entry.note !== undefined && state !== "joined" ? (
+              <span className="sp-cycle-note">{entry.note}</span>
+            ) : null}
+          </span>
+        }
+        trailing={
+          <span className="sp-cycle-trailing">
+            <EntryMark entry={entry} reading={reading} />
+            <EntryLead entry={entry} reading={reading} presses={presses} />
+          </span>
+        }
+        trailingReveal="always"
+        onClick={() => onChoose(key)}
+      />
       {state === "running" ? (
         <div className="sp-cycle-steps">
           <TugPopupListFrame kind="item">
@@ -573,52 +603,41 @@ function EntryDetail({
             </TugPopupListScroller>
           </TugPopupListFrame>
         </div>
-      ) : (
-        <p className="sp-cycle-detail-line">
-          {state === "joined"
-            ? "Landed on main. Its rounds and commit stay on record."
-            : state === "ready"
-              ? "Nothing it waits on is still open. Start places its command in the prompt."
-              : `${sentenceOf(entry, reading)}. It becomes ready when they have landed.`}
-        </p>
-      )}
+      ) : state === "joined" ? (
+        <p className="sp-cycle-asset-line">Landed on main. Its rounds and commit stay on record.</p>
+      ) : null}
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// The sketches
-// ---------------------------------------------------------------------------
-
-function SketchFold({
-  sketch,
-  open,
-  onToggle,
-  numbered,
+/** Every asset of the cycle, in order: each sketch, then the entries it brought. */
+function Assets({
+  reading,
+  presses,
+  chosen,
+  onChoose,
 }: {
-  sketch: 1 | 2;
-  open: boolean;
-  onToggle: () => void;
-  numbered: boolean;
+  reading: Reading;
+  presses: Presses;
+  chosen: string | null;
+  onChoose: (key: string) => void;
 }): React.ReactElement {
   return (
-    <div className="sp-cycle-sketch" data-slot="sp-cycle-sketch" data-open={open || undefined}>
-      <div className="sp-cycle-sketch-head">
-        <BlockFoldCue
-          collapsed={!open}
-          onToggle={onToggle}
-          collapsedLabel="Open"
-          expandedLabel="Fold"
-          ariaLabelExpand={`Open sketch ${sketch}`}
-          ariaLabelCollapse={`Fold sketch ${sketch}`}
-          size="xs"
-          subtype="icon"
-        />
-        <span className="sp-cycle-sketch-label">{numbered ? `Sketch ${sketch}` : "Sketch"}</span>
-        {open ? null : <span className="sp-cycle-sketch-want">{wantOf(sketch)}</span>}
-      </div>
-      {open ? <div className="sp-cycle-sketch-body">{recordPanel(SKETCHES[sketch]).body}</div> : null}
-    </div>
+    <>
+      {reading.entries.map((entry, index) => (
+        <React.Fragment key={entry.n}>
+          {index === 0 || reading.entries[index - 1]?.sketch !== entry.sketch ? (
+            <SketchAsset
+              sketch={entry.sketch}
+              reading={reading}
+              chosen={chosen}
+              onChoose={onChoose}
+            />
+          ) : null}
+          <EntryAsset entry={entry} reading={reading} presses={presses} chosen={chosen} onChoose={onChoose} />
+        </React.Fragment>
+      ))}
+    </>
   );
 }
 
@@ -895,18 +914,23 @@ function CardFrame({
   cover: Cover;
   raised: boolean;
   setRaised: (raised: boolean) => void;
-  chosen: number | null;
-  onChoose: (n: number) => void;
+  chosen: string | null;
+  onChoose: (key: string) => void;
   presses: Presses;
   prompt: string;
 }): React.ReactElement {
   const summary = kind !== "none" ? summarize(kind, reading) : null;
-  const [sketchOpen, setSketchOpen] = useState<Record<1 | 2, boolean>>({ 1: false, 2: false });
-  const toggleSketch = (sketch: 1 | 2) => setSketchOpen((was) => ({ ...was, [sketch]: !was[sketch] }));
-  const sketches = [...new Set(reading.entries.map((e) => e.sketch))];
   const only = reading.entries.length === 1 ? reading.entries[0]! : null;
   const many = reading.entries.length > 1;
-  const chosenEntry = reading.entries.find((e) => e.n === chosen) ?? null;
+  const assetsRef = useRef<HTMLDivElement | null>(null);
+  // A press on the map chooses the asset and brings it to the top of the list.
+  // Only the list scrolls, so the map and the point pressed hold still.
+  const pressOnMap = (key: string) => {
+    onChoose(key);
+    const list = assetsRef.current;
+    const asset = list?.querySelector<HTMLElement>(`[data-asset="${key}"]`);
+    if (list && asset) list.scrollTo({ top: asset.offsetTop, behavior: "smooth" });
+  };
   const footer =
     summary !== null && (raised || keeps === "footer") ? <ShadeFooter summary={summary} presses={presses} /> : null;
   return (
@@ -956,26 +980,11 @@ function CardFrame({
                   </div>
                 ) : (
                   <>
-                    <CycleMapView
-                      reading={reading}
-                      chosen={chosen}
-                      onChoose={onChoose}
-                      sketchOpen={sketchOpen}
-                      onSketch={toggleSketch}
-                    />
-                    {chosenEntry !== null ? (
-                      <EntryDetail entry={chosenEntry} reading={reading} presses={presses} />
-                    ) : null}
-                    {sketches.map((sketch) => (
-                      <SketchFold
-                        key={sketch}
-                        sketch={sketch}
-                        open={sketchOpen[sketch]}
-                        onToggle={() => toggleSketch(sketch)}
-                        numbered={sketches.length > 1}
-                      />
-                    ))}
-                    <EntryList reading={reading} presses={presses} chosen={chosen} onChoose={onChoose} />
+                    <CycleMapView reading={reading} chosen={chosen} onPress={pressOnMap} />
+                    <div className="sp-cycle-assets" data-slot="sp-cycle-assets" ref={assetsRef}>
+                      <Assets reading={reading} presses={presses} chosen={chosen} onChoose={onChoose} />
+                      <div className="sp-cycle-assets-tail" aria-hidden />
+                    </div>
                   </>
                 )}
               </>
@@ -1137,7 +1146,7 @@ function SpikeCycleBand(): React.ReactElement {
   const [keeps, setKeeps] = useState<Keeps>("footer");
   const [cover, setCover] = useState<Cover>("none");
   const [width, setWidth] = useState<"slim" | "wide">("wide");
-  const [chosen, setChosen] = useState<number | null>(null);
+  const [chosen, setChosen] = useState<string | null>(null);
   const [prompt, setPrompt] = useState("");
   const [last, setLast] = useState("nothing yet");
   const kindId = useId();
@@ -1220,7 +1229,7 @@ function SpikeCycleBand(): React.ReactElement {
               raised={raised}
               setRaised={setRaised}
               chosen={chosen}
-              onChoose={(n) => setChosen((was) => (was === n ? null : n))}
+              onChoose={setChosen}
               presses={presses}
               prompt={prompt}
             />
@@ -1228,7 +1237,7 @@ function SpikeCycleBand(): React.ReactElement {
           <p className="sp-cycle-caption">
             On the map, a column is what a join in the column before it frees. A solid wire leaves an arc that has
             landed; a dashed one is still waited on. Point at a tile to light what it waits on; press it, or a
-            sketch's seal, and what it holds opens beneath the map while the map holds still.
+            sketch's seal, and the list beneath the map scrolls it to the top while the map holds still.
           </p>
         </section>
 

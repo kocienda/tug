@@ -23,6 +23,12 @@
 export interface CycleMapEntry {
   n: number;
   waits: readonly number[];
+  /**
+   * Seat this one in the column just before the first that waits on it,
+   * rather than as far left as it can go. A sketch is seated this way, so it
+   * stands beside the entries it heads however late it was added.
+   */
+  late?: boolean;
 }
 
 export interface CycleMapSeat {
@@ -111,6 +117,11 @@ export function cycleMap(entries: readonly CycleMapEntry[]): CycleMap {
     return d;
   };
   const cols = entries.length === 0 ? 0 : 1 + Math.max(...entries.map((e) => depth(e.n)));
+  for (const entry of entries) {
+    if (entry.late !== true) continue;
+    const after = entries.filter((e) => e.waits.includes(entry.n)).map((e) => depth(e.n));
+    if (after.length > 0) depths.set(entry.n, Math.min(...after) - 1);
+  }
   const layers: string[][] = Array.from({ length: cols }, () => []);
   for (const entry of entries) layers[depth(entry.n)]!.push(`n${entry.n}`);
 

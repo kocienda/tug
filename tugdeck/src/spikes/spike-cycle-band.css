@@ -173,38 +173,30 @@
 
 /* ---- The sketches ------------------------------------------------------- */
 
-.sp-cycle-sketch {
-  flex: none;
-  border-bottom: 1px solid var(--tugx-block-hairline);
-}
-
-.sp-cycle-sketch-head {
-  display: flex;
-  align-items: center;
-  gap: var(--tug-space-xs);
-  min-height: 32px;
-  padding-inline: var(--tug-space-sm) var(--tug-space-md);
-}
-
 .sp-cycle-sketch-label {
   flex: none;
-  font-size: var(--tug-font-size-xs);
+  font-size: var(--tug-font-size-sm);
   font-weight: var(--tug-font-weight-semibold);
 }
 
-.sp-cycle-sketch-want {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--tug-font-size-xs);
-  color: var(--tugx-block-text-color-muted);
-}
-
 .sp-cycle-sketch-body {
-  padding: 0 var(--tug-space-md) var(--tug-space-sm) calc(var(--tug-space-md) + 24px);
+  padding: 0 var(--tug-space-md) var(--tug-space-sm) calc(var(--tug-space-lg) + 3em);
   font-size: var(--tug-font-size-sm);
   line-height: 1.5;
+}
+
+/* A sketch's seal as it leads its asset in the list: the map's seal, small. */
+.sp-cycle-seal-mini {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 26px;
+  height: 26px;
+  border: 1.5px solid var(--tug7-element-tone-border-normal-data-rest);
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: var(--tug-font-weight-semibold);
 }
 
 /* ---- The map ------------------------------------------------------------ */
@@ -250,6 +242,18 @@
 
 .sp-cycle-wire[data-met] > .sp-cycle-wire-head {
   fill: var(--tug7-element-tone-border-normal-success-rest);
+  opacity: 1;
+}
+
+/* A wire from a sketch to an entry it heads: solid, in the sketch's tone. */
+.sp-cycle-wire[data-sketch] > .sp-cycle-wire-line {
+  stroke: var(--tug7-element-tone-border-normal-data-rest);
+  stroke-dasharray: none;
+  opacity: 1;
+}
+
+.sp-cycle-wire[data-sketch] > .sp-cycle-wire-head {
+  fill: var(--tug7-element-tone-border-normal-data-rest);
   opacity: 1;
 }
 
@@ -337,19 +341,6 @@
   background: var(--tug7-element-tone-fill-normal-agent-rest);
 }
 
-.sp-cycle-tile-tag {
-  position: absolute;
-  top: -8px;
-  left: 6px;
-  padding: 0 4px;
-  border-radius: 6px;
-  font-size: 9px;
-  font-weight: var(--tug-font-weight-semibold);
-  line-height: 14px;
-  background: var(--tug7-element-tone-fill-normal-data-rest);
-  color: var(--tug7-surface-global-primary-normal-content-rest);
-}
-
 .sp-cycle-pips {
   display: inline-flex;
   gap: 2px;
@@ -370,7 +361,7 @@
   background: var(--tug7-element-tone-fill-normal-active-rest);
 }
 
-/* A sketch's seal, in the map's gutter: it opens and folds the sketch. */
+/* A sketch's seal: a wire runs from it to each entry it heads. */
 .sp-cycle-sketch-seal {
   position: absolute;
   box-sizing: border-box;
@@ -386,21 +377,49 @@
   cursor: pointer;
 }
 
-.sp-cycle-sketch-seal[data-pressed] {
+.sp-cycle-sketch-seal[data-chosen] {
   outline: 2px solid var(--tug7-element-tone-border-normal-data-rest);
   outline-offset: 2px;
 }
 
-/* ---- The entry rows ----------------------------------------------------- */
+/* ---- The assets --------------------------------------------------------- */
 
-.sp-cycle-entries {
-  flex: none;
-  display: flex;
-  flex-direction: column;
+/* The one list under the map. It scrolls by itself, so a press on the map
+   can bring an asset to its top while the map holds still. It keeps a few
+   lines of height; only when the shade cannot give it that does the shade's
+   own content scroll, the map with it. */
+.sp-cycle-assets {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 200px;
+  overflow-y: auto;
+  overflow-anchor: none;
+  container-type: size;
+}
+
+/* Room under the last asset, so it too can reach the top of the list. */
+.sp-cycle-assets-tail {
+  height: calc(100cqh - 96px);
+}
+
+.sp-cycle-asset {
+  border-bottom: 1px solid var(--tugx-block-hairline);
+  padding-bottom: var(--tug-space-xs);
+}
+
+.sp-cycle-asset[data-kind="sketch"] {
+  background: var(--tugx-block-chrome-bg);
+}
+
+.sp-cycle-asset-line {
+  margin: 0;
+  padding-inline: calc(var(--tug-space-lg) + 3em) var(--tug-space-md);
+  font-size: var(--tug-font-size-sm);
+  color: var(--tug7-element-field-text-normal-label-rest);
 }
 
 /* The number sits at the top of its row, level with the arc's name. */
-.sp-cycle-entries .tug-list-row-leading {
+.sp-cycle-asset .tug-list-row-leading {
   align-self: flex-start;
 }
 
@@ -477,28 +496,8 @@
   white-space: nowrap;
 }
 
-.sp-cycle-appended {
-  padding: var(--tug-space-xs) var(--tug-space-md);
-  border-top: 1px dashed var(--tugx-block-hairline);
-}
-
 .sp-cycle-steps {
   padding-inline-start: calc(var(--tug-space-lg) + 1.5em);
-}
-
-/* What a press on a tile shows, directly under the map. */
-.sp-cycle-detail {
-  flex: none;
-  padding-bottom: var(--tug-space-sm);
-  border-bottom: 1px solid var(--tugx-block-hairline);
-  background: var(--tugx-block-chrome-bg);
-}
-
-.sp-cycle-detail-line {
-  margin: 0;
-  padding-inline: calc(var(--tug-space-lg) + 3em) var(--tug-space-md);
-  font-size: var(--tug-font-size-sm);
-  color: var(--tug7-element-field-text-normal-label-rest);
 }
 
 /* ---- A cycle of one, and no cycle --------------------------------------- */
