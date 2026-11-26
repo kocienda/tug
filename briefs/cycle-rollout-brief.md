@@ -62,7 +62,7 @@ The user's framing of the concept: a cycle is first-class in the data layer, a c
 
 **[B10] The Z2 status cell that reads ARC reads CYCLE, and toggles the shade.** It stays an ordinary status cell. A separate expand control on the status row's edge was tried in the spike and rejected.
 
-**[B11] The cycle shade is a header, the map, one list of assets, and a two-line footer.** The header has the lowering control, the cycle's name and how much has landed. The list is the shade's only scroller. The footer's lines are what this session is doing now and what is ready next. A cycle of one keeps the arc shade's three panels. Other shades present over the cycle shade without replacing it.
+**[B11] The cycle shade is a header, the map, one list of assets, and a two-line footer.** The header has the lowering control, the cycle's name and how much has landed. The list is the shade's only scroller. The footer's lines are what this session is doing now and what is ready next. A cycle of one is drawn the same way, with the bound arc's steps and verbs inside its entry; this reverses the first form of this decision, which kept the arc shade's three panels for a cycle of one (2026-11-26, at the user's direction). Other shades present over the cycle shade without replacing it.
 
 **[B12] The map draws the cycle as a graph.** Each entry is a tile and each wait a wire; a tile's column is how deep its waits run. A sketch is a circle with a wire to each entry it heads. A wire is solid once what it leaves has landed. Borders on waiting tiles and unmet wait chips are solid gray, not dashed.
 

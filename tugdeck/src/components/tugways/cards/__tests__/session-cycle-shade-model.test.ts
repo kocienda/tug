@@ -97,11 +97,14 @@ describe("which cycle a card shows", () => {
 });
 
 describe("the body's form", () => {
-  test("several entries, one entry, an arc alone, and nothing", () => {
+  // A cycle of one once drew the arc shade's three panels. It now draws the
+  // cycle body like any other cycle: the user asked for one design for every
+  // cycle, reversing [B11] of briefs/cycle-rollout-brief.md on this point.
+  test("any cycle with an entry, an arc alone, and nothing", () => {
     expect(cycleShadeForm(GOLDEN, true)).toBe("several");
     expect(cycleShadeForm(GOLDEN, false)).toBe("several");
-    expect(cycleShadeForm(cycle([entry(1, "ready")]), false)).toBe("one");
-    expect(cycleShadeForm(cycle([entry(1, "running")]), true)).toBe("one");
+    expect(cycleShadeForm(cycle([entry(1, "ready")]), false)).toBe("several");
+    expect(cycleShadeForm(cycle([entry(1, "running")]), true)).toBe("several");
     expect(cycleShadeForm(null, true)).toBe("one");
     expect(cycleShadeForm(null, false)).toBe("none");
     expect(cycleShadeForm(cycle([]), false)).toBe("none");

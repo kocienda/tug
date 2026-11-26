@@ -76,7 +76,7 @@ import {
 import { SessionCitation } from "./session-identity";
 
 export interface SessionCycleShadeProps {
-  /** The cycle shown: two or more entries. */
+  /** The cycle shown: one entry or more. */
   cycle: CycleWire;
   /** The card's session segment, or null while it has none. */
   sessionId: string | null;
@@ -84,6 +84,14 @@ export interface SessionCycleShadeProps {
   boundOwnerId: string | null;
   /** Lower the shade: the header's control. */
   onLower: () => void;
+  /**
+   * The live body of the arc this session is bound to: its steps and its
+   * verbs. Drawn in that arc's entry in place of the plain step list, so the
+   * entry that is this session's work is also where it is stopped and landed.
+   */
+  hereBody?: React.ReactNode;
+  /** That arc's brief, by its headings, drawn in the same entry. */
+  hereBrief?: React.ReactNode;
 }
 
 // ---------------------------------------------------------------------------
@@ -188,10 +196,14 @@ function EntryAsset({
   read,
   selected,
   onChoose,
+  hereBody,
+  hereBrief,
 }: {
   read: CycleShadeEntry;
   selected: boolean;
   onChoose: (key: string) => void;
+  hereBody?: React.ReactNode;
+  hereBrief?: React.ReactNode;
 }): React.ReactElement {
   const { entry, key, where, row } = read;
   const steps = row?.steps ?? [];
@@ -244,7 +256,12 @@ function EntryAsset({
         trailingReveal="always"
         onClick={() => onChoose(key)}
       />
-      {entry.state === "running" && row !== null && steps.length > 0 ? (
+      {hereBody !== undefined ? (
+        <div className="session-cycle-shade-here" data-slot="session-cycle-shade-here">
+          {hereBody}
+          {hereBrief}
+        </div>
+      ) : entry.state === "running" && row !== null && steps.length > 0 ? (
         <div className="session-cycle-shade-steps" data-slot="session-cycle-shade-steps">
           <TugPopupListFrame kind="item">
             <TugPopupListScroller>
@@ -321,6 +338,8 @@ export function SessionCycleShade({
   sessionId,
   boundOwnerId,
   onLower,
+  hereBody,
+  hereBrief,
 }: SessionCycleShadeProps): React.ReactElement {
   const aggregate = useChangesetAll();
   // Here and elsewhere are read through the session's line, which moves on
@@ -435,7 +454,17 @@ export function SessionCycleShade({
         {view.shown.map((key) => {
           const read = entryByKey.get(key);
           if (read !== undefined) {
-            return <EntryAsset key={key} read={read} selected={chosen.has(key)} onChoose={chooseRow} />;
+            const here = read.where === "here";
+            return (
+              <EntryAsset
+                key={key}
+                read={read}
+                selected={chosen.has(key)}
+                onChoose={chooseRow}
+                hereBody={here ? hereBody : undefined}
+                hereBrief={here ? hereBrief : undefined}
+              />
+            );
           }
           const sketch = sketchByKey.get(key);
           return sketch !== undefined ? (

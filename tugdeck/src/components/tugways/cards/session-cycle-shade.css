@@ -276,6 +276,16 @@ body[data-tug-motion="off"] .session-cycle-shade-list {
   padding-inline-start: calc(var(--tug-space-lg) + 1.5em);
 }
 
+/* The entry this session is working: its arc's own steps and verbs, and its
+   brief's headings, set in under the entry like any other entry's steps. */
+.session-cycle-shade-here {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-sm);
+  padding-inline: calc(var(--tug-space-lg) + 1.5em) var(--tug-space-md);
+  padding-bottom: var(--tug-space-sm);
+}
+
 /* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
 .session-cycle-shade-asset-line {
   margin: 0;

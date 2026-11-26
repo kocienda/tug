@@ -85,9 +85,11 @@ No surface has more than one vertical scroller. In the shade it is the asset lis
 
 The Session card's status row has an ordinary cell labelled `CYCLE`. Pressed, it raises and lowers the cycle shade. Its value is the landed fraction only when the cycle has two or more entries; with one entry, or an arc on no cycle, it reads the arc exactly as the arc cell did (`cycleCellReading` in `tugdeck/src/components/tugways/cards/session-cycle-shade-model.ts`). *Rejected: a separate expand control on the status row's edge.*
 
-## A cycle of one is drawn as its arc
+## A cycle of one
 
-A cycle with one entry looks like the arc it is. The shade keeps the arc's three panels (`cycleShadeForm`), and the card keeps one row with no header, no map and no number (`projectArcsCard` in `tugdeck/src/components/arcs/arcs-projection.ts`). A cycle becomes a header and a map the moment it gains a second entry.
+In the Session card, a cycle with one entry is drawn as a cycle: the same header, map, asset list and footer as any other (`cycleShadeForm`). The entry for the arc the session is bound to holds that arc's own steps and verbs (`ArcPopoverContent`) and its brief's headings, so stopping and landing an arc happen in its entry. Only an arc that no cycle holds keeps the three panels. In the sidebar card a cycle of one is still one row with no header, no map and no number (`projectArcsCard` in `tugdeck/src/components/arcs/arcs-projection.ts`).
+
+*Reversed, 2026-11-26: the shade first kept the arc's three panels for a cycle of one. The user saw the first real cycle, a cycle of one, drawn as the old arc shade and asked for the one design everywhere.*
 
 ## The cycle shade
 

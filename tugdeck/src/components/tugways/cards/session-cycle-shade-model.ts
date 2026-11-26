@@ -63,17 +63,21 @@ export function chooseCycle(
   return mine[0] ?? null;
 }
 
-/** The three bodies the shade draws. */
+/**
+ * The three bodies the shade draws. `several` is the cycle body: the header,
+ * the map, the asset list and the footer. It is drawn for every cycle,
+ * a cycle of one included, so the name is older than its meaning.
+ */
 export type CycleShadeForm = "none" | "one" | "several";
 
 /**
- * The body's form: `several` for a cycle of two or more entries, `one` for a
- * cycle of one entry or a bound arc with no cycle, `none` otherwise.
+ * The body's form: `several` for any cycle with an entry, `one` for a bound
+ * arc that no cycle holds, `none` otherwise.
  */
 export function cycleShadeForm(cycle: CycleWire | null, hasArc: boolean): CycleShadeForm {
   const count = cycle?.entries.length ?? 0;
-  if (count >= 2) return "several";
-  return hasArc || count === 1 ? "one" : "none";
+  if (count >= 1) return "several";
+  return hasArc ? "one" : "none";
 }
 
 // ---------------------------------------------------------------------------

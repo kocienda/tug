@@ -61,18 +61,12 @@ import { getConnection } from "@/lib/connection-singleton";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { ArcBriefDetail, ArcBriefHeadings } from "./session-arc-brief";
-import { SessionArcPanels, type SessionArcPanel } from "./session-arc-panels";
+import { SessionArcPanels } from "./session-arc-panels";
 import { NOT_RECORDED, recordPanel } from "./session-arc-record-panel";
 import { SessionArcShadeHint } from "./session-arc-shade-hint";
 import { ArcPopoverContent, useArcPopoverVerbs } from "./session-card-telemetry-popovers";
 import { SessionCycleShade } from "./session-cycle-shade";
-import {
-  arcRowsByOwner,
-  cycleEntrySketchText,
-  cycleEntryStanding,
-  cycleShadeEntries,
-  cycleShadeForm,
-} from "./session-cycle-shade-model";
+import { cycleShadeForm } from "./session-cycle-shade-model";
 import { useSessionCycle } from "./use-session-cycle";
 
 // The Sketch panel's helpers live in their own module; these names stay
@@ -112,8 +106,10 @@ export function SessionArcShadeContent({
   const confirmAnchor = useMemo<React.RefObject<HTMLElement | null>>(
     () => ({
       get current(): HTMLElement | null {
-        const panel = rootRef.current?.querySelector<HTMLElement>(ARC_PANEL_SELECTOR) ?? null;
-        return panel?.querySelector<HTMLElement>('[data-slot="arc-verb-row"]') ?? panel;
+        const root = rootRef.current;
+        const panel = root?.querySelector<HTMLElement>(ARC_PANEL_SELECTOR) ?? null;
+        // In the cycle body the verbs are in the arc's entry, not in a panel.
+        return (panel ?? root)?.querySelector<HTMLElement>('[data-slot="arc-verb-row"]') ?? panel;
       },
     }),
     [],
@@ -169,40 +165,29 @@ export function SessionArcShadeContent({
     anchor: confirmAnchor,
   });
 
-  // The cycle this card shows, and which of the three bodies that makes.
+  // The cycle this card shows, and which of the three bodies that makes:
+  // the cycle body for any cycle, the three panels for an arc no cycle
+  // holds, and the hint for neither.
   const cycle = useSessionCycle(snap.tugSessionId, fact?.ownerId ?? null);
   const form = cycleShadeForm(cycle, fact !== null);
   const lower = useCallback(() => controller.lower(), [controller]);
-  // A cycle of one whose arc is not this session's: the panels are built
-  // from the entry.
-  const entryPanels = useMemo<Record<"sketch" | "brief" | "arc", SessionArcPanel> | null>(() => {
-    if (form !== "one" || fact !== null || cycle === null) return null;
-    const [read] = cycleShadeEntries(cycle, {
-      sessionId: snap.tugSessionId,
-      boundOwnerId: null,
-      arcRows: arcRowsByOwner(aggregate),
-    });
-    if (read === undefined) return null;
-    const { entry } = read;
-    const standing = cycleEntryStanding(read);
-    return {
-      sketch: recordPanel(cycleEntrySketchText(cycle, entry) ?? undefined),
-      brief:
-        entry.brief_path !== undefined
-          ? {
-              state: "done",
-              title: entry.brief_title ?? "brief.md",
-              detail: <ArcBriefDetail path={entry.brief_path} projectDir={cycle.project_dir} />,
-              body: <ArcBriefHeadings path={entry.brief_path} />,
-            }
-          : { state: "pending", title: entry.brief },
-      arc: {
-        state: standing.state,
-        title: standing.title,
-        ...(standing.detail !== null ? { detail: standing.detail } : {}),
-      },
-    };
-  }, [form, fact, cycle, snap.tugSessionId, aggregate]);
+  // This session's own arc, as its entry in the cycle body holds it: the
+  // arc's steps and verbs, and its brief by its headings. The verbs are the
+  // same ones the Arc panel carries, so nothing about stopping or landing an
+  // arc is lost by drawing it as an entry.
+  const hereBody =
+    fact !== null && arcVerbs.verbs !== null ? (
+      <ArcPopoverContent
+        fact={fact}
+        tasks={taskListState.tasks}
+        idle={idle}
+        verbs={arcVerbs.verbs}
+        onVerb={arcVerbs.onVerb}
+        verbLabels="lead-only"
+      />
+    ) : undefined;
+  const hereBrief =
+    fact?.documents?.brief !== undefined ? <ArcBriefHeadings path={fact.documents.brief} /> : undefined;
 
   return (
     <div ref={rootRef} data-slot="session-arc-shade-content" data-form={form}>
@@ -215,9 +200,9 @@ export function SessionArcShadeContent({
           sessionId={snap.tugSessionId}
           boundOwnerId={fact?.ownerId ?? null}
           onLower={lower}
+          hereBody={hereBody}
+          hereBrief={hereBrief}
         />
-      ) : entryPanels !== null ? (
-        <SessionArcPanels raised={raised} panels={entryPanels} />
       ) : fact === null || arcVerbs.verbs === null ? (
         <SessionArcShadeHint canStart={snap.canSubmit && fact === null} unboundArcs={unboundArcs} onBind={bindArc} />
       ) : (
