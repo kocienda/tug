@@ -172,14 +172,14 @@ pub fn record_arc_sketch(paths: &Paths, repo: &Path, arc: &str) -> Result<Record
 
     fs::create_dir_all(&dir).map_err(|e| ArcError::io("could not create the sketch", &dir, e))?;
     let n = latest + 1;
-    write_atomically(&dir.join(format!("v{n}.md")), text.as_bytes())?;
+    write_atomically(&dir.join(format!("v{n}.md")), text.as_bytes(), "sketch")?;
     record.versions.push(SketchVersion {
         n,
         at: now_iso8601(),
     });
     let json = serde_json::to_string_pretty(&record)
         .map_err(|e| ArcError::Refused(format!("could not serialize {SKETCH_JSON}: {e}")))?;
-    write_atomically(&dir.join(SKETCH_JSON), (json + "\n").as_bytes())?;
+    write_atomically(&dir.join(SKETCH_JSON), (json + "\n").as_bytes(), "sketch")?;
     Ok(RecordOutcome {
         id,
         version: n,
@@ -240,7 +240,7 @@ pub fn want_of(text: &str) -> Option<String> {
 
 /// An id is eight lowercase hex characters, which also keeps it from naming
 /// anything but a directory under `sketches/`.
-fn valid_id(id: &str) -> bool {
+pub(crate) fn valid_id(id: &str) -> bool {
     id.len() == 8 && id.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f'))
 }
 
@@ -288,15 +288,16 @@ fn records_in(root: &Path) -> Vec<SketchRecord> {
 }
 
 /// Write through a dot-named sibling and rename it into place, so a reader
-/// never sees half a file.
-fn write_atomically(path: &Path, bytes: &[u8]) -> Result<(), ArcError> {
+/// never sees half a file. `what` names the thing written, for the error.
+pub(crate) fn write_atomically(path: &Path, bytes: &[u8], what: &str) -> Result<(), ArcError> {
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
     let tmp = path.with_file_name(format!(".{name}.tmp-{}", std::process::id()));
-    fs::write(&tmp, bytes).map_err(|e| ArcError::io("could not write the sketch", &tmp, e))?;
-    fs::rename(&tmp, path).map_err(|e| ArcError::io("could not write the sketch", path, e))
+    let lead = format!("could not write the {what}");
+    fs::write(&tmp, bytes).map_err(|e| ArcError::io(&lead, &tmp, e))?;
+    fs::rename(&tmp, path).map_err(|e| ArcError::io(&lead, path, e))
 }
 
 #[cfg(test)]

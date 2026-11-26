@@ -16,6 +16,9 @@ pub mod archive;
 /// The sketch record: a sketch's own id and every version of its text.
 pub mod sketch;
 
+/// The cycle record: a container of related arcs, briefs and sketches.
+pub mod cycle;
+
 /// The arc record — the server-driven arc's stages, document, and plan, kept
 /// as arc log lines keyed by name so the record exists before a branch does.
 pub mod arc;

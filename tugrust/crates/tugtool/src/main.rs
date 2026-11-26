@@ -8,6 +8,7 @@ mod changes;
 mod chart;
 mod cli;
 mod commands;
+mod cycle;
 mod deck;
 mod draft;
 mod host;
@@ -183,6 +184,9 @@ fn main() -> ExitCode {
 
         // A sketch's record: keep a version, or read one back by id.
         Some(Commands::Sketch(cmd)) => sketch::dispatch(cmd, json),
+
+        // A cycle's record: related arcs, briefs and sketches, written and read.
+        Some(Commands::Cycle(cmd)) => cycle::dispatch(cmd, json),
 
         // The plugin's hooks, answered from the binary.
         Some(Commands::Hook(cmd)) => {

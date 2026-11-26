@@ -334,6 +334,11 @@ pub enum Commands {
     #[command(subcommand)]
     Sketch(SketchCommands),
 
+    /// A cycle: related arcs, briefs and sketches kept as one record, each
+    /// entry's state read from the arc log.
+    #[command(subcommand)]
+    Cycle(CycleCommands),
+
     /// The plugin's Claude Code hooks — payload in on stdin, decision out.
     #[command(subcommand)]
     Hook(crate::commands::HookCommands),
@@ -688,6 +693,75 @@ pub enum SketchCommands {
         /// List the versions instead of printing one.
         #[arg(long)]
         versions: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum CycleCommands {
+    /// Create a cycle in this checkout and print its id.
+    ///
+    /// The cycle records the session that wrote it: the calling session's
+    /// live segment, when there is one.
+    Create {
+        /// The cycle's name.
+        #[arg(long)]
+        name: String,
+    },
+    /// Add an entry — one brief, and the arc that will carry it — and print
+    /// its number.
+    ///
+    /// Entries number 1, 2, 3 in the order added and are never renumbered.
+    /// A wait on an entry that does not exist, or on the new entry itself, is
+    /// refused.
+    AddEntry {
+        /// The cycle's id.
+        id: String,
+        /// The brief's path, relative to the project root.
+        #[arg(long)]
+        brief: String,
+        /// An entry this one waits on, by number. Repeatable.
+        #[arg(long)]
+        wait: Vec<u32>,
+        /// The letter of a sketch on the cycle this entry came from.
+        /// Repeatable.
+        #[arg(long)]
+        from: Vec<String>,
+        /// Free text, for a gate that is not an entry.
+        #[arg(long)]
+        note: Option<String>,
+    },
+    /// Add a sketch from the sketch store and print its letter.
+    ///
+    /// Refused when the sketch is not in the store. A sketch already on the
+    /// cycle keeps the letter it has.
+    AddSketch {
+        /// The cycle's id.
+        id: String,
+        /// The sketch's id: eight hex characters.
+        sketch: String,
+    },
+    /// Tie entry `n` to the arc's current generation.
+    ///
+    /// Refused when the arc log has no such arc, or when the entry is already
+    /// carried by another arc that is still open.
+    Attach {
+        /// The cycle's id.
+        id: String,
+        /// The entry's number.
+        n: u32,
+        /// The arc's name.
+        arc: String,
+    },
+    /// List this checkout's cycles, the most recently changed first, each
+    /// with how many of its entries have landed.
+    List,
+    /// Print a cycle with every entry's state.
+    ///
+    /// Read-only. Scans every checkout's cycles on this machine, so it needs
+    /// no repository. Exits 3 when the id is not on this machine.
+    Show {
+        /// The cycle's id: eight hex characters.
+        id: String,
     },
 }
 
