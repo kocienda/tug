@@ -43,8 +43,8 @@
  *   8. Discard on the Arc panel arms a confirm that stands on the panel, and
  *      Cancel dismisses it with the arc untouched.
  *   9. The Brief panel's path opens the brief's file.
- *  10. Changes on the Arc panel lowers the arc shade and opens the Changes
- *      shade.
+ *  10. Changes on the Arc panel opens the Changes shade over the arc shade,
+ *      which stays raised and inert beneath it.
  *
  * @covers tugdeck/src/components/tugways/cards/session-arc-panels.tsx
  * @covers tugdeck/src/components/tugways/cards/session-arc-panels.css
@@ -432,7 +432,10 @@ describe.skipIf(!SHOULD_RUN)("AT0860: the arc shade's three panels", () => {
         note("at0860 at rest", JSON.stringify(rest));
         expect(rest.panels.map((p) => p.rung)).toEqual(["sketch", "brief", "arc"]);
         expect(rest.panels.map((p) => p.number)).toEqual(["1", "2", "3"]);
-        expect(rest.headButtons, "the header carries no button").toEqual([]);
+        // The arc's verbs are in its panel, never in the header: the header
+        // holds the one control that lowers the shade, which is named and
+        // carries no text.
+        expect(rest.headButtons, "the header carries no verb").toEqual([""]);
         expect(rest.footButtons, "the footer carries Done alone").toEqual(["Done"]);
         const [sketch, brief, arc] = ["sketch", "brief", "arc"].map((r) => panelOf(rest, r).box);
         expect(Math.abs(brief.t - arc.t), "Brief and Arc share the bottom row").toBeLessThanOrEqual(0.5);
@@ -703,13 +706,21 @@ describe.skipIf(!SHOULD_RUN)("AT0860: the arc shade's three panels", () => {
           { timeoutMs: 20_000 },
         );
 
-        // ── Changes lowers the arc shade and opens the Changes shade ──────
+        // ── Changes opens the Changes shade over the arc shade ────────────
+        // The verb once lowered the arc shade first; the Changes shade now
+        // stands over it, and the arc shade stays raised and inert beneath.
         await app.body("A").click(arcVerb("changes"));
         await app.body("A").waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(SHADE)})?.getAttribute("data-raised") !== "true" &&
+          `document.querySelector(${JSON.stringify(SHADE)})?.inert === true &&
            document.querySelector(${JSON.stringify(CHANGES_SHEET)}) !== null`,
           { timeoutMs: 6_000 },
         );
+        expect(
+          await app.body("A").evalJS<string | null>(
+            `document.querySelector(${JSON.stringify(SHADE)})?.getAttribute("data-raised") ?? null`,
+          ),
+          "the arc shade stays raised under Changes",
+        ).toBe("true");
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

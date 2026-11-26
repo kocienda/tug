@@ -309,7 +309,7 @@ describe.skipIf(!SHOULD_RUN)(
                };
              })()`,
           );
-          expect(quiet.label, "the label with no arc").toBe("ARC");
+          expect(quiet.label, "the label with no arc").toBe("CYCLE");
           expect(quiet.none, "the value with no arc").toBe("None");
           expect(quiet.arcValue, "no arc's reading where there is no arc").toBe(false);
           expect(quiet.empty).toBe("true");

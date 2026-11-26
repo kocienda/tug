@@ -1,6 +1,6 @@
 /**
  * SessionArcShade — the shade that rises from the bottom of the Session card's
- * transcript and shows the card's arc.
+ * transcript and shows the card's cycle, or its arc when it has no cycle.
  *
  * Stays mounted for the life of the card and is raised and lowered by one data
  * attribute, which a CSS transform reads, so a raise builds nothing and the
@@ -11,17 +11,28 @@
  * translated out of its clipping pane.
  *
  * Whether it is raised is read from the card's `ArcShadeController`, and the
- * arc it shows from the session's binding. While raised it holds a focus
- * mode of its own: the key view moves to the footer's
- * Done button, Escape lowers the shade, and lowering restores the key
- * view that was current when it rose and puts the keyboard back on it, ring
- * or caret; with none to return to, the card is asked to take the keyboard.
- * The composer below stays live.
+ * arc it shows from the session's binding. While raised and not covered by
+ * another shade it holds a focus mode of its own: the key view moves into the
+ * shade, Escape lowers it, and lowering restores the key view that was
+ * current when it rose and puts the keyboard back on it, ring or caret; with
+ * none to return to, the card is asked to take the keyboard. The composer
+ * below stays live.
  *
- * The header, the footer and the frame are this component's; the body is its
- * children. The footer carries Done at its trailing edge, as the History
- * shade's does.
- * Composes `TugPushButton` and `ArcSigil`, which keep their own tokens.
+ * It reads `Cycle` when the session has a cycle and `Arc` when it has none.
+ * The control that lowers it is in the header in every form. For an arc, or a
+ * cycle of one entry, the header, the footer and the frame are this
+ * component's and the body is its children: the footer carries Done at its
+ * trailing edge, as the History shade's does, and the key view lands there.
+ * For a cycle of several entries the body brings its own header and its own
+ * two-line footer, which stand where this component's would; the body's
+ * lowering control takes the focus seat this component hands down through
+ * `ArcShadeLowerContext`, and the key view lands on it.
+ *
+ * A Changes or History shade stands over a raised shade without lowering it
+ * (`covered`). Covered, the shade is inert and gives up its focus mode, and
+ * takes both back when the other shade leaves.
+ * Composes `TugPushButton`, `TugTooltip` and `ArcSigil`, which keep their own
+ * tokens.
  *
  * Laws: [L02] the raised state enters through `useSyncExternalStore`,
  *       [L03] the focus mode and the transcript's inertness are set in layout
@@ -34,19 +45,39 @@
 
 import "./session-arc-shade.css";
 
-import React, { useCallback, useContext, useId, useLayoutEffect, useRef } from "react";
+import React, { createContext, useCallback, useContext, useId, useLayoutEffect, useMemo, useRef } from "react";
+
+import { ChevronDown } from "lucide-react";
 
 import { ArcSigil } from "@/components/tugways/arc-sigil";
 import { FocusManagerContext } from "@/components/tugways/focus-manager";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
+import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { useFocusTrap } from "@/components/tugways/use-focus-trap";
 import type { ArcShadeController } from "@/lib/arc-shade-controller";
 import { useArcForSession } from "@/lib/arc-session-index";
 import { CardIdContext } from "@/lib/card-id-context";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
-/** Focus order of the footer's Done button, where the key view lands on a raise. */
-const DONE_FOCUS_ORDER = 0;
+import { cycleShadeForm } from "./session-cycle-shade-model";
+import { useSessionCycle } from "./use-session-cycle";
+
+/** Focus order of the header's lowering control, first in the shade's walk. */
+const LOWER_FOCUS_ORDER = 0;
+/** Focus order of the footer's Done button, where the key view lands when there is one. */
+const DONE_FOCUS_ORDER = 1;
+
+/**
+ * The focus seat of the shade's lowering control. A body that draws its own
+ * header, as a cycle of several entries does, gives its lowering control this
+ * seat, so the key view the frame places on a raise lands on it.
+ */
+export interface ArcShadeLowerSeat {
+  focusGroup: string;
+  focusOrder: number;
+}
+
+export const ArcShadeLowerContext = createContext<ArcShadeLowerSeat | null>(null);
 
 export interface SessionArcShadeProps {
   /** The card's arc shade store; the shade is raised while its snapshot is true. */
@@ -62,6 +93,11 @@ export interface SessionArcShadeProps {
    */
   transcriptPaneRef: React.RefObject<HTMLElement | null>;
   /**
+   * Whether another shade stands over this one. A covered shade stays raised
+   * and is inert, and holds no focus mode until the other shade leaves.
+   */
+  covered?: boolean;
+  /**
    * Take the keyboard back. Called when the shade lowers and there is no key
    * view to return to, so the caret goes home to where the card keeps it.
    */
@@ -74,18 +110,36 @@ export function SessionArcShade({
   controller,
   tugSessionId,
   transcriptPaneRef,
+  covered = false,
   onReturnKeyboard,
   children,
 }: SessionArcShadeProps): React.ReactElement {
   const raised = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const lower = useCallback(() => controller.lower(), [controller]);
-  const arcName = useArcForSession(tugSessionId)?.name ?? null;
+  const arc = useArcForSession(tugSessionId);
+  const arcName = arc?.name ?? null;
+  // Which body the shade holds: a cycle of several entries keeps one height,
+  // so its map holds still while the list under it changes.
+  const cycle = useSessionCycle(tugSessionId, arc?.ownerId ?? null);
+  const form = cycleShadeForm(cycle, arc !== null);
+  const several = form === "several";
+  const noun = cycle !== null ? "Cycle" : "Arc";
+  const lowerLabel = cycle !== null ? "Lower the cycle" : "Lower the arc";
+  // The shade is in use while it is raised and nothing stands over it.
+  const live = raised && !covered;
 
   // The shade's own focus mode. Pushed before the seed below runs, so the key
   // view the mode restores on pop is the one that was current before the rise.
-  const { FocusModeScope } = useFocusTrap({ active: raised, onEscapeDismiss: lower });
+  const { FocusModeScope } = useFocusTrap({ active: live, onEscapeDismiss: lower });
 
   const focusGroup = useId();
+  const lowerSeat = useMemo<ArcShadeLowerSeat>(
+    () => ({ focusGroup, focusOrder: LOWER_FOCUS_ORDER }),
+    [focusGroup],
+  );
+  // Where the key view lands: Done when the frame carries it, and the body's
+  // lowering control when the body's two-line footer stands in Done's place.
+  const landingOrder = several ? LOWER_FOCUS_ORDER : DONE_FOCUS_ORDER;
   const manager = useContext(FocusManagerContext);
   const cardId = useContext(CardIdContext);
   const rootRef = useRef<HTMLElement | null>(null);
@@ -94,11 +148,11 @@ export function SessionArcShade({
   const onReturnKeyboardRef = useRef(onReturnKeyboard);
   onReturnKeyboardRef.current = onReturnKeyboard;
   useLayoutEffect(() => {
-    if (!raised || manager === null) return;
+    if (!live || manager === null) return;
     const root = rootRef.current;
     manager.place(
       cardId,
-      { kind: "focus-key", focusKey: `${focusGroup}:${DONE_FOCUS_ORDER}` },
+      { kind: "focus-key", focusKey: `${focusGroup}:${landingOrder}` },
       { modality: "keyboard" },
     );
     // The shade took the keyboard when it rose, so it owes it back when it
@@ -112,7 +166,9 @@ export function SessionArcShade({
     // return to the card is asked to take the keyboard. A caret that has
     // already gone somewhere of its own, a field the user clicked into or one
     // a surface rising in the shade's place has claimed, is left where it is,
-    // and a shade raised again in the meantime keeps what it took.
+    // and a shade raised again in the meantime keeps what it took. A shade
+    // that is still raised was only covered: the shade over it has the
+    // keyboard now, and there is nothing to hand back.
     return () => {
       queueMicrotask(() => {
         if (controller.getSnapshot()) return;
@@ -126,7 +182,7 @@ export function SessionArcShade({
         else onReturnKeyboardRef.current?.();
       });
     };
-  }, [raised, manager, cardId, focusGroup, controller]);
+  }, [live, manager, cardId, focusGroup, landingOrder, controller]);
 
   // The strip of transcript left showing is seen and not operated.
   useLayoutEffect(() => {
@@ -144,35 +200,57 @@ export function SessionArcShade({
       data-slot="session-arc-shade"
       className="session-arc-shade"
       data-raised={raised ? "true" : "false"}
-      aria-label="Arc"
-      aria-hidden={!raised}
-      inert={!raised}
+      data-form={form}
+      data-covered={raised && covered ? "true" : undefined}
+      aria-label={noun}
+      aria-hidden={!live}
+      inert={!live}
     >
       <FocusModeScope>
-        <header className="session-arc-shade-head" data-slot="session-arc-shade-head">
-          <span className="session-arc-shade-label">Arc</span>
-          {arcName !== null ? (
-            <span className="session-arc-shade-name">
-              <ArcSigil name={arcName} slot="session-arc-shade-name" />
+        {several ? null : (
+          <header className="session-arc-shade-head" data-slot="session-arc-shade-head">
+            <span className="session-arc-shade-label" data-slot="session-arc-shade-label">
+              {noun}
             </span>
-          ) : null}
-        </header>
+            {arcName !== null ? (
+              <span className="session-arc-shade-name">
+                <ArcSigil name={arcName} slot="session-arc-shade-name" />
+              </span>
+            ) : null}
+            <span className="session-arc-shade-lower" data-slot="session-arc-shade-lower">
+              <TugTooltip content={lowerLabel}>
+                <TugPushButton
+                  size="xs"
+                  subtype="icon"
+                  emphasis="ghost"
+                  icon={<ChevronDown size={16} />}
+                  aria-label={lowerLabel}
+                  focusGroup={focusGroup}
+                  focusOrder={LOWER_FOCUS_ORDER}
+                  onClick={lower}
+                />
+              </TugTooltip>
+            </span>
+          </header>
+        )}
         <div className="session-arc-shade-body" data-slot="session-arc-shade-body">
-          {children}
+          <ArcShadeLowerContext.Provider value={lowerSeat}>{children}</ArcShadeLowerContext.Provider>
         </div>
-        <footer className="session-arc-shade-foot" data-slot="session-arc-shade-foot">
-          <TugPushButton
-            size="sm"
-            emphasis="primary"
-            role="action"
-            focusGroup={focusGroup}
-            focusOrder={DONE_FOCUS_ORDER}
-            persistentDefaultRing
-            onClick={lower}
-          >
-            Done
-          </TugPushButton>
-        </footer>
+        {several ? null : (
+          <footer className="session-arc-shade-foot" data-slot="session-arc-shade-foot">
+            <TugPushButton
+              size="sm"
+              emphasis="primary"
+              role="action"
+              focusGroup={focusGroup}
+              focusOrder={DONE_FOCUS_ORDER}
+              persistentDefaultRing
+              onClick={lower}
+            >
+              Done
+            </TugPushButton>
+          </footer>
+        )}
       </FocusModeScope>
     </section>
   );

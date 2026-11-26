@@ -993,7 +993,7 @@ export function GalleryArcLifecycle(): React.ReactElement {
                   : arcCellWord(model);
               const state = model.stopped !== null ? "aborted" : "running";
               return (
-                <SessionTelemetryCell key={m.key} priority="arc" label="ARC">
+                <SessionTelemetryCell key={m.key} priority="arc" label="CYCLE">
                   <TugProgressIndicator
                     variant="pulsing-dot"
                     size={12}

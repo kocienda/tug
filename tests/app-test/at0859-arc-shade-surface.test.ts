@@ -18,8 +18,9 @@
  *      as tall as they need, never past four fifths of the slot, so at least
  *      a fifth of the transcript shows. It names the arc, and the footer's
  *      Done button lowers it.
- *   6. The shade and the History shade never stand together: either one
- *      rising takes the other down.
+ *   6. The History shade stands over a raised shade without lowering it:
+ *      under History the shade stays raised and inert, a raise does not take
+ *      History down, and when History leaves the shade is live again.
  *   7. A press on the ARC cell raises the shade and a second lowers it, and
  *      the cell's endcap wears the accent for exactly as long as it is up.
  *   8. ⌥⌘R raises it and lowers it, from the composer and from inside it.
@@ -313,17 +314,33 @@ describe.skipIf(!SHOULD_RUN)("AT0859: the arc shade over the transcript", () => 
         const afterButton = await settled(app, false);
         expect(afterButton.transcriptInert).toBe(false);
 
-        // ── The arc shade and History never stand together ────────────────
+        // ── History stands over the arc shade and leaves it raised ────────
+        // The two were exclusive once; the shade now stays up beneath another
+        // shade and is there when that shade leaves.
         const historyUp = `document.querySelector('[data-shade-open="history"]') !== null`;
         await app.dispatchControlAction("toggle-arc-shade");
         await settled(app, true);
         await app.dispatchControlAction("toggle-history-view");
         await app.body("A").waitForCondition<boolean>(historyUp, { timeoutMs: 6_000 });
-        const underHistory = await settled(app, false);
-        expect(underHistory.raised, "History rising lowers the arc shade").toBe("false");
+        const underHistory = await settled(app, true);
+        expect(underHistory.raised, "History rising leaves the arc shade raised").toBe("true");
+        expect(underHistory.shadeInert, "and inert beneath it").toBe(true);
+        expect(underHistory.keyViewInShade, "with the key view out of it").toBe(false);
+        // Lowered and raised again beneath History, it does not take History down.
+        await app.dispatchControlAction("toggle-arc-shade");
+        await settled(app, false);
         await app.dispatchControlAction("toggle-arc-shade");
         await settled(app, true);
+        expect(await app.body("A").evalJS<boolean>(historyUp), "a raise leaves History standing").toBe(true);
+        await app.dispatchControlAction("toggle-history-view");
         await app.body("A").waitForCondition<boolean>(`!(${historyUp})`, { timeoutMs: 6_000 });
+        await app.body("A").waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(SHADE)})?.inert === false`,
+          { timeoutMs: 6_000 },
+        );
+        const afterHistory = await settled(app, true);
+        expect(afterHistory.raised, "the shade is there when History leaves").toBe("true");
+        expect(afterHistory.keyViewInShade, "and holds the key view again").toBe(true);
         await app.dispatchControlAction("toggle-arc-shade");
         await settled(app, false);
 

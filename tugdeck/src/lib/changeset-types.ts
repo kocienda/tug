@@ -1269,6 +1269,13 @@ export interface CycleSketchWire {
   letter: string;
   id: string;
   added: string;
+  /**
+   * The sketch's latest version, whole, read on the server ([D138]). Absent
+   * when the sketch store no longer answers for the id.
+   */
+  text?: string;
+  /** What the sketch says is wanted: the opening paragraph of `text`. */
+  want?: string;
 }
 
 /**
@@ -1336,6 +1343,17 @@ export function isCycleEntryWire(value: unknown): value is CycleEntryWire {
   );
 }
 
+export function isCycleSketchWire(value: unknown): value is CycleSketchWire {
+  return (
+    isRecord(value) &&
+    typeof value.letter === "string" &&
+    typeof value.id === "string" &&
+    typeof value.added === "string" &&
+    isOptionalString(value.text) &&
+    isOptionalString(value.want)
+  );
+}
+
 export function isCycleWire(value: unknown): value is CycleWire {
   return (
     isRecord(value) &&
@@ -1349,13 +1367,7 @@ export function isCycleWire(value: unknown): value is CycleWire {
     value.entries.every(isCycleEntryWire) &&
     (value.sketches === undefined ||
       (Array.isArray(value.sketches) &&
-        value.sketches.every(
-          (s) =>
-            isRecord(s) &&
-            typeof s.letter === "string" &&
-            typeof s.id === "string" &&
-            typeof s.added === "string",
-        ))) &&
+        value.sketches.every(isCycleSketchWire))) &&
     typeof value.landed === "number"
   );
 }

@@ -2960,5 +2960,15 @@ export const ELEMENT_SURFACE_PAIRING_MAP: ElementSurfacePairing[] = [
   { element: "--tug7-element-tone-border-normal-data-rest", surface: "--tug7-surface-card-primary-normal-well-rest", role: "informational" },
   { element: "--tug7-element-tone-border-normal-accent-rest", surface: "--tug7-surface-card-primary-normal-well-rest", role: "decorative" },
 
+  // ---- cards/session-cycle-shade.css ----
+  //
+  // A cycle of several entries in the Session card's shade. An entry's note
+  // reads in the caution ink on the list's ground and on the footer's raised
+  // strip; a wait already met wears the success border on the list's ground.
+  // The shade's other pairings are declared by the sheets listed above.
+  { element: "--tug7-element-global-text-normal-caution-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "informational" },
+  { element: "--tug7-element-global-text-normal-caution-rest", surface: "--tug7-surface-global-primary-normal-raised-rest", role: "informational" },
+  { element: "--tug7-element-tone-border-normal-success-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "informational" },
+
 ];
 

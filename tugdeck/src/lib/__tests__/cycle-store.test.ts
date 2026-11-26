@@ -50,6 +50,26 @@ describe("the golden frame", () => {
       "finished";
     expect(isWorkspacesChangesetSnapshot(bad)).toBe(false);
   });
+
+  test("a sketch carries its text and want, and passes the guard with neither", () => {
+    const sketch = GOLDEN_CYCLE.sketches![0]!;
+    expect(sketch.text?.startsWith("# Sketch\n\n")).toBe(true);
+    expect(sketch.want).toBe(
+      "See every arc of a cycle from the session working one of them.",
+    );
+    expect(sketch.text).toContain(sketch.want!);
+
+    // A sketch the server could not read travels as its letter and id alone.
+    const bare = structuredClone(DATA);
+    const { text: _text, want: _want, ...rest } = bare.projects[0]!.cycles![0]!
+      .sketches![0]!;
+    bare.projects[0]!.cycles![0]!.sketches = [rest];
+    expect(isWorkspacesChangesetSnapshot(bare)).toBe(true);
+
+    const bad = structuredClone(DATA);
+    (bad.projects[0]!.cycles![0]!.sketches![0] as { text: unknown }).text = 7;
+    expect(isWorkspacesChangesetSnapshot(bad)).toBe(false);
+  });
 });
 
 describe("buildCycleIndex", () => {

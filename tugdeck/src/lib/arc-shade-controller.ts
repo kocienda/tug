@@ -9,11 +9,15 @@
  * It is a store of its own rather than a fourth `ShadeView` because the two
  * differ on what they cover. A `ShadeView` shade stands over the status row
  * too, and the card takes the row's cells out of the Tab walk while one is
- * up; the arc shade leaves the row in view, because the row's ARC cell is the
- * control that lowers it. The card keeps the two mutually exclusive.
+ * up; the arc shade leaves the row in view, because the row's CYCLE cell is
+ * the control that lowers it. The two are not exclusive: a Changes or History
+ * shade stands over a raised arc shade without lowering it, and the arc
+ * shade is there again when that shade leaves. Find opens beside it. Only
+ * share mode, which selects transcript turns the shade would cover, is
+ * exclusive with it, and the card keeps that in both directions.
  *
  * Readers: the shade itself, through `useSyncExternalStore` ([L02]), and the
- * card's subscriptions that lower one surface when another rises ([L22]).
+ * card's subscriptions that keep the shade and share mode apart ([L22]).
  *
  * @module lib/arc-shade-controller
  */

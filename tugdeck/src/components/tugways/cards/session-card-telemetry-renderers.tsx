@@ -132,6 +132,8 @@ import {
   arcCellWord,
 } from "@/components/tugways/tug-arc-track";
 import { useArcForSession } from "@/lib/arc-session-index";
+import { cycleCellReading } from "./session-cycle-shade-model";
+import { useSessionCycle } from "./use-session-cycle";
 import { arcCellReadingWord, reauditCellReading } from "@/lib/reaudit-row";
 import { useSessionGaps } from "@/lib/report-gaps-store";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
@@ -1218,12 +1220,19 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // cheap even before the popover opens.
   const stateChangeSnap = useSessionStateChanges(snap.tugSessionId);
 
-  // ── The ARC reading ──────────────────────────────────────────────────
-  // The fourth cell reads ARC, always: the one arc this session drives, or a
-  // dimmed `None` when it drives none. The label, the box and the
-  // construction are the same in both, so binding or releasing an arc changes
-  // the reading and nothing else in the row.
+  // ── The CYCLE reading ────────────────────────────────────────────────
+  // The fourth cell reads CYCLE, always. For a cycle of several entries its
+  // value is how many have landed of how many there are; for a cycle of one
+  // entry, or an arc no cycle holds, it is the reading of the one arc this
+  // session drives; with neither it is a dimmed `None`. The label, the box
+  // and the construction are the same in all three, so a cycle or an arc
+  // arriving or leaving changes the reading and nothing else in the row. The
+  // dots beside it are always the state of this session's own arc.
   const arcFact = useArcForSession(snap.tugSessionId);
+  const cycleReading = cycleCellReading(
+    useSessionCycle(snap.tugSessionId, arcFact?.ownerId ?? null),
+    arcFact !== null,
+  );
   // The session's dark calls, read afresh each time the JOBS placard opens.
   const darkCalls = useSessionGaps(snap.tugSessionId, placard?.key === "jobs");
   // The same call, in the same argument order, the masthead's identity row
@@ -1289,12 +1298,23 @@ export const SessionTelemetryStatusRow = React.forwardRef<
     arcModel === null ? null : arcCellRestClause(arcModel);
   const arcRestLabel =
     arcClauseLabel === null ? "" : `, ${arcClauseLabel.toLowerCase()}`;
-  const arcCellLabel =
+  const ownArcLabel =
     arcFact === null
       ? "no arc"
       : arcFraction === null
         ? `arc ${arcFact.name}${arcRestLabel}${arcReadyLabel}${arcReauditLabel}${arcRunLabel}`
         : `arc ${arcFact.name}, step ${arcFraction.current} of ${arcFraction.total}${arcReadyLabel}${arcReauditLabel}${arcRunLabel}`;
+  // A cycle's fraction names the cycle and how much of it has landed, then
+  // the session's own arc, whose state the dots beside the fraction paint.
+  const arcCellLabel =
+    cycleReading.kind === "fraction"
+      ? arcFact === null
+        ? cycleReading.label
+        : `${cycleReading.label}; ${ownArcLabel}`
+      : ownArcLabel;
+  // The cell is empty, and reads the dimmed `None`, with no arc and no cycle
+  // fraction to show.
+  const arcCellEmpty = arcFact === null && cycleReading.kind !== "fraction";
   // The placard's one exit: this card's own Changes shade, where every decision
   // about an arc already lives ([D152]). The content scope, not the bare card
   // id — `sendToTarget` walks upward from its target and the session card's
@@ -1477,7 +1497,11 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // whole first half of an arc's life. A direct arc that wrote a task list has
   // a fraction while it walks it, and the phase word once it stops walking.
   const arcReading =
-    arcFact === null
+    cycleReading.kind === "fraction"
+      ? // A cycle of several entries: landed of total, whatever this
+        // session's own arc is doing.
+        cycleReading.text
+      : arcFact === null
       ? // No arc running in the session: the one word, dimmed by the cell's
         // `valueEmpty`, in the same span the arc's reading takes.
         ARC_CELL_NONE_WORD
@@ -1822,10 +1846,10 @@ export const SessionTelemetryStatusRow = React.forwardRef<
       </SessionTelemetryCell>
       <SessionTelemetryCell
         priority="arc"
-        label="ARC"
+        label="CYCLE"
         onActivate={toggleArcShade}
         pressed={arcShadeRaised}
-        valueEmpty={arcFact === null}
+        valueEmpty={arcCellEmpty}
         focusGroup={focusGroup}
         focusOrder={cellOrder(3)}
         focusPolicy={focusPolicy}
@@ -1889,7 +1913,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
             <span
               className="session-telemetry-status-value"
               data-slot={
-                arcFact === null
+                arcCellEmpty
                   ? "session-telemetry-arc-none"
                   : "session-telemetry-arc-value"
               }

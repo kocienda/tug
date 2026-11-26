@@ -2127,7 +2127,7 @@ fn cycle_entries_in(
         .iter()
         .map(|record| {
             let view = tugarc_core::cycle::view_cycle_in(&log, record);
-            cycle_wire(root, view, bound_by_arc, callsign_by_arc)
+            cycle_wire(paths, root, view, bound_by_arc, callsign_by_arc)
         })
         .collect()
 }
@@ -2137,7 +2137,12 @@ fn cycle_entries_in(
 /// running, which is to say whose linked generation is the arc's open one; an
 /// entry whose arc joined names no live card, and carries no stages, since its
 /// generation is no longer the one the arc record holds.
+///
+/// Each sketch carries its latest version and that version's want, read from
+/// the sketch store here because the deck has no filesystem ([D138]); a
+/// sketch the store cannot answer for travels as its letter and id alone.
 fn cycle_wire(
+    paths: &Paths,
     root: &Path,
     view: tugarc_core::cycle::CycleView,
     bound_by_arc: &HashMap<String, String>,
@@ -2213,10 +2218,18 @@ fn cycle_wire(
         sketches: view
             .sketches
             .into_iter()
-            .map(|s| CycleSketchWire {
-                letter: s.letter,
-                id: s.id,
-                added: s.added,
+            .map(|s| {
+                let text = tugarc_core::sketch::find_sketch(paths, &s.id)
+                    .first()
+                    .and_then(|(_, record)| tugarc_core::sketch::read_version(record, None).ok());
+                let want = text.as_deref().and_then(tugarc_core::sketch::want_of);
+                CycleSketchWire {
+                    letter: s.letter,
+                    id: s.id,
+                    added: s.added,
+                    text,
+                    want,
+                }
             })
             .collect(),
         landed: view.landed as u32,
@@ -5691,7 +5704,10 @@ Some context.
         let joined = &cycle.entries[0];
         assert!(joined.owner_id.is_none());
         assert!(joined.bound_session.is_none() && joined.bound_callsign.is_none());
-        assert!(joined.stages.is_empty(), "an ended generation has no stages");
+        assert!(
+            joined.stages.is_empty(),
+            "an ended generation has no stages"
+        );
         let brief = root.join("briefs/a.md");
         assert_eq!(
             joined.brief_path.as_deref(),
@@ -5713,6 +5729,45 @@ Some context.
             Some("sess-b")
         );
         assert!(cycles[0].entries[1].bound_callsign.is_none());
+    }
+
+    /// A cycle's sketch travels with its latest version and that version's
+    /// want, and a sketch whose record is gone from the store travels as its
+    /// letter and id with neither.
+    #[test]
+    fn cycles_compose_each_sketchs_latest_text_and_want() {
+        use tugarc_core::cycle::add_sketch;
+        use tugarc_core::sketch::record_free_sketch;
+        const FIRST: &str = "# Sketch\n\nWant the archive.\n\nSource: session abc, turns 1–3\n";
+        const LATEST: &str = "# Sketch\n\nWant the archive, searchable.\n\nOne index over every year.\n\n- A search box finds a register by name\n\nSource: session abc, turns 1–5\n";
+        let data = tempfile::tempdir().unwrap();
+        let paths = Paths::under(data.path());
+        let (_dir, root) = init_repo();
+        let id = scratch_cycle(&paths, &root);
+        let kept = record_free_sketch(&paths, &root, FIRST, None).unwrap().id;
+        record_free_sketch(&paths, &root, LATEST, Some(&kept)).unwrap();
+        let lost = record_free_sketch(&paths, &root, "# Sketch\n\nWant a map.\n", None)
+            .unwrap()
+            .id;
+        assert_eq!(add_sketch(&paths, &root, &id, &kept).unwrap(), "A");
+        assert_eq!(add_sketch(&paths, &root, &id, &lost).unwrap(), "B");
+        std::fs::remove_dir_all(tugarc_core::sketch::sketch_root(&paths, &root).join(&lost))
+            .unwrap();
+
+        let cycles = cycle_entries_in(&paths, &root, &HashMap::new(), &HashMap::new());
+        let sketches = &cycles[0].sketches;
+        assert_eq!(sketches.len(), 2);
+        assert_eq!(sketches[0].id, kept);
+        assert_eq!(sketches[0].text.as_deref(), Some(LATEST));
+        assert_eq!(
+            sketches[0].want.as_deref(),
+            Some("Want the archive, searchable.")
+        );
+        assert_eq!((sketches[1].letter.as_str(), &sketches[1].id), ("B", &lost));
+        assert!(sketches[1].text.is_none() && sketches[1].want.is_none());
+        // An unreadable sketch is omitted from the frame, never sent empty.
+        let json = serde_json::to_value(&sketches[1]).unwrap();
+        assert!(json.get("text").is_none() && json.get("want").is_none());
     }
 
     /// A checkout with no cycles composes none, and an app-test instance hides

@@ -1423,6 +1423,15 @@ pub struct CycleSketchWire {
     pub letter: String,
     pub id: String,
     pub added: String,
+    /// The sketch's latest version, whole. The deck has no filesystem
+    /// ([D138]), so the server reads it; absent when the sketch store no
+    /// longer holds the id or the version cannot be read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// What the sketch says is wanted: the opening paragraph of `text`.
+    /// Absent when `text` is, or when the text has no such paragraph.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub want: Option<String>,
 }
 
 /// One project's slice of the account-global aggregate changeset snapshot.
@@ -2655,6 +2664,14 @@ mod tests {
         assert_eq!(waiting.waits, [2, 3]);
 
         assert_eq!(cycle.sketches[0].letter, "A");
+        // A sketch travels with its text and its want; both are optional on
+        // the wire, and the golden's sketch carries both.
+        let text = cycle.sketches[0].text.as_deref().unwrap();
+        assert!(text.starts_with("# Sketch\n\n"));
+        assert_eq!(
+            cycle.sketches[0].want.as_deref(),
+            Some("See every arc of a cycle from the session working one of them.")
+        );
         assert!(snapshot.projects[1].cycles.is_empty());
     }
 }

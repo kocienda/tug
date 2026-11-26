@@ -1,0 +1,344 @@
+/* @tug-pairings {
+  --tug7-element-global-text-normal-muted-rest    | --tug7-surface-global-primary-normal-raised-rest  | informational
+  --tug7-element-global-text-normal-muted-rest    | --tug7-surface-global-primary-normal-content-rest | informational
+  --tug7-element-global-text-normal-caution-rest  | --tug7-surface-global-primary-normal-content-rest | informational
+  --tug7-element-global-text-normal-caution-rest  | --tug7-surface-global-primary-normal-raised-rest  | informational
+  --tug7-element-global-border-normal-muted-rest  | --tug7-surface-global-primary-normal-content-rest | decorative
+  --tug7-element-global-border-normal-default-rest | --tug7-surface-global-primary-normal-raised-rest | decorative
+  --tug7-element-tone-border-normal-data-rest     | --tug7-surface-global-primary-normal-raised-rest  | informational
+  --tug7-element-tone-border-normal-success-rest  | --tug7-surface-global-primary-normal-content-rest | informational
+} */
+
+/**
+ * @tug-pairings
+ * | Element                                          | Surface                                           | Role          | Context                                                              |
+ * |--------------------------------------------------|---------------------------------------------------|---------------|----------------------------------------------------------------------|
+ * | --tug7-element-global-text-normal-muted-rest     | --tug7-surface-global-primary-normal-raised-rest  | informational | -eyebrow, -landed, -footer-word, -footer-else, footer -quiet (color) |
+ * | --tug7-element-global-text-normal-muted-rest     | --tug7-surface-global-primary-normal-content-rest | informational | -quiet, -asset-line, -wait (color, border-color)                     |
+ * | --tug7-element-global-text-normal-caution-rest   | --tug7-surface-global-primary-normal-content-rest | informational | -note in an entry's row (color)                                      |
+ * | --tug7-element-global-text-normal-caution-rest   | --tug7-surface-global-primary-normal-raised-rest  | informational | -note on the footer's Next line (color)                              |
+ * | --tug7-element-global-border-normal-muted-rest   | --tug7-surface-global-primary-normal-content-rest | decorative    | -header, -map, -back, -asset (border-bottom-color)                   |
+ * | --tug7-element-global-border-normal-default-rest | --tug7-surface-global-primary-normal-raised-rest  | decorative    | -footer (border-top-color)                                           |
+ * | --tug7-element-tone-border-normal-data-rest      | --tug7-surface-global-primary-normal-raised-rest  | informational | -seal (border-color)                                                 |
+ * | --tug7-element-tone-border-normal-success-rest   | --tug7-surface-global-primary-normal-content-rest | informational | -wait[data-met] (border-color)                                       |
+ *
+ * The decorative rows are hairlines between parts that are already apart.
+ */
+
+/* session-cycle-shade.css — a cycle of several entries in the Session card's
+   shade: header, map, Back bar, asset list, two-line footer.
+
+   The body fills the shade and never scrolls; the list under the map is the
+   one scroller. The map is `CycleMap`, which owns its tiles, seals, wires and
+   horizontal overflow; this sheet gives it only the well it stands in. The
+   rows, atoms, badges, marks and buttons are composed components styled by
+   their own sheets.
+
+   Laws: [L06] selected, narrowed and met are `data-*`; [L13] the list's
+   scroll is CSS `scroll-behavior`; [L16] pairings declared; [L19] component
+   authoring guide; [L20] owns `--tugx-cycle-shade-*`. */
+
+body {
+  --tugx-cycle-shade-chrome-bg: var(--tug7-surface-global-primary-normal-raised-rest);
+  --tugx-cycle-shade-well-bg: var(--tug7-surface-card-primary-normal-well-rest);
+  --tugx-cycle-shade-rule: var(--tug7-element-global-border-normal-muted-rest);
+  --tugx-cycle-shade-edge: var(--tug7-element-global-border-normal-default-rest);
+  --tugx-cycle-shade-text-muted: var(--tug7-element-global-text-normal-muted-rest);
+  --tugx-cycle-shade-text-note: var(--tug7-element-global-text-normal-caution-rest);
+  --tugx-cycle-shade-seal-border: var(--tug7-element-tone-border-normal-data-rest);
+  --tugx-cycle-shade-met-border: var(--tug7-element-tone-border-normal-success-rest);
+}
+
+/* ---- The body ----------------------------------------------------------- */
+
+.session-cycle-shade {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* One scroller only: the list under the map. */
+  overflow: hidden;
+  container-type: inline-size;
+  container-name: session-cycle-shade;
+}
+
+.session-cycle-shade-spacer {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* ---- The header --------------------------------------------------------- */
+
+.session-cycle-shade-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  min-height: 44px;
+  padding-inline: var(--tug-space-sm) var(--tug-space-md);
+  background-color: var(--tugx-cycle-shade-chrome-bg);
+  border-bottom: 1px solid var(--tugx-cycle-shade-rule);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-raised-rest */
+.session-cycle-shade-eyebrow {
+  font-size: var(--tug-font-size-2xs);
+  font-weight: var(--tug-font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tugx-cycle-shade-text-muted);
+}
+
+.session-cycle-shade-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--tug-font-size-lg);
+  font-weight: var(--tug-font-weight-semibold);
+  white-space: nowrap;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-raised-rest */
+.session-cycle-shade-landed {
+  flex: none;
+  font-size: var(--tug-font-size-sm);
+  color: var(--tugx-cycle-shade-text-muted);
+  white-space: nowrap;
+}
+
+/* ---- The map's well ----------------------------------------------------- */
+
+.session-cycle-shade-map {
+  padding: var(--tug-space-sm) var(--tug-space-md);
+  background-color: var(--tugx-cycle-shade-well-bg);
+  border-bottom: 1px solid var(--tugx-cycle-shade-rule);
+}
+
+/* ---- The Back bar ------------------------------------------------------- */
+
+.session-cycle-shade-back {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  padding: var(--tug-space-2xs) var(--tug-space-md);
+  background-color: var(--tugx-cycle-shade-chrome-bg);
+  border-bottom: 1px solid var(--tugx-cycle-shade-rule);
+}
+
+/* ---- The asset list ----------------------------------------------------- */
+
+.session-cycle-shade-list {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  /* A press on the map changes what is above an asset; the scroller must not
+     answer that by moving of its own accord. */
+  overflow-anchor: none;
+  scroll-behavior: smooth;
+  container-type: size;
+}
+
+/* Motion off (`body[data-tug-motion="off"]`) and reduced motion: the list
+   goes to the pressed asset at once. */
+body[data-tug-motion="off"] .session-cycle-shade-list {
+  scroll-behavior: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session-cycle-shade-list {
+    scroll-behavior: auto;
+  }
+}
+
+/* Room under the last asset, so it too can reach the top of the list. */
+.session-cycle-shade-list-tail {
+  height: calc(100cqh - 96px);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-cycle-shade-asset {
+  padding-bottom: var(--tug-space-xs);
+  border-bottom: 1px solid var(--tugx-cycle-shade-rule);
+}
+
+.session-cycle-shade-asset[data-kind="sketch"] {
+  background-color: var(--tugx-cycle-shade-chrome-bg);
+}
+
+/* The number sits at the top of its row, level with the arc's name. */
+.session-cycle-shade-asset .tug-list-row-leading {
+  align-self: flex-start;
+}
+
+.session-cycle-shade-number {
+  display: inline-block;
+  min-width: 1.5em;
+  text-align: end;
+  font-size: var(--tug-font-size-lg);
+  font-weight: var(--tug-font-weight-semibold);
+  line-height: 1.2;
+}
+
+/* A sketch's seal as it leads its asset: the map's seal, small. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-raised-rest */
+.session-cycle-shade-seal {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 26px;
+  height: 26px;
+  border: 1.5px solid var(--tugx-cycle-shade-seal-border);
+  border-radius: 50%;
+  font-size: var(--tug-font-size-3xs);
+  font-weight: var(--tug-font-weight-semibold);
+}
+
+.session-cycle-shade-sketch-label {
+  flex: none;
+  font-size: var(--tug-font-size-sm);
+  font-weight: var(--tug-font-weight-semibold);
+}
+
+.session-cycle-shade-sketch-body {
+  padding: 0 var(--tug-space-md) var(--tug-space-sm) calc(var(--tug-space-lg) + 3em);
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.5;
+}
+
+.session-cycle-shade-title {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tug-space-sm);
+}
+
+/* The brief and what the entry waits on, set in under the arc's name. */
+.session-cycle-shade-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--tug-space-md);
+  row-gap: var(--tug-space-2xs);
+  padding-inline-start: var(--tug-space-lg);
+  padding-top: var(--tug-space-2xs);
+  font-size: var(--tug-font-size-sm);
+}
+
+.session-cycle-shade-waits {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-2xs);
+}
+
+/* A wait wears the number its tile wears on the map. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-cycle-shade-wait {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  box-sizing: border-box;
+  min-width: 20px;
+  padding: 0 5px;
+  border: 1.5px solid var(--tugx-cycle-shade-text-muted);
+  border-radius: 6px;
+  font-weight: var(--tug-font-weight-semibold);
+  line-height: 18px;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-cycle-shade-wait[data-met] {
+  border-color: var(--tugx-cycle-shade-met-border);
+  color: var(--tugx-cycle-shade-text-muted);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-cycle-shade-note {
+  color: var(--tugx-cycle-shade-text-note);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-cycle-shade-quiet {
+  color: var(--tugx-cycle-shade-text-muted);
+}
+
+.session-cycle-shade-trailing {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-xs);
+  white-space: nowrap;
+}
+
+.session-cycle-shade-steps {
+  padding-inline-start: calc(var(--tug-space-lg) + 1.5em);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-cycle-shade-asset-line {
+  margin: 0;
+  padding-inline: calc(var(--tug-space-lg) + 3em) var(--tug-space-md);
+  font-size: var(--tug-font-size-sm);
+  color: var(--tugx-cycle-shade-text-muted);
+}
+
+/* ---- The footer --------------------------------------------------------- */
+
+/* Two lines: what this session is doing now and what is ready next. */
+.session-cycle-shade-footer {
+  flex: none;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--tug-space-xs);
+  padding: var(--tug-space-sm) var(--tug-space-md);
+  background-color: var(--tugx-cycle-shade-chrome-bg);
+  border-top: 1px solid var(--tugx-cycle-shade-edge);
+  font-size: var(--tug-font-size-sm);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.session-cycle-shade-footer-line {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  min-height: 26px;
+  min-width: 0;
+}
+
+/* The line's word, in a column of its own so the two lines' content starts on
+   one edge. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-raised-rest */
+.session-cycle-shade-footer-word {
+  flex: none;
+  width: 3.2em;
+  font-size: var(--tug-font-size-2xs);
+  font-weight: var(--tug-font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tugx-cycle-shade-text-muted);
+}
+
+.session-cycle-shade-footer-what {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  min-width: 0;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-raised-rest */
+.session-cycle-shade-footer-else {
+  flex: none;
+  color: var(--tugx-cycle-shade-text-muted);
+}
+
+/* What the footer gives up as the card narrows: the other sessions' count. */
+@container session-cycle-shade (max-width: 520px) {
+  .session-cycle-shade-footer-else {
+    display: none;
+  }
+}
