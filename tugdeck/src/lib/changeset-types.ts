@@ -1264,18 +1264,19 @@ export interface CycleEntryWire {
   bound_callsign?: string;
 }
 
-/** One sketch on a cycle: the sketch store's id under the cycle's letter. */
+/**
+ * One sketch on a cycle: the sketch store's id under the cycle's letter, with
+ * the words a row shows for it. Both are composed on the server from the
+ * store's newest version ([D138]) and absent when it holds no text.
+ */
 export interface CycleSketchWire {
   letter: string;
   id: string;
   added: string;
-  /**
-   * The sketch's latest version, whole, read on the server ([D138]). Absent
-   * when the sketch store no longer answers for the id.
-   */
-  text?: string;
-  /** What the sketch says is wanted: the opening paragraph of `text`. */
+  /** What the sketch says is wanted: its first paragraph. */
   want?: string;
+  /** The sketch's whole body, heading and `Source:` line taken off. */
+  text?: string;
 }
 
 /**

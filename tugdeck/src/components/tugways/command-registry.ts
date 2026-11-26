@@ -1319,7 +1319,7 @@ const RAIL_TOGGLE_COMMANDS: readonly CommandEntry[] = (
 const SIDEBAR_MENU_CARDS = [
   {
     componentId: ARCS_CARD_ID,
-    noun: "Arcs",
+    noun: "Cycles & Arcs",
     toggle: TUG_ACTIONS.TOGGLE_ARCS,
     key: "KeyR",
     label: "r",

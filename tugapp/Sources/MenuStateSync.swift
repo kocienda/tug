@@ -350,9 +350,10 @@ final class MenuStateSync: NSObject, NSMenuDelegate {
         // and every one of them stays rebindable. The Arcs card's component
         // id is `dashes` — the persistence key [D141], not a stale name,
         // which is also why this list is ordered by the NOUN it displays:
-        // sorting by id would put Cards before Arcs and look alphabetical.
+        // sorting by id would put Cards before Cycles & Arcs and look
+        // alphabetical.
         for (noun, componentId, toggleAction) in [
-            ("Arcs", "dashes", #selector(AppDelegate.showArcs(_:))),
+            ("Cycles & Arcs", "dashes", #selector(AppDelegate.showArcs(_:))),
             ("Jots", "jots", #selector(AppDelegate.showJots(_:))),
             ("Layout", "layout", #selector(AppDelegate.showLayout(_:))),
             ("Overview", "overview", #selector(AppDelegate.showOverview(_:))),

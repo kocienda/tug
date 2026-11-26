@@ -200,7 +200,7 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌃⌘M | `commit-auto-message` | Generate a Commit Message | JS, responder |
 | ⌃⌘O | `toggle-overview` | Show Overview | menu bar (swept) |
 | ⌃⌘P | `select-composer-route:prompt` | Prompt Route | JS, global |
-| ⌃⌘R | `toggle-arcs` | Show Arcs | menu bar (swept) |
+| ⌃⌘R | `toggle-arcs` | Show Cycles & Arcs | menu bar (swept) |
 | ⌃⌘S | `toggle-sidebars` | Hide Sidebars | menu bar (swept) |
 | ⌃⌘U | `run-slash-command:usage` | Show Usage | menu bar (swept) |
 | ⌃⌘V | `run-slash-command:visualize-data` | Visualize Data… | menu bar (swept) |

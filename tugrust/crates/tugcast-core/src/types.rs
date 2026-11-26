@@ -1417,21 +1417,21 @@ pub struct CycleStageWire {
     pub at: String,
 }
 
-/// One sketch on a cycle: the sketch store's id under the cycle's letter.
+/// One sketch on a cycle: the sketch store's id under the cycle's letter, with
+/// the words a row shows for it. Both are read from the store's newest version
+/// and both are absent when the store holds no text for the id.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CycleSketchWire {
     pub letter: String,
     pub id: String,
     pub added: String,
-    /// The sketch's latest version, whole. The deck has no filesystem
-    /// ([D138]), so the server reads it; absent when the sketch store no
-    /// longer holds the id or the version cannot be read.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub text: Option<String>,
-    /// What the sketch says is wanted: the opening paragraph of `text`.
-    /// Absent when `text` is, or when the text has no such paragraph.
+    /// What the sketch says is wanted: its first paragraph. Read on the
+    /// server ([D138]); absent when the store holds no text for the id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub want: Option<String>,
+    /// The sketch's whole body, with its heading and `Source:` line taken off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
 }
 
 /// One project's slice of the account-global aggregate changeset snapshot.
@@ -2664,14 +2664,24 @@ mod tests {
         assert_eq!(waiting.waits, [2, 3]);
 
         assert_eq!(cycle.sketches[0].letter, "A");
-        // A sketch travels with its text and its want; both are optional on
-        // the wire, and the golden's sketch carries both.
-        let text = cycle.sketches[0].text.as_deref().unwrap();
-        assert!(text.starts_with("# Sketch\n\n"));
+        // A sketch's want is the opening paragraph of its text, and the
+        // fields round-trip through the wire unchanged.
+        let sketch = &cycle.sketches[0];
+        let want = sketch.want.as_deref().expect("the golden sketch has words");
+        assert!(sketch.text.as_deref().unwrap().starts_with(want));
         assert_eq!(
-            cycle.sketches[0].want.as_deref(),
-            Some("See every arc of a cycle from the session working one of them.")
+            serde_json::from_value::<CycleSketchWire>(serde_json::to_value(sketch).unwrap())
+                .unwrap(),
+            *sketch
         );
+        // A sketch with no text on disk serializes neither field.
+        let bare = CycleSketchWire {
+            want: None,
+            text: None,
+            ..sketch.clone()
+        };
+        let json = serde_json::to_value(&bare).unwrap();
+        assert!(json.get("want").is_none() && json.get("text").is_none());
         assert!(snapshot.projects[1].cycles.is_empty());
     }
 }

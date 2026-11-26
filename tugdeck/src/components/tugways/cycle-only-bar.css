@@ -1,0 +1,14 @@
+/* @tug-pairings: none — a row holding a button and a label, which declare their own */
+
+/* cycle-only-bar.css — a Back button and one line, in a row.
+
+   Laws: [L19] component authoring guide; [L20] the button and the label keep
+   their own tokens. */
+
+.tug-cycle-only-bar {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: var(--tugx-cycle-only-bar-gap, var(--tug-space-sm));
+  min-width: 0;
+}

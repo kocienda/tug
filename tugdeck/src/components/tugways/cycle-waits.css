@@ -1,0 +1,53 @@
+/* @tug-pairings {
+  --tug7-element-global-text-normal-muted-rest   | --tug7-surface-global-primary-normal-content-rest | content
+  --tug7-element-global-border-normal-muted-rest | --tug7-surface-global-primary-normal-content-rest | decorative
+  --tug7-element-tone-border-normal-success-rest | --tug7-surface-global-primary-normal-content-rest | decorative
+} */
+
+/**
+ * @tug-pairings
+ * | Element                                        | Surface                                           | Role       | Context                                    |
+ * |------------------------------------------------|---------------------------------------------------|------------|--------------------------------------------|
+ * | --tug7-element-global-text-normal-muted-rest   | --tug7-surface-global-primary-normal-content-rest | content    | .tug-cycle-waits-chip[data-met] (color)    |
+ * | --tug7-element-global-border-normal-muted-rest | --tug7-surface-global-primary-normal-content-rest | decorative | .tug-cycle-waits-chip (border-color)       |
+ * | --tug7-element-tone-border-normal-success-rest | --tug7-surface-global-primary-normal-content-rest | decorative | .tug-cycle-waits-chip[data-met] (border)   |
+ *
+ * A chip's border only frames its number; the number is what the chip says,
+ * and a met chip says so again with its check.
+ */
+
+/* cycle-waits.css — a word and a run of numbered chips.
+
+   A chip wears the number its tile wears on the cycle map, in a frame of the
+   tile's shape. The run sets no colour for its word or its numbers: they take
+   the host row's ink.
+
+   Laws: [L06] met is `data-met`; [L16] pairings declared; [L19] component
+   authoring guide; [L20] owns `--tugx-cycle-waits-*`. */
+
+.tug-cycle-waits {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tugx-cycle-waits-gap, var(--tug-space-2xs));
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.tug-cycle-waits-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  box-sizing: border-box;
+  min-width: var(--tugx-cycle-waits-chip-min-width, 20px);
+  padding: 0 var(--tugx-cycle-waits-chip-pad, 5px);
+  border: 1.5px solid var(--tug7-element-global-border-normal-muted-rest);
+  border-radius: var(--tugx-cycle-waits-chip-radius, 6px);
+  font-weight: var(--tug-font-weight-semibold);
+  line-height: var(--tugx-cycle-waits-chip-height, 18px);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.tug-cycle-waits-chip[data-met] {
+  border-color: var(--tug7-element-tone-border-normal-success-rest);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}

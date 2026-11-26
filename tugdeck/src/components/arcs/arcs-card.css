@@ -173,3 +173,218 @@
 .arcs-verb-row:empty {
   display: none;
 }
+
+/* ── Cycles ─────────────────────────────────────────────────────────────────
+   A cycle of two or more entries is a pin over one row per asset. The pin is
+   the cycle's head and its map; the rows are the card's own two shapes, an
+   entry and a sketch. The map, the wait chips, the seal, the state mark and
+   the Back bar are tugways parts and keep their own tokens ([L20]); what is
+   here is the section's layout and the one thing only the card draws, the
+   strip. */
+
+/* The pin's cell holds the top of the card ([B05]). The cell, not the pin
+   inside it: a sticky box is bounded by its parent, and the cell's parent is
+   the list. Nothing in CSS ends the hold where the cycle ends, so the card
+   writes the release onto this same cell as a transform (`settleCyclePins`).
+
+   Opaque, on the pane's own ground, because its assets pass under it; above
+   them, because every cell is positioned and a later one would otherwise
+   paint over it. */
+.arcs-list .tug-list-view-cell[data-tug-list-cell-kind="cycle-pin"] {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background-color: var(--tugx-ambient-surface);
+}
+
+.arcs-cycle-pin {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-2xs);
+  min-width: 0;
+  padding-block: var(--tug-space-sm);
+  padding-inline: calc(
+    var(--tugx-list-row-padding-inline) + var(--tugx-list-row-indicator-gutter)
+  );
+  cursor: pointer;
+}
+
+.arcs-cycle-head {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  min-width: 0;
+}
+
+/* The name takes the room and elides; how much has landed keeps its width. */
+.arcs-cycle-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: var(--tug-font-weight-semibold);
+}
+
+.arcs-cycle-head > .tug-label {
+  flex: none;
+}
+
+/* The well the map stands in ([B15]): the map scrolls sideways inside it and
+   nowhere else scrolls. A press here is the map's, never the row's. */
+.arcs-cycle-well {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+  min-width: 0;
+  cursor: default;
+}
+
+.arcs-cycle-map {
+  min-width: 0;
+}
+
+/* The strip: one segment per entry, in the tone of how it stands. */
+.arcs-cycle-strip {
+  display: flex;
+  gap: 2px;
+  block-size: 4px;
+}
+
+.arcs-cycle-strip > span {
+  flex: 1 1 0;
+  border-radius: 2px;
+  background-color: var(--tug7-element-global-border-normal-default-rest);
+}
+
+.arcs-cycle-strip > [data-state="joined"] {
+  background-color: var(--tug7-element-tone-fill-normal-success-rest);
+}
+
+.arcs-cycle-strip > [data-state="running"] {
+  background-color: var(--tug7-element-tone-fill-normal-active-rest);
+}
+
+.arcs-cycle-strip > [data-state="ready"] {
+  background-color: var(--tug7-element-tone-border-normal-accent-rest);
+}
+
+/* An asset: one row, closed or open. Its number or letter and its state stay
+   at the top of the row, level with its name, however far it opens. */
+.arcs-cycle-row[data-slot] {
+  min-width: 0;
+  cursor: pointer;
+  padding-inline-end: calc(
+    var(--tugx-list-row-padding-inline) + var(--tugx-list-row-indicator-gutter)
+  );
+}
+
+.arcs-cycle-row .tug-list-row-leading,
+.arcs-cycle-row .tug-list-row-trailing {
+  align-self: flex-start;
+}
+
+.arcs-cycle-row .tug-list-row-leading {
+  min-inline-size: 22px;
+  justify-content: center;
+}
+
+.arcs-cycle-row .tug-list-row-trailing {
+  min-block-size: 22px;
+}
+
+.arcs-cycle-number {
+  font-size: 12px;
+  font-weight: var(--tug-font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  line-height: 22px;
+}
+
+.arcs-cycle-content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--tug-space-2xs);
+  min-width: 0;
+  flex: 1 1 auto;
+  padding-block: var(--tug-space-xs);
+}
+
+.arcs-cycle-content > .tug-arc-atom {
+  max-inline-size: 100%;
+}
+
+.arcs-cycle-title {
+  max-inline-size: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: var(--tug-font-weight-semibold);
+}
+
+/* A line of the row's secondary voice: who is running it, what it waits on,
+   where it stands, its brief. */
+.arcs-cycle-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tug-space-xs);
+  max-inline-size: 100%;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+}
+
+.arcs-cycle-note {
+  min-width: 0;
+}
+
+/* The session chip is the link to the session ([B08]): a button with no
+   chrome of its own, so it reads as the chip it holds. */
+.arcs-cycle-session {
+  display: inline-flex;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+/* A sketch's want, on one line closed; the whole of it open. */
+.arcs-cycle-want {
+  max-inline-size: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+}
+
+.arcs-cycle-sketch-text {
+  max-inline-size: 100%;
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The arc's own parts, inside an entry row: the row's content column is
+   already at the reading's inset, so the loose row's inset is not added. */
+.arcs-cycle-content > .arcs-steps,
+.arcs-cycle-content > .arcs-verb-row,
+.arcs-cycle-content > .arcs-register,
+.arcs-cycle-content > .arcs-waiting {
+  padding-inline-start: 0;
+  align-self: stretch;
+}
+
+/* The room a map press may ask for under the last row ([B14]). No height of
+   its own: the card writes one at the press, from the pin's measured height. */
+.arcs-cycle-tail {
+  flex: none;
+  block-size: 0;
+}

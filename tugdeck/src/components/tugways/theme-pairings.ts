@@ -2970,5 +2970,20 @@ export const ELEMENT_SURFACE_PAIRING_MAP: ElementSurfacePairing[] = [
   { element: "--tug7-element-global-text-normal-caution-rest", surface: "--tug7-surface-global-primary-normal-raised-rest", role: "informational" },
   { element: "--tug7-element-tone-border-normal-success-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "informational" },
 
+  // ---- cycle-waits.css ----
+  //
+  // A chip frames the number its tile wears on the map. The frame is
+  // decorative: the number is what the chip says, and a met chip says so
+  // again with its check.
+  { element: "--tug7-element-global-text-normal-muted-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "content" },
+  { element: "--tug7-element-global-border-normal-muted-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "decorative" },
+  // (The success border on the content ground is declared above as
+  // informational by the cycle shade, which is the stricter role.)
+
+  // ---- cycle-seal.css ----
+  //
+  // The ring is the map's seal tone and only frames the sketch's letter.
+  { element: "--tug7-element-tone-border-normal-data-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "decorative" },
+
 ];
 

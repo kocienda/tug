@@ -215,8 +215,8 @@
               "letter": "A",
               "id": "0a1b2c3d",
               "added": "2026-11-20T10:01:00Z",
-              "text": "# Sketch\n\nSee every arc of a cycle from the session working one of them.\n\nThe panel that shows one arc shows the whole run.\n\n- A map draws each arc as a tile and each wait as a line\n- One list under the map holds each arc and each sketch\n\nSource: session 0f3c1e5a-9b27-4c1d-8e36-5a7f2d4b6c90, turns 1–4\n",
-              "want": "See every arc of a cycle from the session working one of them."
+              "want": "See every arc of a cycle from the session working one of them.",
+              "text": "See every arc of a cycle from the session working one of them.\n\nThe panel that shows one arc shows the whole run.\n\n- A map draws each arc as a tile and each wait as a line\n- One list under the map holds each arc and each sketch"
             }
           ],
           "landed": 1

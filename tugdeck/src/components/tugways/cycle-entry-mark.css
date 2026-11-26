@@ -1,0 +1,12 @@
+/* @tug-pairings: none — a box around a badge or a lifecycle mark, which declare their own */
+
+/* cycle-entry-mark.css — the box an entry's state mark stands in.
+
+   Laws: [L19] component authoring guide; [L20] the badge and the lifecycle
+   mark keep their own tokens. */
+
+.tug-cycle-entry-mark {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}

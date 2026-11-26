@@ -1,6 +1,12 @@
 /**
- * arcs-card.tsx — the **Arcs** card: every arc in every open project, in
- * every state, always on.
+ * arcs-card.tsx — the **Cycles & Arcs** card: every cycle and every arc in
+ * every open project, in every state, always on.
+ *
+ * Cycles come first. A cycle of two or more entries is a pin — its fold cue,
+ * its name, how much has landed, and its map — over one row per asset; a
+ * cycle of one entry is that entry's row. An arc a cycle's entry names is
+ * drawn there and nowhere else. The arcs no cycle names follow, drawn as they
+ * always were, and the rest of this comment is about them.
  *
  * The card is a fixed address. It used to show only unbound arcs and to
  * vanish entirely at zero — and the coming and going was the wart: a surface
@@ -95,7 +101,9 @@
  * plans are listed for every open project, exactly as arcs are.
  *
  * Laws: [L02] the aggregate enters React through `useSyncExternalStore`;
- * [L06] tones are CSS on DOM attributes, never React state; [L19] rows compose
+ * [L03] the scroll listener that releases a pin registers in a layout effect;
+ * [L06] tones are CSS on DOM attributes, never React state, and a pin's
+ * release and the room under the list are written to the DOM; [L19] rows compose
  * `TugListView` / `TugListRow` rather than hand-rolling list focus; [L20] the
  * blocks compose `ArcLifecycleBlock`, which owns the atom, the bound worker as
  * a mini atom when there is one, and the line.
@@ -112,17 +120,33 @@ import "./arcs-card.css";
 
 import React, {
   useCallback,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { RAIL_LIST_PRESENTATION } from "@/components/tugways/rail-list-presentation";
-import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
+import {
+  ArcLifecycleBlock,
+  ArcWorkerAtom,
+} from "@/components/tugways/arc-lifecycle-block";
+import { CycleEntryMark } from "@/components/tugways/cycle-entry-mark";
+import { CycleMap } from "@/components/tugways/cycle-map";
+import { CycleOnlyBar } from "@/components/tugways/cycle-only-bar";
+import { CycleSeal } from "@/components/tugways/cycle-seal";
+import { CycleWaits } from "@/components/tugways/cycle-waits";
+import { TugArcAtom } from "@/components/tugways/tug-arc-atom";
+import { TugAtomRef } from "@/components/tugways/tug-atom-ref";
+import { TugLabel } from "@/components/tugways/tug-label";
+import { openCitedSession } from "@/lib/session-open";
 import { ArcStepItems } from "@/components/tugways/arc-step-list";
-import { arcTrackModelFromEntry } from "@/components/tugways/tug-arc-track";
+import {
+  arcTrackModelFromEntry,
+  type ArcTrackModel,
+} from "@/components/tugways/tug-arc-track";
 import { arcBranchFacts } from "@/lib/arc-meta-facts";
-import { compareArcEntries } from "@/lib/arc-order";
 import { documentArcTrackModel } from "@/lib/document-arc-entry";
 import { ArcJoinRegisterView } from "@/components/tugways/arc-join-register";
 import {
@@ -176,13 +200,25 @@ import {
   replayDisabledReason,
   useArcRowMenu,
 } from "@/components/tugways/cards/session-changes/arc-row-menu";
-import type {
-  ArcChangesetEntry,
-  ArcRunState,
-  DocumentArcEntry,
-  ProjectChangeset,
-  WorkspacesChangesetSnapshot,
-} from "@/lib/changeset-types";
+import type { ArcRunState } from "@/lib/changeset-types";
+import {
+  cycleChosen,
+  documentArcIsBegun,
+  foldCycle,
+  listArcsCard,
+  NO_CYCLE_VIEW,
+  pressCycleMap,
+  pressCycleRow,
+  pressCycleSingle,
+  projectArcsCard,
+  type ArcRow,
+  type ArcsCardItem,
+  type CycleEntryRow,
+  type CycleSection,
+  type CycleSketchRow,
+  type CycleViewState,
+  type DocumentArcRow,
+} from "./arcs-projection";
 
 /** The card's focus group — every stop it offers lives here. */
 const ARCS_FOCUS_GROUP = "arcs-card";
@@ -191,225 +227,65 @@ const ARCS_FOCUS_GROUP = "arcs-card";
 // Projection
 // ---------------------------------------------------------------------------
 
-/** One arc, in any state, flattened out of the aggregate for the list. */
-export interface ArcRow {
-  /** The arc's owner key — this row's identity, unique per incarnation. */
-  ownerId: string;
-  /** The whole wire entry: the eyebrow and the meta line read it directly. */
-  entry: ArcChangesetEntry;
-  /** The owning project's directory — what a bind has to name. */
-  projectDir: string;
-  /**
-   * The key this project's join traffic is addressed by.
-   *
-   * Distinct from {@link projectDir} on purpose ([L29]): the join store is
-   * written under the `project_dir` a *request* echoed back, and every send on
-   * that path carries the workspace key. Reading beats under the root's
-   * spelling is a subscription to a cell nothing writes.
-   */
-  workspaceKey: string;
-  /** The owning project's name, for Bind's refusal sentence. */
-  projectLabel: string;
-}
-
-function rowFromEntry(
-  entry: ArcChangesetEntry,
-  project: ProjectChangeset,
-): ArcRow {
-  return {
-    ownerId: entry.owner_id,
-    entry,
-    projectDir: project.project_dir,
-    workspaceKey: project.workspace_key,
-    projectLabel: project.display_name,
-  };
-}
+// The rows themselves are projected in `arcs-projection`, which holds no
+// React; they are re-exported so the card's tests keep their address.
+export {
+  arcRowsFromSnapshot,
+  compareArcRows,
+  compareDocumentArcRows,
+  documentArcIsBegun,
+  documentArcRowsFromSnapshot,
+  type ArcRow,
+  type DocumentArcRow,
+} from "./arcs-projection";
 
 /** The stage table the order reads ([P02], Table T01) — re-exported so the
  *  card's table test keeps its address. The table lives in `lib/arc-order`. */
 export { ARC_STAGE_RANK } from "@/lib/arc-order";
 
-/**
- * The section's total order: stage rank descending, then freshest first, then
- * by name — {@link compareArcEntries} over the rows' entries. The Changes
- * shade's arc lane sorts its unbound arcs with the same function, so the two
- * surfaces cannot drift apart.
- */
-export function compareArcRows(a: ArcRow, b: ArcRow): number {
-  return compareArcEntries(a.entry, b.entry);
-}
-
-/**
- * Every arc across every open project, in every state, ordered by
- * {@link compareArcRows}. No filter: bound and unbound alike are this
- * section's rows now, and which register a row wears is the eyebrow's
- * business, not membership's.
- *
- * Project grouping is not an ordering key: grouping by project would bury a
- * arc that is one gesture from landing under one created a week ago in
- * another repo.
- *
- * One row per owner key: two projects opening one repository — a base checkout
- * and its spelling through a firmlink — both carry the repo's arcs, and the
- * owner key is the identity that says they are the same arc. First occurrence
- * in snapshot order wins, before the sort, so which project's row survives is
- * stable across renders.
- */
-export function arcRowsFromSnapshot(
-  snapshot: WorkspacesChangesetSnapshot,
-): ArcRow[] {
-  const seen = new Set<string>();
-  const rows = snapshot.projects
-    .flatMap((project) =>
-      project.changesets
-        .filter((entry): entry is ArcChangesetEntry => entry.kind === "arc")
-        .map((entry) => rowFromEntry(entry, project)),
-    )
-    .filter((row) => {
-      if (seen.has(row.ownerId)) return false;
-      seen.add(row.ownerId);
-      return true;
-    });
-  // `filter` already allocated this array; the snapshot it was projected from
-  // is never touched.
-  return rows.sort(compareArcRows);
-}
-
-/**
- * One plan document waiting in a project's docs directory — the front half of
- * the arc, which was invisible to every surface until now.
- *
- * A plan row is waiting paperwork **by filter, not by construction**. Presence
- * in the docs directory says nothing about ownership: adoption leaves a
- * committed, clean base copy exactly where it was, so a plan an arc is
- * implementing right now sits there for the arc's whole life with its ledger
- * frozen at all-`pending` — the run's progress goes to the worktree copy. What
- * keeps the two kinds of row from naming the same work is the producer, which
- * lists a document only when no arc has adopted it and its ledger is not
- * wholly `done`.
- */
-export interface DocumentArcRow {
-  /** Project dir plus arc name — unique across every open project. */
-  key: string;
-  /** The owning project's directory — what a Start has to name. */
-  projectDir: string;
-  /** The wire entry: the row reads it directly. */
-  entry: DocumentArcEntry;
-}
-
-/** Nearest-to-work-starting first: a reviewed plan is one gesture from an arc. */
-const PLAN_REVIEW_RANK: Record<string, number> = {
-  reviewed: 2,
-  stale: 1,
-  "never-reviewed": 0,
-};
-
-/** An unrecognized review spelling — or none at all — sorts last. */
-function reviewRank(review: string): number {
-  return PLAN_REVIEW_RANK[review] ?? -1;
-}
-
-/** Work already on the ledger — done or in progress. */
-export function documentArcIsBegun(entry: DocumentArcEntry): boolean {
-  return entry.steps_begun > 0;
-}
-
-/**
- * The plan rows' total order: begun first, then review rank descending, then
- * by name.
- *
- * The same nearest-to-done principle {@link compareArcRows} encodes, applied
- * to the front half: work in flight is nearer done than work not started, and
- * among the unstarted a reviewed plan is one press from becoming an arc while
- * an unreviewed one still needs a turn spent on it.
- */
-export function compareDocumentArcRows(
-  a: DocumentArcRow,
-  b: DocumentArcRow,
-): number {
-  const byBegun =
-    Number(documentArcIsBegun(b.entry)) - Number(documentArcIsBegun(a.entry));
-  if (byBegun !== 0) return byBegun;
-  const byReview =
-    reviewRank(b.entry.review ?? "") - reviewRank(a.entry.review ?? "");
-  if (byReview !== 0) return byReview;
-  return a.entry.display_name.localeCompare(b.entry.display_name);
-}
-
-/**
- * Every waiting plan document across every open project, ordered by
- * {@link comparePlanRows}.
- *
- * Every project, not the followed one — the same choice
- * {@link arcRowsFromSnapshot} makes, for the same reason: a listing that
- * changed as the reader moved between cards would be the coming-and-going wart
- * this section already retired.
- *
- * One row per `owner_id`, exactly as {@link arcRowsFromSnapshot} dedupes —
- * and never on `key`, which namespaces the name under its project and so
- * differs between the very duplicates being removed. First occurrence in
- * snapshot order wins.
- */
-export function documentArcRowsFromSnapshot(
-  snapshot: WorkspacesChangesetSnapshot,
-): DocumentArcRow[] {
-  const seen = new Set<string>();
-  const rows = snapshot.projects
-    .flatMap((project) =>
-      (project.document_arcs ?? []).map((entry) => ({
-        key: `${project.project_dir}:${entry.display_name}`,
-        projectDir: project.project_dir,
-        entry,
-      })),
-    )
-    .filter((row) => {
-      if (seen.has(row.entry.owner_id)) return false;
-      seen.add(row.entry.owner_id);
-      return true;
-    });
-  return rows.sort(compareDocumentArcRows);
-}
-
 // ---------------------------------------------------------------------------
 // The list
 // ---------------------------------------------------------------------------
 
+/** What a cycle's pin may ask of the body, which holds every cycle's view. */
+interface CycleActions {
+  /** Flip one cycle's fold. */
+  fold: (section: CycleSection) => void;
+  /** A press on the map: an asset's key, or null for the map's ground. */
+  pressMap: (section: CycleSection, key: string | null, shift: boolean) => void;
+}
+
 /**
- * A flat, immutable list over one projection pass, carrying both kinds of row.
- * A new projection makes a new source; there is no mutation to subscribe to.
+ * A flat, immutable list over one projection pass and one view of it: each
+ * cycle's pin and the assets showing under it, each cycle of one, then the
+ * arcs no cycle names, then the waiting paperwork. A new projection or a new
+ * view makes a new source; there is no mutation to subscribe to.
  *
- * Arcs first, then plans: live work outranks waiting paperwork, so the index
- * split is the ordering — no interleaving and no comparator across kinds.
+ * One list rather than one per cycle, because the arrows walk rows inside a
+ * list: every row the card draws is a stop on one walk, in card order.
  *
- * The expansion bit rides here too, because it is the host's: the set
- * of expanded arcs and the toggle that moves it are `ArcsBody`'s, and this
- * source is how a cell reaches them. A new `expanded` set makes a new source,
- * which is exactly the version the list needs to re-render the row that grew.
+ * The view rides here because it is the host's: which arcs show their steps,
+ * which cycles are folded and which assets are selected are `ArcsBody`'s, and
+ * this source is how a cell reaches them. A bit inside a cell would be lost
+ * the moment a changeset beat replaced the row.
  */
 class CockpitRowsDataSource implements TugListViewDataSource {
   constructor(
-    readonly rows: readonly ArcRow[],
-    readonly plans: readonly DocumentArcRow[],
-    /** The owner keys whose steps are showing. */
+    readonly items: readonly ArcsCardItem[],
+    /** The owner keys of the loose arcs whose steps are showing. */
     readonly expanded: ReadonlySet<string>,
     /** Flip one arc's bit, by the same owner key the rows are identified by. */
     readonly toggle: (ownerId: string) => void,
+    readonly cycles: CycleActions,
   ) {}
   numberOfItems(): number {
-    return this.rows.length + this.plans.length;
+    return this.items.length;
   }
   idForIndex(index: number): string {
-    const arc = this.rows[index];
-    if (arc !== undefined) return arc.ownerId;
-    // Namespaced so an owner key and a document-arc key can never collide.
-    return `doc:${this.plans[index - this.rows.length]!.key}`;
+    return this.items[index]!.id;
   }
   kindForIndex(index: number): string {
-    return index < this.rows.length ? "arc" : "plan";
-  }
-  /** The document-only arc at a list index, or undefined for an arc index. */
-  planAt(index: number): DocumentArcRow | undefined {
-    return this.plans[index - this.rows.length];
+    return this.items[index]!.kind;
   }
   subscribe(): () => void {
     return () => {};
@@ -860,13 +736,42 @@ function PlanVerbRow({ row }: { row: DocumentArcRow }): React.ReactElement {
 // The block
 // ---------------------------------------------------------------------------
 
+/**
+ * What an arc's JOIN is doing, in the one shared sentence — the same
+ * derivation the shade and the composer call. A hook of the row rather than
+ * of a child because the row needs the reading to decide its own shape, and
+ * per row so a beat of one arc's join re-renders that row and no other.
+ */
+function useArcJoinReading(row: ArcRow): ReturnType<typeof arcJoinRegister> {
+  const entry = row.entry;
+  const landBeat = useChangesetJoinLand(row.workspaceKey, entry.display_name);
+  return arcJoinRegister({
+    arc: entry.display_name,
+    base: entry.base ?? "main",
+    stage: entry.stage,
+    join: entry.join,
+    holdersBusy: entry.holders_busy === true,
+    landBeat,
+    // The Arcs card is the one surface that renders arcs nobody is holding,
+    // so it is the one that has to hand the register that fact ([D147]).
+    bound: entry.bound_session !== undefined,
+    ...staleAuditFacts(entry),
+    // A live wheel outranks the offer: the section shows the stage that is
+    // running rather than a readiness the audit has not signed off on.
+    run: entry.arc ?? null,
+    // …and whether that wheel's walk is over, which is what tells a stop
+    // mid-walk from a stop at the seam before the audit.
+    runComplete: entry.run_complete === true,
+  });
+}
+
 const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
   index,
   dataSource,
 }: TugListViewCellProps<CockpitRowsDataSource>) => {
-  const row = dataSource.rows[index];
-  if (row === undefined) return null;
-  return <ArcRowCell row={row} dataSource={dataSource} />;
+  const item = dataSource.items[index];
+  if (item?.kind !== "arc") return null;
+  return <ArcRowCell row={item.row} dataSource={dataSource} />;
 };
 
 /**
@@ -902,31 +807,9 @@ function ArcRowCell({
   // Every verb the arc offers, in the row under the block — and the same
   // housekeeping verbs again on the row's second button ([B08]).
   const verbs = useArcRowVerbs(row, activatable);
-  // What this arc's JOIN is doing, in the one shared sentence — the same
-  // derivation the shade and the composer call. The `useSyncExternalStore`
-  // read is here rather than in a child because the property that mattered was
-  // keeping it off the SECTION: `ArcCell` is per-row, so a beat of one arc's
-  // join re-renders that row and no other, exactly as before. Do not re-split
-  // it into a child — the row needs the reading to decide its own shape.
-  const landBeat = useChangesetJoinLand(row.workspaceKey, entry.display_name);
-  const register = arcJoinRegister({
-    arc: entry.display_name,
-    base: entry.base ?? "main",
-    stage: entry.stage,
-    join: entry.join,
-    holdersBusy: entry.holders_busy === true,
-    landBeat,
-    // The Arcs card is the one surface that renders arcs nobody is holding,
-    // so it is the one that has to hand the register that fact ([D147]).
-    bound: entry.bound_session !== undefined,
-    ...staleAuditFacts(entry),
-    // A live wheel outranks the offer: the section shows the stage that is
-    // running rather than a readiness the audit has not signed off on.
-    run: entry.arc ?? null,
-    // …and whether that wheel's walk is over, which is what tells a stop
-    // mid-walk from a stop at the seam before the audit.
-    runComplete: entry.run_complete === true,
-  });
+  // What this arc's JOIN is doing. Read here, on the row: do not re-split it
+  // into a child — the row needs the reading to decide its own shape.
+  const register = useArcJoinReading(row);
   // A READY arc says so in the lifecycle line's own words, and draws no band
   // ([P08]). The register's third line was chrome restating a settled fact one
   // line below the line that could have carried it — and only for this one
@@ -1087,8 +970,9 @@ const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
   index,
   dataSource,
 }: TugListViewCellProps<CockpitRowsDataSource>) => {
-  const row = dataSource.planAt(index);
-  if (row === undefined) return null;
+  const item = dataSource.items[index];
+  if (item?.kind !== "plan") return null;
+  const row = item.row;
   const entry = row.entry;
   const begun = documentArcIsBegun(entry);
   // The counted steps, never the composed ones: `arcTrackModelFromEntry` over
@@ -1125,16 +1009,460 @@ const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
   );
 };
 
-const ARC_CELL_RENDERERS = { arc: ArcCell, plan: PlanCell };
 
-function useArcRows(): ArcRow[] {
-  const snapshot = useChangesetAll();
-  return useMemo(() => arcRowsFromSnapshot(snapshot), [snapshot]);
+// ---------------------------------------------------------------------------
+// Cycles
+// ---------------------------------------------------------------------------
+
+/**
+ * A cycle's pin: the fold cue, the name and how much has landed, over the
+ * map, or over the strip when the cycle is folded. It holds the top of the
+ * card while the cycle's assets are in view.
+ *
+ * The row is the fold's keyboard stop, so a press on its head folds as the
+ * cue does. The well under the head refuses focus: a press on the map selects
+ * an asset and must never also pick the row, which would fold the map out
+ * from under the pointer.
+ */
+function CyclePin({
+  item,
+  actions,
+}: {
+  item: Extract<ArcsCardItem, { kind: "cycle-pin" }>;
+  actions: CycleActions;
+}): React.ReactElement {
+  const { section, folded, chosen } = item;
+  return (
+    <div
+      className="arcs-cycle-pin"
+      data-slot="arcs-cycle-pin"
+      data-cycle={section.id}
+      data-folded={folded ? "true" : undefined}
+    >
+      <div className="arcs-cycle-head">
+        <BlockFoldCue
+          collapsed={folded}
+          onToggle={() => actions.fold(section)}
+          collapsedLabel="Open"
+          expandedLabel="Fold"
+          ariaLabelExpand={`Open cycle ${section.name}`}
+          ariaLabelCollapse={`Fold cycle ${section.name}`}
+          tooltip={folded ? "Show the map" : "Hide the map"}
+          size="xs"
+          subtype="icon"
+          data-slot="arcs-cycle-fold"
+        />
+        <span className="arcs-cycle-name" data-slot="arcs-cycle-name">
+          {section.name}
+        </span>
+        <TugLabel size="2xs" emphasis="calm">
+          {section.landedText}
+        </TugLabel>
+      </div>
+      <div className="arcs-cycle-well" data-tug-focus="refuse">
+        {folded ? (
+          // One segment per entry, in the tone of how it stands. The head
+          // says the same in words, so the strip is not read aloud.
+          <span className="arcs-cycle-strip" data-slot="arcs-cycle-strip" aria-hidden="true">
+            {section.strip.map((state, index) => (
+              // The strip is positional: a segment is its entry's place.
+              <span key={index} data-state={state} />
+            ))}
+          </span>
+        ) : (
+          <CycleMap
+            className="arcs-cycle-map"
+            tiles={section.tiles}
+            sketches={section.sketches}
+            size="compact"
+            chosen={chosen}
+            onPress={(key, shift) => actions.pressMap(section, key, shift)}
+            onClear={() => actions.pressMap(section, null, false)}
+          />
+        )}
+        {!folded && chosen.size > 1 ? (
+          <CycleOnlyBar
+            className="arcs-cycle-only"
+            count={chosen.size}
+            onBack={() => actions.pressMap(section, null, false)}
+          />
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
-function usePlanRows(): DocumentArcRow[] {
-  const snapshot = useChangesetAll();
-  return useMemo(() => documentArcRowsFromSnapshot(snapshot), [snapshot]);
+const CyclePinCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
+  index,
+  dataSource,
+}: TugListViewCellProps<CockpitRowsDataSource>) => {
+  const item = dataSource.items[index];
+  if (item?.kind !== "cycle-pin") return null;
+  return <CyclePin item={item} actions={dataSource.cycles} />;
+};
+
+/** What every cycle entry row is handed, whichever of its shapes draws it. */
+interface CycleEntryProps {
+  /** The cycle the entry belongs to: the row's address for a map press. */
+  cycleId: string;
+  row: CycleEntryRow;
+  open: boolean;
+  /** False for a cycle of one, whose single entry needs no number. */
+  numbered: boolean;
+}
+
+/**
+ * One entry of a cycle: one row, and the only drawing of the entry on the
+ * card. Closed, it is the arc and one line of where it stands. Open, the same
+ * row holds its steps or the sentence saying where it stands, its session and
+ * its brief, then whatever its host hands it to stand under those.
+ *
+ * The session chip is the link to the session; a press anywhere else on the
+ * row opens the row. Nothing here starts an entry.
+ */
+function CycleEntryView({
+  cycleId,
+  row,
+  open,
+  numbered,
+  model,
+  under,
+  onContextMenu,
+}: CycleEntryProps & {
+  /** The running arc's track model, for the state mark; null when not running. */
+  model: ArcTrackModel | null;
+  /** What stands under the open row's own lines: the arc's verbs. */
+  under?: React.ReactNode;
+  onContextMenu?: (event: React.MouseEvent) => void;
+}): React.ReactElement {
+  const entry = row.entry;
+  const state = entry.state;
+  const bound = entry.bound_session ?? null;
+  const steps = row.arc?.entry.steps ?? [];
+  const worker =
+    state === "running" && bound !== null ? (
+      <span className="arcs-cycle-line">
+        <span>in</span>
+        <button
+          type="button"
+          className="arcs-cycle-session"
+          data-slot="arcs-cycle-session"
+          data-tug-focus="refuse"
+          aria-label={`Go to the session running ${row.title}`}
+          onClick={() => openCitedSession(bound)}
+        >
+          <ArcWorkerAtom sessionId={bound} />
+        </button>
+      </span>
+    ) : null;
+  const waits =
+    state === "waiting" || (state === "ready" && entry.note !== undefined) ? (
+      <span className="arcs-cycle-line">
+        <CycleWaits
+          label="Waits on"
+          items={entry.waits.map((n) => ({ n, met: !row.openWaits.includes(n) }))}
+        />
+        {entry.note !== undefined ? (
+          <span className="arcs-cycle-note">{entry.note}</span>
+        ) : null}
+      </span>
+    ) : null;
+  return (
+    <TugListRow
+      className="arcs-cycle-row"
+      variant="flush"
+      density="compact"
+      selected={open}
+      data-slot="arcs-cycle-entry"
+      data-cycle={cycleId}
+      data-asset={row.key}
+      data-state={state}
+      data-open={open ? "true" : undefined}
+      onContextMenu={onContextMenu}
+      leading={
+        numbered ? (
+          <span className="arcs-cycle-number" data-slot="arcs-cycle-number">
+            {entry.n}
+          </span>
+        ) : undefined
+      }
+      trailing={
+        <CycleEntryMark
+          state={state}
+          model={model}
+          name={entry.arc?.name ?? row.title}
+        />
+      }
+      trailingReveal="always"
+    >
+      <span className="arcs-cycle-content">
+        {entry.arc !== undefined ? (
+          <TugArcAtom name={entry.arc.name} />
+        ) : (
+          <span className="arcs-cycle-title">{row.title}</span>
+        )}
+        {open ? null : worker}
+        {waits}
+        {open ? (
+          <>
+            {state === "running" && steps.length > 0 ? (
+              // The arc's own ledger, from the arc's own row in the same
+              // frame, so the entry and the arc cannot disagree.
+              <span className="arcs-steps" data-slot="arcs-cycle-steps">
+                <ArcStepItems steps={steps} live={model?.live ?? true} />
+              </span>
+            ) : (
+              <span className="arcs-cycle-line" data-slot="arcs-cycle-sentence">
+                {row.sentence}
+              </span>
+            )}
+            {worker}
+            {entry.brief_path !== undefined ? (
+              <span className="arcs-cycle-line">
+                <TugAtomRef entity={{ kind: "file", path: entry.brief_path }} />
+              </span>
+            ) : null}
+          </>
+        ) : null}
+        {under}
+      </span>
+    </TugListRow>
+  );
+}
+
+/**
+ * An entry whose arc is live: the entry's row, carrying the verbs, the join
+ * register and the right-click menu the arc had as a loose row. An arc that
+ * moves into a cycle must not lose them, so they are the same hooks and the
+ * same components, standing under the open row's steps.
+ *
+ * The menu's portal host mounts whether the row is open or not: the
+ * right-click is a door onto the verbs, and a closed row answers it too.
+ */
+function LiveCycleEntry({
+  arc,
+  ...props
+}: CycleEntryProps & { arc: ArcRow }): React.ReactElement {
+  const activatable = useWorkerCard(arc.entry) !== null;
+  const verbs = useArcRowVerbs(arc, activatable);
+  const register = useArcJoinReading(arc);
+  const waiting = arcRowWaiting(arc.entry.arc);
+  return (
+    <CycleEntryView
+      {...props}
+      model={arcTrackModelFromEntry(arc.entry)}
+      onContextMenu={verbs.onContextMenu}
+      under={
+        <>
+          {props.open ? (
+            <span className="arcs-verb-row">
+              <ArcVerbRow
+                arc={arc.entry.display_name}
+                verbs={verbs.set}
+                voice={verbs.voice}
+                onVerb={verbs.onVerb}
+                labels="on-hover"
+              />
+            </span>
+          ) : null}
+          {verbs.menu}
+          {props.open ? (
+            <span className="arcs-register">
+              <ArcJoinRegisterView register={register} altitude="section" />
+            </span>
+          ) : null}
+          {props.open && waiting !== null ? (
+            <span className="arcs-waiting" data-slot="arcs-row-waiting">
+              {waiting}
+            </span>
+          ) : null}
+        </>
+      }
+    />
+  );
+}
+
+/**
+ * A cycle entry's row, in the shape its arc calls for: live, with the arc's
+ * verbs; running on paperwork alone, with the paperwork's; or neither.
+ */
+function CycleEntry(props: CycleEntryProps): React.ReactElement {
+  const { row, open } = props;
+  if (row.arc !== null) return <LiveCycleEntry {...props} arc={row.arc} />;
+  return (
+    <CycleEntryView
+      {...props}
+      model={row.plan !== null ? documentArcTrackModel(row.plan.entry) : null}
+      under={open && row.plan !== null ? <PlanVerbRow row={row.plan} /> : null}
+    />
+  );
+}
+
+/** A sketch of a cycle: one row, its want closed and the whole of it open. */
+function CycleSketchRowView({
+  cycleId,
+  sketch,
+  open,
+}: {
+  cycleId: string;
+  sketch: CycleSketchRow;
+  open: boolean;
+}): React.ReactElement {
+  const text = sketch.text !== "" ? sketch.text : sketch.want;
+  return (
+    <TugListRow
+      className="arcs-cycle-row"
+      variant="flush"
+      density="compact"
+      selected={open}
+      data-slot="arcs-cycle-sketch"
+      data-cycle={cycleId}
+      data-asset={sketch.key}
+      data-open={open ? "true" : undefined}
+      leading={<CycleSeal letter={sketch.letter} />}
+      trailing={
+        <CycleWaits
+          label="Heads"
+          items={sketch.entries.map((n) => ({ n, met: true }))}
+          checks={false}
+        />
+      }
+      trailingReveal="always"
+    >
+      <span className="arcs-cycle-content">
+        <span className="arcs-cycle-title">{`Sketch ${sketch.letter}`}</span>
+        {open ? (
+          <span className="arcs-cycle-sketch-text" data-slot="arcs-cycle-sketch-text">
+            {text !== "" ? text : "No text on record."}
+          </span>
+        ) : sketch.want !== "" ? (
+          <span className="arcs-cycle-want">{sketch.want}</span>
+        ) : null}
+      </span>
+    </TugListRow>
+  );
+}
+
+const CycleAssetCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
+  index,
+  dataSource,
+}: TugListViewCellProps<CockpitRowsDataSource>) => {
+  const item = dataSource.items[index];
+  if (item?.kind !== "cycle-asset") return null;
+  return item.asset.kind === "sketch" ? (
+    <CycleSketchRowView
+      cycleId={item.section.id}
+      sketch={item.asset.sketch}
+      open={item.open}
+    />
+  ) : (
+    <CycleEntry cycleId={item.section.id} row={item.asset.row} open={item.open} numbered />
+  );
+};
+
+/** A cycle of one entry: that entry's row, with no pin, map or number. */
+const CycleSingleCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
+  index,
+  dataSource,
+}: TugListViewCellProps<CockpitRowsDataSource>) => {
+  const item = dataSource.items[index];
+  if (item?.kind !== "cycle-single") return null;
+  return (
+    <CycleEntry
+      cycleId={item.single.id}
+      row={item.single.row}
+      open={item.open}
+      numbered={false}
+    />
+  );
+};
+
+const ARC_CELL_RENDERERS = {
+  "cycle-pin": CyclePinCell,
+  "cycle-asset": CycleAssetCell,
+  "cycle-single": CycleSingleCell,
+  arc: ArcCell,
+  plan: PlanCell,
+};
+
+/** The list cell of each cycle's pin, in card order. */
+function cyclePinCells(root: HTMLElement): HTMLElement[] {
+  return Array.from(
+    root.querySelectorAll<HTMLElement>(
+      '.tug-list-view-cell[data-tug-list-cell-kind="cycle-pin"]',
+    ),
+  );
+}
+
+/**
+ * Let each pin go as its cycle's last asset leaves the top of the card.
+ *
+ * A pin's cell is sticky inside a flat list, so nothing in CSS ends its hold
+ * where its cycle ends. This writes the release: once the last asset's foot
+ * rises above the pin's own, the pin is carried up by the difference, so the
+ * asset pushes it off the top. Appearance only, written to the DOM ([L06]);
+ * it reads geometry a scroll does not dirty, and writes a transform, which
+ * dirties none.
+ */
+function settleCyclePins(root: HTMLElement): void {
+  const top = root.getBoundingClientRect().top;
+  for (const pin of cyclePinCells(root)) {
+    let last: HTMLElement = pin;
+    for (
+      let next = pin.nextElementSibling;
+      next instanceof HTMLElement && next.dataset.tugListCellKind === "cycle-asset";
+      next = next.nextElementSibling
+    ) {
+      last = next;
+    }
+    const shift =
+      last === pin
+        ? 0
+        : Math.min(0, last.getBoundingClientRect().bottom - top - pin.offsetHeight);
+    const transform = shift < 0 ? `translateY(${shift}px)` : "";
+    if (pin.style.transform !== transform) pin.style.transform = transform;
+  }
+}
+
+/** Give the room under the list a height, or take it back at zero. */
+function sizeCycleTail(root: HTMLElement, height: number): void {
+  const tail = root.querySelector<HTMLElement>('[data-slot="arcs-cycle-tail"]');
+  if (tail === null) return;
+  const value = height > 0 ? `${Math.ceil(height)}px` : "";
+  if (tail.style.height !== value) tail.style.height = value;
+}
+
+/**
+ * Bring one asset's row up under its cycle's pin, after a press on the map.
+ *
+ * The room under the list is sized first, from the pin's measured height and
+ * the card's own: just enough that the row can reach the pin's foot, and none
+ * when the rows below it already allow that. It is sized at the press and not
+ * kept current, so a card that sizes itself to its content cannot chase it.
+ */
+function bringAssetUnderPin(root: HTMLElement, cycle: string, key: string): void {
+  let pin: HTMLElement | null = null;
+  let asset: HTMLElement | null = null;
+  for (const el of root.querySelectorAll<HTMLElement>("[data-cycle]")) {
+    if (el.dataset.cycle !== cycle) continue;
+    if (el.dataset.slot === "arcs-cycle-pin") pin = cellOf(el);
+    else if (el.dataset.asset === key) asset = cellOf(el);
+  }
+  if (pin === null || asset === null) return;
+  const rootTop = root.getBoundingClientRect().top;
+  const top =
+    asset.getBoundingClientRect().top - rootTop + root.scrollTop - pin.offsetHeight;
+  // Where the card's content ends, in the scroller's own coordinates. Read
+  // from the content element and never from `scrollHeight`, which is the
+  // card's own height whenever the rows do not fill it.
+  const content = root.querySelector<HTMLElement>("[data-card-content]");
+  const contentEnd =
+    (content?.getBoundingClientRect().bottom ?? rootTop) -
+    rootTop +
+    root.scrollTop +
+    (parseFloat(getComputedStyle(root).paddingBottom) || 0);
+  sizeCycleTail(root, top + root.clientHeight - contentEnd);
+  root.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
 }
 
 /**
@@ -1162,8 +1490,14 @@ export function ArcsContent({ cardId }: ArcsContentProps): React.ReactElement {
 }
 
 function ArcsBody(): React.ReactElement {
-  const rows = useArcRows();
-  const plans = usePlanRows();
+  const snapshot = useChangesetAll();
+  // The session of the card this one follows decides which running entries
+  // read as elsewhere, and nothing else.
+  const followedSession = useFollowedSessionId();
+  const projection = useMemo(
+    () => projectArcsCard(snapshot, followedSession),
+    [snapshot, followedSession],
+  );
   // Which arcs are showing their steps. Card-local view scope: closing the
   // card forgets every fold, which is the right lifetime for a reading. The
   // set is keyed by the arc's owner key — the same key the list identifies its
@@ -1180,15 +1514,84 @@ function ArcsBody(): React.ReactElement {
       return next;
     });
   }, []);
-  const dataSource = useMemo(
-    () => new CockpitRowsDataSource(rows, plans, expanded, toggle),
-    [rows, plans, expanded, toggle],
+  // Which cycles are folded and which assets are selected in each. The same
+  // lifetime and the same home as the fold bits above, for the same reason:
+  // closing the card forgets it, and a beat that replaces a row does not.
+  const [view, setView] = useState<CycleViewState>(NO_CYCLE_VIEW);
+  // The last press on a map, counted so the same asset pressed twice is two
+  // presses. Only a map press scrolls; a press on a row leaves the row under
+  // the pointer.
+  const [mapPress, setMapPress] = useState<{
+    cycle: string;
+    key: string;
+    n: number;
+  } | null>(null);
+  const cycleActions = useMemo<CycleActions>(
+    () => ({
+      fold: (section) => setView((was) => foldCycle(was, section)),
+      pressMap: (section, key, shift) => {
+        setView((was) => pressCycleMap(was, section.id, key, shift));
+        if (key !== null) {
+          setMapPress((was) => ({ cycle: section.id, key, n: (was?.n ?? 0) + 1 }));
+        }
+      },
+    }),
+    [],
   );
-  // Both kinds, not the arc count. This one value decides two things — whether
-  // the keyboard has anything to walk onto, and whether the body is the empty
-  // state — so a project with plans and no arcs would otherwise render
-  // "No arcs" over rows that never mounted.
-  const populated = rows.length + plans.length > 0;
+  const items = useMemo(() => listArcsCard(projection, view), [projection, view]);
+  const dataSource = useMemo(
+    () => new CockpitRowsDataSource(items, expanded, toggle, cycleActions),
+    [items, expanded, toggle, cycleActions],
+  );
+  // Every kind of row, not the arc count. This one value decides two things —
+  // whether the keyboard has anything to walk onto, and whether the body is
+  // the empty state — so a project with plans and no arcs would otherwise
+  // render "None" over rows that never mounted.
+  const populated = items.length > 0;
+  const pinned = items.some((item) => item.kind === "cycle-pin");
+
+  // The card's one scroller ([B15]): the pins stick inside it, and a map
+  // press scrolls it.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  // A pin lets go when its last asset leaves. The list is flat, so a pin's
+  // sticky box is bounded by the whole list rather than by its cycle; the
+  // release is written to the pin's cell as the scroller moves ([L06]). The
+  // listener is registered in a layout effect because the first scroll may
+  // arrive before a passive effect has run ([L03]).
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (root === null || !pinned) return;
+    const settle = (): void => settleCyclePins(root);
+    settle();
+    root.addEventListener("scroll", settle, { passive: true });
+    // The card's width decides where rows wrap, and so where a cycle ends.
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(settle);
+    observer?.observe(root);
+    return () => {
+      root.removeEventListener("scroll", settle);
+      observer?.disconnect();
+    };
+  }, [items, pinned]);
+
+  // A press on the map opens the asset, then brings its row up under the
+  // pin. It waits for the commit, since opening one asset closes another and
+  // that moves every row below it.
+  const handledPress = useRef(0);
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (root === null) return;
+    if (mapPress !== null && mapPress.n !== handledPress.current) {
+      handledPress.current = mapPress.n;
+      if (cycleChosen(view, mapPress.cycle).size === 1) {
+        bringAssetUnderPin(root, mapPress.cycle, mapPress.key);
+        return;
+      }
+    }
+    // With nothing selected anywhere, the room a press made is given back.
+    if (view.chosen.size === 0) sizeCycleTail(root, 0);
+  }, [mapPress, view]);
 
   const discardVerb = useChangesetDiscard(ARCS_VERB_KEY);
   // And one documents-delete, for the reason the discard has one.
@@ -1262,12 +1665,32 @@ function ArcsBody(): React.ReactElement {
   // rather than after, through the row's own activatable attribute.
   const delegate = useMemo<TugListViewDelegate>(() => {
     const activate = (index: number): void => {
-      const row = dataSource.rows[index];
-      if (row === undefined) return;
-      openArcRoom(row.entry.bound_session ?? null);
+      const item = items[index];
+      if (item === undefined) return;
+      switch (item.kind) {
+        case "arc":
+          openArcRoom(item.row.entry.bound_session ?? null);
+          return;
+        // A cycle's pin is its fold's keyboard stop: Return or Space on it
+        // does what the cue does.
+        case "cycle-pin":
+          cycleActions.fold(item.section);
+          return;
+        // A press on an asset's row opens the row; the session chip inside
+        // it is the link to the session.
+        case "cycle-asset":
+          setView((was) => pressCycleRow(was, item.section.id, item.asset.key));
+          return;
+        case "cycle-single":
+          setView((was) => pressCycleSingle(was, item.single));
+          return;
+        default:
+          // A plan row has no room to open.
+          return;
+      }
     };
     return { onSelect: activate, onActivate: activate };
-  }, [dataSource]);
+  }, [items, cycleActions]);
 
   // The empty state keeps the card, reading exactly as every other rail card's
   // does: the shared word, centered, on one row's worth of height.
@@ -1291,7 +1714,11 @@ function ArcsBody(): React.ReactElement {
 
   return (
     <ArcVerbsContext value={verbs}>
-      <div className={`${RAIL_CARD_CLASS} arcs-section`} data-slot="arcs-section">
+      <div
+        ref={rootRef}
+        className={`${RAIL_CARD_CLASS} arcs-section`}
+        data-slot="arcs-section"
+      >
         {/* The content element ([B01]): everything the card draws, as one
             in-flow column inside the scroller ([B02]). */}
         <div
@@ -1311,6 +1738,14 @@ function ArcsBody(): React.ReactElement {
           className="arcs-list"
         />
         </div>
+        {/* The room a map press may need under the last row, so that row can
+            come up under its pin. No height until a press asks for one. It
+            stands after the content element, not in it: the card's height is
+            measured from that element, and room measured as content would
+            grow the card instead of giving it something to scroll. */}
+        {pinned ? (
+          <div className="arcs-cycle-tail" data-slot="arcs-cycle-tail" aria-hidden="true" />
+        ) : null}
         {/* One controlled confirm for the whole card, anchored to whichever
             row armed it. `confirm={{ role: "danger" }}` puts default focus on Cancel,
             so a reflexive Return can never destroy an arc or a brief. */}

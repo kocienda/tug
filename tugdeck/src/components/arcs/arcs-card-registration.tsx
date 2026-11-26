@@ -41,7 +41,7 @@ export function registerArcsCard(): void {
     acceptsFamilies: [],
     contentFactory: (cardId: string) => <ArcsContent cardId={cardId} />,
     // An arc IS a branch plus a worktree, and this is the glyph that says so.
-    defaultMeta: { title: "Arcs", icon: "GitBranch", closable: true },
+    defaultMeta: { title: "Cycles & Arcs", icon: "GitBranch", closable: true },
     // Rank 4: a list, so it grows, but an arc is a whole unit of work and they
     // arrive far slower than jots or cards do.
     greedRank: 4,

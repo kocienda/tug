@@ -439,7 +439,13 @@ pub fn first_heading(text: &str) -> Option<String> {
 /// an ellipsis, since it rides every snapshot of the arc feed.
 fn read_record(path: &Path) -> Option<String> {
     let text = std::fs::read_to_string(path).ok()?;
-    let body = record_body(&text)?;
+    record_text(&text)
+}
+
+/// A record's text as a feed carries it: its [`record_body`], cut at
+/// [`RECORD_TEXT_LIMIT`] characters with an ellipsis.
+pub fn record_text(text: &str) -> Option<String> {
+    let body = record_body(text)?;
     if body.chars().count() > RECORD_TEXT_LIMIT {
         let cut: String = body.chars().take(RECORD_TEXT_LIMIT).collect();
         return Some(format!("{}…", cut.trim_end()));

@@ -294,6 +294,19 @@ pub fn sketches(paths: &Paths, repo: &Path) -> Vec<SketchRecord> {
     all
 }
 
+/// The newest text of sketch `id`, verbatim: from this checkout's store, else
+/// from the first other checkout's under the data root that holds it, since a
+/// cycle may name a sketch from either. `None` when no store holds the id or
+/// the record has no version to read.
+pub fn latest_text(paths: &Paths, repo: &Path, id: &str) -> Option<String> {
+    if !valid_id(id) {
+        return None;
+    }
+    let record = read_record(&sketch_root(paths, repo).join(id))
+        .or_else(|| find_sketch(paths, id).into_iter().next().map(|(_, r)| r))?;
+    read_version(&record, None).ok()
+}
+
 /// What a sketch says is wanted: the first paragraph of its body, with the
 /// `# Sketch` heading and the `Source:` line taken off.
 pub fn want_of(text: &str) -> Option<String> {

@@ -338,7 +338,7 @@ describe("a cycle of one whose arc is not this session's", () => {
   });
 
   test("its sketch is the first readable one it came from", () => {
-    expect(cycleEntrySketchText(GOLDEN, GOLDEN.entries[0]!)?.startsWith("# Sketch\n\n")).toBe(true);
+    expect(cycleEntrySketchText(GOLDEN, GOLDEN.entries[0]!)).toBe(GOLDEN.sketches![0]!.text!);
     expect(cycleEntrySketchText(GOLDEN, GOLDEN.entries[1]!)).toBeNull();
     const unread = cycle([entry(1, "ready", { from: ["B", "A"] })], {
       sketches: [{ letter: "B", id: "0a0a0a0a", added: "2026-11-20T10:00:00Z" }, ...GOLDEN.sketches!],

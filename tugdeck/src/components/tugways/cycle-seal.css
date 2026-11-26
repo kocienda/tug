@@ -1,0 +1,37 @@
+/* @tug-pairings {
+  --tug7-element-tone-border-normal-data-rest | --tug7-surface-global-primary-normal-content-rest | decorative
+} */
+
+/**
+ * @tug-pairings
+ * | Element                                     | Surface                                           | Role       | Context                         |
+ * |---------------------------------------------|---------------------------------------------------|------------|---------------------------------|
+ * | --tug7-element-tone-border-normal-data-rest | --tug7-surface-global-primary-normal-content-rest | decorative | .tug-cycle-seal (border-color)  |
+ *
+ * The ring is the map's seal tone, and only frames the letter; the letter is
+ * what the seal says, in the host row's ink.
+ */
+
+/* cycle-seal.css — a sketch's letter in a ring.
+
+   The seal sets its own size and no colour for its letter. A host that wants
+   it smaller or larger sets `--tugx-cycle-seal-size` on its own class.
+
+   Laws: [L16] pairings declared; [L19] component authoring guide; [L20] owns
+   `--tugx-cycle-seal-*`. */
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.tug-cycle-seal {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  box-sizing: border-box;
+  width: var(--tugx-cycle-seal-size, 22px);
+  height: var(--tugx-cycle-seal-size, 22px);
+  border: 1.5px solid var(--tug7-element-tone-border-normal-data-rest);
+  border-radius: 50%;
+  font-size: var(--tugx-cycle-seal-font-size, 10px);
+  font-weight: var(--tug-font-weight-semibold);
+  line-height: 1;
+}

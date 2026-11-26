@@ -2138,8 +2138,8 @@ fn cycle_entries_in(
 /// entry whose arc joined names no live card, and carries no stages, since its
 /// generation is no longer the one the arc record holds.
 ///
-/// Each sketch carries its latest version and that version's want, read from
-/// the sketch store here because the deck has no filesystem ([D138]); a
+/// A sketch carries its words, read from the sketch store's newest version
+/// here because the deck has no filesystem ([D138]) and composes nothing; a
 /// sketch the store cannot answer for travels as its letter and id alone.
 fn cycle_wire(
     paths: &Paths,
@@ -2219,16 +2219,13 @@ fn cycle_wire(
             .sketches
             .into_iter()
             .map(|s| {
-                let text = tugarc_core::sketch::find_sketch(paths, &s.id)
-                    .first()
-                    .and_then(|(_, record)| tugarc_core::sketch::read_version(record, None).ok());
-                let want = text.as_deref().and_then(tugarc_core::sketch::want_of);
+                let stored = tugarc_core::sketch::latest_text(paths, root, &s.id);
                 CycleSketchWire {
+                    want: stored.as_deref().and_then(tugarc_core::sketch::want_of),
+                    text: stored.as_deref().and_then(tugarc_core::ops::record_text),
                     letter: s.letter,
                     id: s.id,
                     added: s.added,
-                    text,
-                    want,
                 }
             })
             .collect(),
@@ -5731,43 +5728,42 @@ Some context.
         assert!(cycles[0].entries[1].bound_callsign.is_none());
     }
 
-    /// A cycle's sketch travels with its latest version and that version's
-    /// want, and a sketch whose record is gone from the store travels as its
-    /// letter and id with neither.
+    /// A cycle's sketch carries its want and its whole body from the sketch
+    /// store's newest version, with the heading and the `Source:` line off;
+    /// a sketch whose text is gone from the store carries neither.
     #[test]
-    fn cycles_compose_each_sketchs_latest_text_and_want() {
-        use tugarc_core::cycle::add_sketch;
-        use tugarc_core::sketch::record_free_sketch;
-        const FIRST: &str = "# Sketch\n\nWant the archive.\n\nSource: session abc, turns 1–3\n";
-        const LATEST: &str = "# Sketch\n\nWant the archive, searchable.\n\nOne index over every year.\n\n- A search box finds a register by name\n\nSource: session abc, turns 1–5\n";
+    fn a_cycles_sketch_carries_its_want_and_text_from_the_store() {
+        use tugarc_core::cycle::{add_sketch, create_cycle};
+        use tugarc_core::sketch::{find_sketch, record_free_sketch};
         let data = tempfile::tempdir().unwrap();
         let paths = Paths::under(data.path());
         let (_dir, root) = init_repo();
-        let id = scratch_cycle(&paths, &root);
-        let kept = record_free_sketch(&paths, &root, FIRST, None).unwrap().id;
-        record_free_sketch(&paths, &root, LATEST, Some(&kept)).unwrap();
-        let lost = record_free_sketch(&paths, &root, "# Sketch\n\nWant a map.\n", None)
-            .unwrap()
-            .id;
-        assert_eq!(add_sketch(&paths, &root, &id, &kept).unwrap(), "A");
-        assert_eq!(add_sketch(&paths, &root, &id, &lost).unwrap(), "B");
-        std::fs::remove_dir_all(tugarc_core::sketch::sketch_root(&paths, &root).join(&lost))
-            .unwrap();
+        let id = create_cycle(&paths, &root, "Cycle", None).unwrap().id;
+        let first = "# Sketch\n\nAn early want.\n\nSource: session s, turns 1–1\n";
+        let sketch = record_free_sketch(&paths, &root, first, None).unwrap().id;
+        let second = "# Sketch\n\nShow related arcs together.\n\nOne group per run.\n\n- A map\n- A row per part\n\nSource: session s, turns 1–2\n";
+        record_free_sketch(&paths, &root, second, Some(&sketch)).unwrap();
+        assert_eq!(add_sketch(&paths, &root, &id, &sketch).unwrap(), "A");
 
-        let cycles = cycle_entries_in(&paths, &root, &HashMap::new(), &HashMap::new());
-        let sketches = &cycles[0].sketches;
-        assert_eq!(sketches.len(), 2);
-        assert_eq!(sketches[0].id, kept);
-        assert_eq!(sketches[0].text.as_deref(), Some(LATEST));
+        let none = HashMap::new();
+        let cycles = cycle_entries_in(&paths, &root, &none, &none);
+        let wire = &cycles[0].sketches[0];
+        assert_eq!(wire.id, sketch);
+        assert_eq!(wire.want.as_deref(), Some("Show related arcs together."));
         assert_eq!(
-            sketches[0].want.as_deref(),
-            Some("Want the archive, searchable.")
+            wire.text.as_deref(),
+            Some("Show related arcs together.\n\nOne group per run.\n\n- A map\n- A row per part")
         );
-        assert_eq!((sketches[1].letter.as_str(), &sketches[1].id), ("B", &lost));
-        assert!(sketches[1].text.is_none() && sketches[1].want.is_none());
-        // An unreadable sketch is omitted from the frame, never sent empty.
-        let json = serde_json::to_value(&sketches[1]).unwrap();
-        assert!(json.get("text").is_none() && json.get("want").is_none());
+
+        // The record survives and its version files do not: no words.
+        let (_, record) = find_sketch(&paths, &sketch).remove(0);
+        for v in &record.versions {
+            std::fs::remove_file(record.dir.join(format!("v{}.md", v.n))).unwrap();
+        }
+        let cycles = cycle_entries_in(&paths, &root, &none, &none);
+        let wire = &cycles[0].sketches[0];
+        assert_eq!(wire.letter, "A");
+        assert!(wire.want.is_none() && wire.text.is_none());
     }
 
     /// A checkout with no cycles composes none, and an app-test instance hides
