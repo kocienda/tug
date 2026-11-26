@@ -40,6 +40,15 @@
  *   - whether another shade covers the footer or stands on it;
  *   - what the shade gives up at the card's slim width.
  *
+ * Under the Session card stands the sidebar card, as Cycles & Arcs. It draws
+ * the same cycle with the same parts, cut to the sidebar's width: each
+ * cycle's header and map pin to the top of the card while its assets scroll
+ * under them, and each asset is one row that opens in place to everything
+ * the shade's asset holds — a sketch whole, an entry with its brief, its
+ * session and its steps. An arc that is a cycle of one is the same row with
+ * no map and no number. A press on the map opens the pressed asset and
+ * scrolls it up under the map.
+ *
  * Nothing here sends a frame. A Start press places a command in the prompt
  * stand-in and stops there: the press fills, the user sends. Each entry's
  * state is derived from what has joined, never stored.
@@ -48,16 +57,17 @@
 import "./spike.css";
 import "./spike-cycle-band.css";
 
-import React, { useId, useMemo, useRef, useState } from "react";
+import React, { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Play, Search, SquareArrowOutUpRight } from "lucide-react";
 
 import type { SpikeDef } from "./spike-registry";
 import { cycleMap, type CycleMapEntry, type CycleMapSeat } from "./spike-cycle-band-layout";
-import { ArcLifecycleBlock, ArcWorkerAtom } from "@/components/tugways/arc-lifecycle-block";
+import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
 import { ArcLifecycleMark } from "@/components/tugways/arc-lifecycle-mark";
 import { ArcStepItems } from "@/components/tugways/arc-step-list";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
 import { SessionArcPanels, type SessionArcPanel } from "@/components/tugways/cards/session-arc-panels";
+import { SessionIdentityView } from "@/components/tugways/cards/session-identity";
 import { recordPanel } from "@/components/tugways/cards/session-arc-shade-content";
 import { SessionTelemetryCell } from "@/components/tugways/cards/session-telemetry-cell";
 import { TugArcAtom } from "@/components/tugways/tug-arc-atom";
@@ -73,6 +83,7 @@ import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { useResponderForm } from "@/components/tugways/use-responder-form";
 import type { ArcStep } from "@/lib/changeset-types";
 import { sessionNameStore } from "@/lib/session-name-store";
+import { useSessionIdentity } from "@/lib/session-identity";
 import { sessionTagStore } from "@/lib/session-tag-store";
 
 // ---------------------------------------------------------------------------
@@ -225,7 +236,7 @@ interface Reading {
 
 interface Presses {
   start: (entry: Entry, where: "here" | "new") => void;
-  goTo: (entry: Entry) => void;
+  goTo: (session: string) => void;
 }
 
 function sentenceOf(entry: Entry, reading: Reading): string {
@@ -243,42 +254,89 @@ function sentenceOf(entry: Entry, reading: Reading): string {
 // The map — the cycle as a graph
 // ---------------------------------------------------------------------------
 
-const COL_W = 108;
-const ROW_H = 58;
-const TILE_W = 64;
-const TILE_H = 42;
-const PAD = 10;
+/**
+ * A session, as the chip it is everywhere else, and pressable as it is
+ * everywhere else: a press brings that session's card forward. There is no
+ * separate "go to" control.
+ */
+function SessionChip({ session, presses }: { session: string; presses: Presses }): React.ReactElement {
+  const identity = useSessionIdentity(session);
+  return (
+    <SessionIdentityView
+      identity={identity}
+      tier="chip"
+      arc={false}
+      tooltip={false}
+      onOpen={() => presses.goTo(session)}
+    />
+  );
+}
 
-const xOf = (seat: CycleMapSeat): number => PAD + seat.col * COL_W;
-const yOf = (seat: CycleMapSeat): number => PAD + seat.row * ROW_H + TILE_H / 2;
+/** No selection. One set holds it: a press selects one, a shift-press joins or leaves. */
+const NO_PICKS: ReadonlySet<string> = new Set();
+
+function togglePick(picked: ReadonlySet<string>, key: string): ReadonlySet<string> {
+  const next = new Set(picked);
+  if (!next.delete(key)) next.add(key);
+  return next;
+}
+
+/** Under a map whose assets are narrowed to the picked ones: the way back. */
+function OnlyBar({ count, onBack }: { count: number; onBack: () => void }): React.ReactElement {
+  return (
+    <div className="sp-cycle-only" data-slot="sp-cycle-only">
+      <TugPushButton size="2xs" subtype="text" emphasis="outlined" onClick={onBack}>
+        Back
+      </TugPushButton>
+      <TugLabel size="2xs" emphasis="calm">
+        {`Showing ${count} · Shift-click to add or remove, click the map's ground to clear`}
+      </TugLabel>
+    </div>
+  );
+}
+
+/** The map's measures. The sidebar draws the same map at a smaller set. */
+interface MapDims {
+  colW: number;
+  rowH: number;
+  tileW: number;
+  tileH: number;
+  pad: number;
+}
+
+const MAP_FULL: MapDims = { colW: 108, rowH: 58, tileW: 64, tileH: 42, pad: 10 };
+const MAP_COMPACT: MapDims = { colW: 68, rowH: 38, tileW: 44, tileH: 28, pad: 6 };
+
+const xOf = (d: MapDims, seat: CycleMapSeat): number => d.pad + seat.col * d.colW;
+const yOf = (d: MapDims, seat: CycleMapSeat): number => d.pad + seat.row * d.rowH + d.tileH / 2;
 
 /** A wire's path: a curve across each gap, and a straight run across a held seat. */
-function wirePath(seats: readonly CycleMapSeat[]): string {
+function wirePath(d: MapDims, seats: readonly CycleMapSeat[]): string {
   const first = seats[0]!;
-  let x = xOf(first) + TILE_W;
-  let y = yOf(first);
-  let d = `M ${x} ${y}`;
+  let x = xOf(d, first) + d.tileW;
+  let y = yOf(d, first);
+  let path = `M ${x} ${y}`;
   for (let i = 1; i < seats.length; i += 1) {
     const seat = seats[i]!;
     const last = i === seats.length - 1;
-    const toX = xOf(seat) - (last ? 5 : 0);
-    const toY = yOf(seat);
+    const toX = xOf(d, seat) - (last ? 5 : 0);
+    const toY = yOf(d, seat);
     const mid = (x + toX) / 2;
-    d += ` C ${mid} ${y} ${mid} ${toY} ${toX} ${toY}`;
+    path += ` C ${mid} ${y} ${mid} ${toY} ${toX} ${toY}`;
     x = toX;
     y = toY;
     if (!last) {
-      x = xOf(seat) + TILE_W;
-      d += ` L ${x} ${y}`;
+      x = xOf(d, seat) + d.tileW;
+      path += ` L ${x} ${y}`;
     }
   }
-  return d;
+  return path;
 }
 
-function wireHead(seats: readonly CycleMapSeat[]): string {
+function wireHead(d: MapDims, seats: readonly CycleMapSeat[]): string {
   const end = seats[seats.length - 1]!;
-  const x = xOf(end);
-  const y = yOf(end);
+  const x = xOf(d, end);
+  const y = yOf(d, end);
   return `M ${x} ${y} L ${x - 6} ${y - 3.5} L ${x - 6} ${y + 3.5} Z`;
 }
 
@@ -317,21 +375,37 @@ function CycleMapView({
   reading,
   chosen,
   onPress,
+  onClear,
+  compact = false,
 }: {
   reading: Reading;
-  /** The chosen asset's key. */
-  chosen: string | null;
-  onPress: (key: string) => void;
+  /** The selected assets' keys. With more than one, the rest of the map draws back. */
+  chosen: ReadonlySet<string>;
+  /** A press on a tile or a seal; `shift` is whether Shift was held. */
+  onPress: (key: string, shift: boolean) => void;
+  /** A press on the map's ground, which clears the selection. */
+  onClear: () => void;
+  /** Draw at the sidebar's measures: the same tiles and wires, smaller. */
+  compact?: boolean;
 }): React.ReactElement {
+  const dims = compact ? MAP_COMPACT : MAP_FULL;
   const map = useMemo(() => cycleMap(mapEntries(reading.entries)), [reading.entries]);
   const [pointed, setPointed] = useState<number | null>(null);
-  const chosenEntry = reading.entries.find((e) => entryKey(e.n) === chosen)?.n ?? null;
+  const chosenEntry = chosen.size === 1 ? (reading.entries.find((e) => chosen.has(entryKey(e.n)))?.n ?? null) : null;
   const hot = pointed ?? chosenEntry;
-  const width = PAD * 2 + map.cols * COL_W - (COL_W - TILE_W);
-  const height = PAD * 2 + map.rows * ROW_H - (ROW_H - TILE_H);
+  const width = dims.pad * 2 + map.cols * dims.colW - (dims.colW - dims.tileW);
+  const height = dims.pad * 2 + map.rows * dims.rowH - (dims.rowH - dims.tileH);
   return (
-    <div className="sp-cycle-map-scroll" data-slot="sp-cycle-map">
-      <div className="sp-cycle-map" style={{ width, height }}>
+    <div
+      className="sp-cycle-map-scroll"
+      data-slot="sp-cycle-map"
+      data-compact={compact || undefined}
+      onClick={(e) => {
+        // The ground only: a tile's own press has its own meaning.
+        if (!(e.target as HTMLElement).closest("button")) onClear();
+      }}
+    >
+      <div className="sp-cycle-map" data-filtering={chosen.size > 1 || undefined} style={{ width, height }}>
         <svg className="sp-cycle-wires" width={width} height={height} aria-hidden>
           {map.wires.map((wire) => (
             <g
@@ -341,8 +415,8 @@ function CycleMapView({
               data-met={reading.runs.get(wire.from) === "joined" || undefined}
               data-hot={hot === wire.to || undefined}
             >
-              <path className="sp-cycle-wire-line" d={wirePath(wire.seats)} />
-              <path className="sp-cycle-wire-head" d={wireHead(wire.seats)} />
+              <path className="sp-cycle-wire-line" d={wirePath(dims, wire.seats)} />
+              <path className="sp-cycle-wire-head" d={wireHead(dims, wire.seats)} />
             </g>
           ))}
         </svg>
@@ -354,10 +428,15 @@ function CycleMapView({
                 <button
                   type="button"
                   className="sp-cycle-sketch-seal"
-                  data-chosen={chosen === sketchKey(sketch) || undefined}
+                  data-chosen={chosen.has(sketchKey(sketch)) || undefined}
                   aria-label={`Sketch ${letterOf(sketch)}`}
-                  style={{ left: xOf(node) + TILE_W - TILE_H, top: PAD + node.row * ROW_H }}
-                  onClick={() => onPress(sketchKey(sketch))}
+                  style={{
+                    left: xOf(dims, node) + dims.tileW - dims.tileH,
+                    top: dims.pad + node.row * dims.rowH,
+                    width: dims.tileH,
+                    height: dims.tileH,
+                  }}
+                  onClick={(e) => onPress(sketchKey(sketch), e.shiftKey)}
                 >
                   {letterOf(sketch)}
                 </button>
@@ -373,11 +452,16 @@ function CycleMapView({
                 type="button"
                 className="sp-cycle-tile"
                 data-state={state}
-                data-chosen={chosen === entryKey(node.n) || undefined}
+                data-chosen={chosen.has(entryKey(node.n)) || undefined}
                 data-elsewhere={reading.runs.get(node.n) === "elsewhere" || undefined}
                 aria-label={`${node.n}, ${entry.arc}, ${sentenceOf(entry, reading)}`}
-                style={{ left: xOf(node), top: PAD + node.row * ROW_H }}
-                onClick={() => onPress(entryKey(node.n))}
+                style={{
+                  left: xOf(dims, node),
+                  top: dims.pad + node.row * dims.rowH,
+                  width: dims.tileW,
+                  height: dims.tileH,
+                }}
+                onClick={(e) => onPress(entryKey(node.n), e.shiftKey)}
                 onPointerEnter={() => setPointed(node.n)}
                 onPointerLeave={() => setPointed(null)}
               >
@@ -501,14 +585,14 @@ function SketchAsset({
 }: {
   sketch: 1 | 2;
   reading: Reading;
-  chosen: string | null;
+  chosen: ReadonlySet<string>;
   onChoose: (key: string) => void;
 }): React.ReactElement {
   const key = sketchKey(sketch);
   return (
-    <div className="sp-cycle-asset" data-asset={key} data-kind="sketch" data-chosen={chosen === key || undefined}>
+    <div className="sp-cycle-asset" data-asset={key} data-kind="sketch" data-chosen={chosen.has(key) || undefined}>
       <TugListRow
-        selected={chosen === key}
+        selected={chosen.has(key)}
         leading={<span className="sp-cycle-seal-mini">{letterOf(sketch)}</span>}
         title={<span className="sp-cycle-sketch-label">{`Sketch ${letterOf(sketch)}`}</span>}
         trailing={
@@ -540,36 +624,22 @@ function EntryAsset({
   entry: Entry;
   reading: Reading;
   presses: Presses;
-  chosen: string | null;
+  chosen: ReadonlySet<string>;
   onChoose: (key: string) => void;
 }): React.ReactElement {
   const key = entryKey(entry.n);
   const run = reading.runs.get(entry.n);
   const state = stateOf(entry, reading.runs);
   return (
-    <div className="sp-cycle-asset" data-asset={key} data-kind="entry" data-chosen={chosen === key || undefined}>
+    <div className="sp-cycle-asset" data-asset={key} data-kind="entry" data-chosen={chosen.has(key) || undefined}>
       <TugListRow
-        selected={chosen === key}
+        selected={chosen.has(key)}
         leading={<span className="sp-cycle-number">{entry.n}</span>}
         title={
           <span className="sp-cycle-title">
             <TugArcAtom name={entry.arc} />
             {run === "elsewhere" ? (
-              <span className="sp-cycle-elsewhere">
-                <ArcWorkerAtom sessionId={OTHER} />
-                <TugPushButton
-                  size="2xs"
-                  subtype="text"
-                  emphasis="ghost"
-                  aria-label={`Go to the session running ${entry.arc}`}
-                  onClick={(e) => {
-                    e?.stopPropagation();
-                    presses.goTo(entry);
-                  }}
-                >
-                  Go to session
-                </TugPushButton>
-              </span>
+              <SessionChip session={OTHER} presses={presses} />
             ) : run === "here" ? (
               <TugLabel size="2xs" emphasis="calm">
                 this session
@@ -619,14 +689,17 @@ function Assets({
 }: {
   reading: Reading;
   presses: Presses;
-  chosen: string | null;
+  chosen: ReadonlySet<string>;
   onChoose: (key: string) => void;
 }): React.ReactElement {
+  // Several selected: only those show. One or none: the whole list.
+  const shows = (key: string): boolean => chosen.size <= 1 || chosen.has(key);
   return (
     <>
       {reading.entries.map((entry, index) => (
         <React.Fragment key={entry.n}>
-          {index === 0 || reading.entries[index - 1]?.sketch !== entry.sketch ? (
+          {(index === 0 || reading.entries[index - 1]?.sketch !== entry.sketch) &&
+          shows(sketchKey(entry.sketch)) ? (
             <SketchAsset
               sketch={entry.sketch}
               reading={reading}
@@ -634,7 +707,9 @@ function Assets({
               onChoose={onChoose}
             />
           ) : null}
-          <EntryAsset entry={entry} reading={reading} presses={presses} chosen={chosen} onChoose={onChoose} />
+          {shows(entryKey(entry.n)) ? (
+            <EntryAsset entry={entry} reading={reading} presses={presses} chosen={chosen} onChoose={onChoose} />
+          ) : null}
         </React.Fragment>
       ))}
     </>
@@ -771,7 +846,7 @@ function ShadeFooter({ summary, presses }: { summary: Summary; presses: Presses 
         {summary.elsewhere > 0 ? (
           <span className="sp-cycle-footer-else">
             <span>{`${summary.elsewhere} more in`}</span>
-            <ArcWorkerAtom sessionId={OTHER} />
+            <SessionChip session={OTHER} presses={presses} />
           </span>
         ) : null}
       </div>
@@ -914,8 +989,8 @@ function CardFrame({
   cover: Cover;
   raised: boolean;
   setRaised: (raised: boolean) => void;
-  chosen: string | null;
-  onChoose: (key: string) => void;
+  chosen: ReadonlySet<string>;
+  onChoose: (next: ReadonlySet<string>) => void;
   presses: Presses;
   prompt: string;
 }): React.ReactElement {
@@ -923,14 +998,27 @@ function CardFrame({
   const only = reading.entries.length === 1 ? reading.entries[0]! : null;
   const many = reading.entries.length > 1;
   const assetsRef = useRef<HTMLDivElement | null>(null);
-  // A press on the map chooses the asset and brings it to the top of the list.
-  // Only the list scrolls, so the map and the point pressed hold still.
-  const pressOnMap = (key: string) => {
-    onChoose(key);
-    const list = assetsRef.current;
-    const asset = list?.querySelector<HTMLElement>(`[data-asset="${key}"]`);
-    if (list && asset) list.scrollTo({ top: asset.offsetTop, behavior: "smooth" });
+  const [mapPress, setMapPress] = useState(0);
+  const handledPress = useRef(0);
+  // A plain press on the map selects that asset alone. A shift-press joins it
+  // to what is selected, or takes it out. A press on the map's ground clears
+  // the selection. With one selected the list is whole and scrolls it to the
+  // top; with several the list shows only those. Only the list scrolls, so
+  // the map and the point pressed hold still.
+  const pressOnMap = (key: string, shift: boolean) => {
+    onChoose(shift ? togglePick(chosen, key) : new Set([key]));
+    setMapPress((n) => n + 1);
   };
+  // After the commit, since the selection decides which assets are there.
+  useLayoutEffect(() => {
+    if (mapPress === handledPress.current) return;
+    handledPress.current = mapPress;
+    const list = assetsRef.current;
+    if (!list) return;
+    const [first] = chosen;
+    const asset = chosen.size === 1 ? list.querySelector<HTMLElement>(`[data-asset="${first}"]`) : null;
+    list.scrollTo({ top: asset ? asset.offsetTop : 0, behavior: "smooth" });
+  }, [mapPress, chosen]);
   const footer =
     summary !== null && (raised || keeps === "footer") ? <ShadeFooter summary={summary} presses={presses} /> : null;
   return (
@@ -980,10 +1068,24 @@ function CardFrame({
                   </div>
                 ) : (
                   <>
-                    <CycleMapView reading={reading} chosen={chosen} onPress={pressOnMap} />
+                    <CycleMapView
+                      reading={reading}
+                      chosen={chosen}
+                      onPress={pressOnMap}
+                      onClear={() => onChoose(NO_PICKS)}
+                    />
+                    {chosen.size > 1 ? <OnlyBar count={chosen.size} onBack={() => onChoose(NO_PICKS)} /> : null}
                     <div className="sp-cycle-assets" data-slot="sp-cycle-assets" ref={assetsRef}>
-                      <Assets reading={reading} presses={presses} chosen={chosen} onChoose={onChoose} />
-                      <div className="sp-cycle-assets-tail" aria-hidden />
+                      <Assets
+                        reading={reading}
+                        presses={presses}
+                        chosen={chosen}
+                        onChoose={(key) => {
+                          // A press on a row in the narrowed list keeps the selection.
+                          if (chosen.size <= 1) onChoose(new Set([key]));
+                        }}
+                      />
+                      {chosen.size <= 1 ? <div className="sp-cycle-assets-tail" aria-hidden /> : null}
                     </div>
                   </>
                 )}
@@ -1011,7 +1113,13 @@ function CardFrame({
 }
 
 // ---------------------------------------------------------------------------
-// The sidebar card, as Cycles & Arcs — unchanged from the first round
+// The sidebar card, as Cycles & Arcs
+//
+// The same cycle the Session card's shade shows, at the sidebar's width: the
+// same map at smaller measures, and under it one compact row per asset under
+// the same letters and numbers. What the sidebar adds is the view across
+// sessions: every running entry names the session running it, whichever one
+// that is, and a folded cycle keeps a strip of its entries' states.
 // ---------------------------------------------------------------------------
 
 const SOLO: Entry = {
@@ -1023,73 +1131,315 @@ const SOLO: Entry = {
   steps: STEPS_SHIP,
 };
 
+/** An arc on a cycle of one, running in another session. */
+const SOLO_READING: Reading = { entries: [SOLO], runs: new Map<number, Run>([[1, "elsewhere"]]) };
+
+/** A cycle that has come to rest: three arcs, all landed. */
+const RESTED: Reading = {
+  entries: [
+    { n: 1, arc: "contrast-audit", brief: "contrast-audit-brief.md", waits: [], sketch: 1, steps: STEPS_SPIKE },
+    { n: 2, arc: "contrast-dark-ships", brief: "contrast-dark-ships-brief.md", waits: [1], sketch: 1, steps: STEPS_SHIP },
+    { n: 3, arc: "contrast-light-boats", brief: "contrast-light-boats-brief.md", waits: [1], sketch: 1, steps: STEPS_SHIP },
+  ],
+  runs: new Map<number, Run>([
+    [1, "joined"],
+    [2, "joined"],
+    [3, "joined"],
+  ]),
+};
+
+/** A folded cycle at a glance: one segment per entry, in the state's tone. */
+function CycleStrip({ reading }: { reading: Reading }): React.ReactElement {
+  return (
+    <span className="sp-cycle-strip" aria-hidden>
+      {reading.entries.map((entry) => (
+        <span key={entry.n} data-state={stateOf(entry, reading.runs)} />
+      ))}
+    </span>
+  );
+}
+
+/**
+ * An entry in the sidebar: one row, and the only drawing of the entry there.
+ * Closed, it is the arc and one line of where it stands. Open, the same row
+ * holds its session, its brief, what it waits on and its steps.
+ */
+function SidebarEntry({
+  entry,
+  reading,
+  presses,
+  open,
+  onPress,
+  numbered = true,
+}: {
+  entry: Entry;
+  reading: Reading;
+  presses: Presses;
+  open: boolean;
+  onPress: () => void;
+  /** False for a cycle of one, whose single entry needs no number. */
+  numbered?: boolean;
+}): React.ReactElement {
+  const run = reading.runs.get(entry.n);
+  const state = stateOf(entry, reading.runs);
+  const session = run === "elsewhere" ? OTHER : HERE;
+  const worker =
+    state === "running" ? (
+      <span className="sp-cycle-side-line">
+        <span>in</span>
+        <SessionChip session={session} presses={presses} />
+      </span>
+    ) : null;
+  const waits =
+    state === "waiting" || (state === "ready" && entry.note !== undefined) ? (
+      <span className="sp-cycle-side-line">
+        <Waits entry={entry} reading={reading} />
+        {entry.note !== undefined ? <span className="sp-cycle-note">{entry.note}</span> : null}
+      </span>
+    ) : null;
+  return (
+    <div className="sp-cycle-side-asset" data-asset={entryKey(entry.n)} data-open={open || undefined}>
+      <TugListRow
+        density="compact"
+        selected={open}
+        leading={numbered ? <span className="sp-cycle-side-lead sp-cycle-side-number">{entry.n}</span> : undefined}
+        trailing={
+          <span className="sp-cycle-trailing">
+            <EntryMark entry={entry} reading={reading} />
+            {state === "ready" ? (
+              <TugTooltip content="Start in a new session">
+                <TugPushButton
+                  size="2xs"
+                  subtype="icon"
+                  emphasis="ghost"
+                  icon={<Play size={12} />}
+                  aria-label={`Start ${entry.arc} in a new session`}
+                  onClick={(e) => {
+                    e?.stopPropagation();
+                    presses.start(entry, "new");
+                  }}
+                />
+              </TugTooltip>
+            ) : null}
+          </span>
+        }
+        trailingReveal="always"
+        onClick={onPress}
+      >
+        <span className="sp-cycle-side-content">
+          <TugArcAtom name={entry.arc} />
+          {open ? null : worker}
+          {waits}
+          {open ? (
+            <>
+              {state === "running" ? (
+                <span className="sp-cycle-side-steps">
+                  <TugPopupListFrame kind="item">
+                    <TugPopupListScroller>
+                      <ArcStepItems steps={stepsOf(entry, doneOf(entry, reading.runs))} live />
+                    </TugPopupListScroller>
+                  </TugPopupListFrame>
+                </span>
+              ) : state === "joined" ? (
+                <span className="sp-cycle-side-line">Landed on main. Its rounds and commit stay on record.</span>
+              ) : state === "ready" ? (
+                <span className="sp-cycle-side-line">Ready to start. Its steps appear once it runs.</span>
+              ) : (
+                <span className="sp-cycle-side-line">Not ready. Its steps appear once it runs.</span>
+              )}
+              {worker}
+              <span className="sp-cycle-side-line">
+                <TugAtomRef entity={{ kind: "file", path: `${ROOT}/briefs/${entry.brief}` }} />
+              </span>
+            </>
+          ) : null}
+        </span>
+      </TugListRow>
+    </div>
+  );
+}
+
+/** A sketch in the sidebar: one row, its first line closed and the whole of it open. */
+function SidebarSketch({
+  sketch,
+  reading,
+  open,
+  onPress,
+}: {
+  sketch: 1 | 2;
+  reading: Reading;
+  open: boolean;
+  onPress: () => void;
+}): React.ReactElement {
+  return (
+    <div
+      className="sp-cycle-side-asset"
+      data-asset={sketchKey(sketch)}
+      data-kind="sketch"
+      data-open={open || undefined}
+    >
+      <TugListRow
+        density="compact"
+        selected={open}
+        leading={
+          <span className="sp-cycle-side-lead">
+            <span className="sp-cycle-seal-mini">{letterOf(sketch)}</span>
+          </span>
+        }
+        trailing={
+          <span className="sp-cycle-waits">
+            <span>Heads</span>
+            {headsOf(sketch, reading.entries).map((e) => (
+              <span key={e.n} className="sp-cycle-wait" data-met>
+                {e.n}
+              </span>
+            ))}
+          </span>
+        }
+        trailingReveal="always"
+        onClick={onPress}
+      >
+        <span className="sp-cycle-side-content">
+          <span className="sp-cycle-sketch-label">{`Sketch ${letterOf(sketch)}`}</span>
+          {open ? (
+            <span className="sp-cycle-side-sketch">{recordPanel(SKETCHES[sketch]).body}</span>
+          ) : (
+            <span className="sp-cycle-side-want">{wantOf(sketch)}</span>
+          )}
+        </span>
+      </TugListRow>
+    </div>
+  );
+}
+
+/**
+ * One cycle in the sidebar. Its header and map are pinned to the top of the
+ * card for as long as its assets are in view; the assets scroll under them.
+ */
+function SidebarCycle({
+  name,
+  reading,
+  presses,
+  startFolded = false,
+}: {
+  name: string;
+  reading: Reading;
+  presses: Presses;
+  startFolded?: boolean;
+}): React.ReactElement {
+  const [folded, setFolded] = useState(startFolded);
+  const [chosen, setChosen] = useState<ReadonlySet<string>>(NO_PICKS);
+  const [mapPress, setMapPress] = useState(0);
+  const handledPress = useRef(0);
+  const sectionRef = useRef<HTMLElement | null>(null);
+  const landed = reading.entries.filter((e) => reading.runs.get(e.n) === "joined").length;
+  // Several selected: only those assets show. Every selected asset is open.
+  const shows = (key: string): boolean => chosen.size <= 1 || chosen.has(key);
+  const opens = (key: string): boolean => chosen.has(key);
+  // A press on a row selects it alone, and in the narrowed list changes nothing.
+  const pressRow = (key: string): void => {
+    if (chosen.size <= 1) setChosen(new Set([key]));
+  };
+
+  // A press on the map opens the asset, then brings it up under the pinned
+  // map. It waits for the commit, since opening one asset closes another and
+  // that moves every asset below it. Only a map press scrolls: a press on a
+  // row must leave the row under the pointer.
+  useLayoutEffect(() => {
+    if (mapPress === handledPress.current || chosen.size !== 1) return;
+    handledPress.current = mapPress;
+    const section = sectionRef.current;
+    const scroller = section?.closest<HTMLElement>(".sp-cycle-sidebar-scroll");
+    const pin = section?.querySelector<HTMLElement>(".sp-cycle-side-pin");
+    const [first] = chosen;
+    const asset = section?.querySelector<HTMLElement>(`[data-asset="${first}"]`);
+    if (scroller && pin && asset) {
+      scroller.scrollTo({ top: asset.offsetTop - pin.offsetHeight, behavior: "smooth" });
+    }
+  }, [mapPress, chosen]);
+
+  return (
+    <section className="sp-cycle-side-cycle" ref={sectionRef}>
+      <div className="sp-cycle-side-pin">
+        <div className="sp-cycle-sidebar-head">
+          <BlockFoldCue
+            collapsed={folded}
+            onToggle={setFolded}
+            collapsedLabel="Open"
+            expandedLabel="Fold"
+            ariaLabelExpand={`Open ${name}`}
+            ariaLabelCollapse={`Fold ${name}`}
+            size="xs"
+            subtype="icon"
+          />
+          <span className="sp-cycle-sidebar-name">{name}</span>
+          <span className="sp-cycle-spacer" />
+          <TugLabel size="2xs" emphasis="calm">
+            {landed === reading.entries.length ? `At rest · ${landed} arcs` : `${landed} of ${reading.entries.length} landed`}
+          </TugLabel>
+        </div>
+        {folded ? (
+          <CycleStrip reading={reading} />
+        ) : (
+          <CycleMapView
+            reading={reading}
+            chosen={chosen}
+            onPress={(key, shift) => {
+              setChosen((was) => (shift ? togglePick(was, key) : new Set([key])));
+              setMapPress((n) => n + 1);
+            }}
+            onClear={() => setChosen(NO_PICKS)}
+            compact
+          />
+        )}
+        {!folded && chosen.size > 1 ? <OnlyBar count={chosen.size} onBack={() => setChosen(NO_PICKS)} /> : null}
+      </div>
+      {folded
+        ? null
+        : reading.entries.map((entry, index) => (
+            <React.Fragment key={entry.n}>
+              {(index === 0 || reading.entries[index - 1]?.sketch !== entry.sketch) &&
+              shows(sketchKey(entry.sketch)) ? (
+                <SidebarSketch
+                  sketch={entry.sketch}
+                  reading={reading}
+                  open={opens(sketchKey(entry.sketch))}
+                  onPress={() => pressRow(sketchKey(entry.sketch))}
+                />
+              ) : null}
+              {shows(entryKey(entry.n)) ? (
+                <SidebarEntry
+                  entry={entry}
+                  reading={reading}
+                  presses={presses}
+                  open={opens(entryKey(entry.n))}
+                  onPress={() => pressRow(entryKey(entry.n))}
+                />
+              ) : null}
+            </React.Fragment>
+          ))}
+    </section>
+  );
+}
+
 function SidebarFrame({ reading, presses }: { reading: Reading; presses: Presses }): React.ReactElement {
-  const [folded, setFolded] = useState(false);
-  const summary = summarize("eight", reading);
-  const solo = useMemo(() => runningModel(SOLO, 3), []);
+  const [soloOpen, setSoloOpen] = useState(false);
   return (
     <div className="sp-cycle-sidebar" data-slot="sp-cycle-sidebar">
-      <div className="sp-cycle-sidebar-head">
-        <BlockFoldCue
-          collapsed={folded}
-          onToggle={setFolded}
-          collapsedLabel="Open"
-          expandedLabel="Fold"
-          ariaLabelExpand="Open the cycle"
-          ariaLabelCollapse="Fold the cycle"
-          size="xs"
-          subtype="icon"
-        />
-        <span className="sp-cycle-sidebar-name">{summary.name}</span>
-        <span className="sp-cycle-spacer" />
-        <TugLabel size="2xs" emphasis="calm">
-          {summary.landed === summary.total ? "At rest" : `${summary.landed}/${summary.total}`}
-        </TugLabel>
-      </div>
-      {!folded ? (
-        <>
-          <div className="sp-cycle-sidebar-holds">
-            <TugLabel size="2xs" emphasis="calm">
-              8 arcs · 8 briefs · 2 sketches
-            </TugLabel>
-          </div>
-          {reading.entries.map((entry) => (
-            <TugListRow
-              key={entry.n}
-              density="compact"
-              leading={<span className="sp-cycle-sidebar-number">{entry.n}</span>}
-              title={<TugArcAtom name={entry.arc} />}
-              trailing={
-                <span className="sp-cycle-trailing">
-                  <EntryMark entry={entry} reading={reading} />
-                  {stateOf(entry, reading.runs) === "ready" ? (
-                    <TugTooltip content="Start">
-                      <TugPushButton
-                        size="2xs"
-                        subtype="icon"
-                        emphasis="ghost"
-                        icon={<Play size={12} />}
-                        aria-label={`Start ${entry.arc}`}
-                        onClick={() => presses.start(entry, "new")}
-                      />
-                    </TugTooltip>
-                  ) : null}
-                </span>
-              }
-              trailingReveal="always"
-            />
-          ))}
-        </>
-      ) : null}
-      <div className="sp-cycle-sidebar-rule" />
-      <ArcLifecycleBlock name={SOLO.arc} worker={OTHER} model={solo.model} />
-      <div className="sp-cycle-sidebar-rule" />
-      <div className="sp-cycle-sidebar-head" data-rest>
-        <span className="sp-cycle-sidebar-name">theme-contrast-pass</span>
-        <span className="sp-cycle-spacer" />
-        <TugLabel size="2xs" emphasis="calm">
-          At rest · 3 arcs
-        </TugLabel>
+      <div className="sp-cycle-sidebar-scroll">
+        <SidebarCycle name="liven-styles" reading={reading} presses={presses} />
+        <section className="sp-cycle-side-cycle">
+          <SidebarEntry
+            entry={SOLO}
+            reading={SOLO_READING}
+            presses={presses}
+            open={soloOpen}
+            onPress={() => setSoloOpen(true)}
+            numbered={false}
+          />
+        </section>
+        <SidebarCycle name="theme-contrast-pass" reading={RESTED} presses={presses} startFolded />
+        <div className="sp-cycle-sidebar-tail" />
       </div>
     </div>
   );
@@ -1146,7 +1496,7 @@ function SpikeCycleBand(): React.ReactElement {
   const [keeps, setKeeps] = useState<Keeps>("footer");
   const [cover, setCover] = useState<Cover>("none");
   const [width, setWidth] = useState<"slim" | "wide">("wide");
-  const [chosen, setChosen] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<ReadonlySet<string>>(NO_PICKS);
   const [prompt, setPrompt] = useState("");
   const [last, setLast] = useState("nothing yet");
   const kindId = useId();
@@ -1186,7 +1536,10 @@ function SpikeCycleBand(): React.ReactElement {
           setLast(`Start ${entry.arc}: a new session opens with "${command(entry)}" in its prompt, unsent`);
         }
       },
-      goTo: (entry) => setLast(`Go to session: the card of tug/glossy-bowl, which is running ${entry.arc}, comes forward`),
+      goTo: (session) =>
+        setLast(
+          `Session chip pressed: the card of liven/${session === OTHER ? "glossy-bowl" : "rotund-plaid"} comes forward`,
+        ),
     }),
     [],
   );

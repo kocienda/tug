@@ -120,6 +120,9 @@
    map under it, hold still while content opens and closes beneath the map. */
 .sp-cycle-body[data-many] {
   height: 80%;
+  /* One scroller only: the list under the map. The shade itself never
+     scrolls, however little room the list is left with. */
+  overflow: hidden;
 }
 
 .sp-cycle-body[data-raised="true"] {
@@ -269,6 +272,31 @@
   opacity: 1;
 }
 
+/* Shift-presses have singled some assets out: the rest of the map draws
+   back, and stays pressable so more can be added. */
+.sp-cycle-map[data-filtering] > .sp-cycle-wires,
+.sp-cycle-map[data-filtering] > .sp-cycle-tile:not([data-chosen]),
+.sp-cycle-map[data-filtering] > .sp-cycle-sketch-seal:not([data-chosen]) {
+  opacity: 0.35;
+}
+
+/* Under the map while only the picked assets show: the way back. */
+.sp-cycle-only {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  padding: var(--tug-space-2xs) var(--tug-space-md);
+  border-bottom: 1px solid var(--tugx-block-hairline);
+  background: var(--tugx-block-chrome-bg);
+}
+
+.sp-cycle-side-pin > .sp-cycle-only {
+  padding-inline: 0;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
 /* A tile: the entry's number, and under it how it stands. */
 .sp-cycle-tile {
   position: absolute;
@@ -300,7 +328,7 @@
 }
 
 .sp-cycle-tile[data-state="waiting"] {
-  border-style: dashed;
+  border-color: var(--tugx-block-text-color-muted);
   color: var(--tugx-block-text-color-muted);
 }
 
@@ -384,14 +412,13 @@
 
 /* ---- The assets --------------------------------------------------------- */
 
-/* The one list under the map. It scrolls by itself, so a press on the map
-   can bring an asset to its top while the map holds still. It keeps a few
-   lines of height; only when the shade cannot give it that does the shade's
-   own content scroll, the map with it. */
+/* The one list under the map, and the shade's only scroller. It scrolls by
+   itself, so a press on the map can bring an asset to its top while the map
+   holds still. */
 .sp-cycle-assets {
   position: relative;
   flex: 1 1 0;
-  min-height: 200px;
+  min-height: 0;
   overflow-y: auto;
   overflow-anchor: none;
   container-type: size;
@@ -473,7 +500,7 @@
   box-sizing: border-box;
   justify-content: center;
   padding: 0 5px;
-  border: 1.5px dashed var(--tugx-block-text-color-muted);
+  border: 1.5px solid var(--tugx-block-text-color-muted);
   border-radius: 6px;
   font-weight: var(--tug-font-weight-semibold);
   line-height: 18px;
@@ -658,44 +685,207 @@
 
 /* ---- The sidebar card --------------------------------------------------- */
 
+/* The card: one scroller, holding every cycle. */
 .sp-cycle-sidebar {
   display: flex;
   flex-direction: column;
-  gap: var(--tug-space-2xs);
   width: 360px;
-  padding: var(--tug-space-sm) var(--tug-space-md);
+  height: 640px;
   border: 1px solid var(--tugx-block-hairline);
   border-radius: var(--tugx-block-radius);
   background: var(--tugx-block-chrome-bg);
+  overflow: hidden;
+}
+
+.sp-cycle-sidebar-scroll {
+  position: relative;
+  flex: 1 1 0;
+  overflow-y: auto;
+  overflow-anchor: none;
+  container-type: size;
+}
+
+/* Room under the last cycle, so its last asset can come up under the map. */
+.sp-cycle-sidebar-tail {
+  height: calc(100cqh - 280px);
+}
+
+.sp-cycle-side-cycle + .sp-cycle-side-cycle {
+  border-top: 1px solid var(--tugx-block-hairline);
+}
+
+/* A cycle's header and map hold the top of the card while its assets are in
+   view, and leave with the cycle when the next one comes up. */
+.sp-cycle-side-pin {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: var(--tug-space-xs) var(--tug-space-sm);
+  background: var(--tugx-block-chrome-bg);
+  border-bottom: 1px solid var(--tugx-block-hairline);
 }
 
 .sp-cycle-sidebar-head {
   display: flex;
   align-items: center;
   gap: var(--tug-space-xs);
-  min-height: 24px;
+  min-height: 26px;
 }
 
 .sp-cycle-sidebar-name {
-  font-size: var(--tug-font-size-xs);
+  font-size: var(--tug-font-size-sm);
   font-weight: var(--tug-font-weight-semibold);
 }
 
-.sp-cycle-sidebar-number {
-  display: inline-block;
-  min-width: 1.5em;
-  text-align: end;
-  font-family: var(--tug-font-family-mono);
+/* The map at the sidebar's measures: the same tiles, seals and wires. */
+.sp-cycle-side-pin .sp-cycle-map-scroll {
+  padding: var(--tug-space-xs) 0;
+  border: 0;
+  border-radius: var(--tugx-block-radius);
+  margin-top: var(--tug-space-2xs);
+}
+
+.sp-cycle-map-scroll[data-compact] .sp-cycle-tile {
+  gap: 2px;
+  padding: 0 5px;
+  border-radius: 6px;
+}
+
+.sp-cycle-map-scroll[data-compact] .sp-cycle-tile-number {
+  font-size: 12px;
+}
+
+.sp-cycle-map-scroll[data-compact] .sp-cycle-tile-mark svg {
+  width: 10px;
+  height: 10px;
+}
+
+.sp-cycle-map-scroll[data-compact] .sp-cycle-pips {
+  gap: 1px;
+}
+
+.sp-cycle-map-scroll[data-compact] .sp-cycle-pips > span {
+  width: 2px;
+  height: 8px;
+}
+
+.sp-cycle-map-scroll[data-compact] .sp-cycle-sketch-seal {
+  font-size: 11px;
+}
+
+.sp-cycle-map-scroll[data-compact] .sp-cycle-tile[data-elsewhere]::after {
+  top: -4px;
+  right: -4px;
+  width: 7px;
+  height: 7px;
+}
+
+/* An asset: one row, closed or open. Its letter or number and its state stay
+   at the top of the row, level with its name, however far it opens. */
+.sp-cycle-side-asset + .sp-cycle-side-asset {
+  border-top: 1px solid var(--tugx-block-hairline);
+}
+
+.sp-cycle-side-asset[data-kind="sketch"] {
+  background: var(--tugx-block-well-bg);
+}
+
+.sp-cycle-side-asset .tug-list-row-leading,
+.sp-cycle-side-asset .tug-list-row-trailing {
+  align-self: flex-start;
+}
+
+.sp-cycle-side-asset .tug-list-row-trailing {
+  min-height: 22px;
+}
+
+/* One column for every letter and number, so every name starts on one line. */
+.sp-cycle-side-lead {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  min-height: 22px;
+}
+
+.sp-cycle-side-number {
+  font-size: 14px;
+  font-weight: var(--tug-font-weight-semibold);
+  line-height: 1;
+}
+
+.sp-cycle-side-lead > .sp-cycle-seal-mini {
+  width: 22px;
+  height: 22px;
+}
+
+/* Everything else about the asset, under its name and on its left edge. */
+.sp-cycle-side-content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--tug-space-2xs);
+  min-width: 0;
+}
+
+.sp-cycle-side-line {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--tug-space-xs);
+  row-gap: var(--tug-space-2xs);
+  max-width: 100%;
   font-size: var(--tug-font-size-xs);
-  color: var(--tugx-block-text-color-muted);
+  color: var(--tug7-element-field-text-normal-label-rest);
 }
 
-.sp-cycle-sidebar-holds {
-  padding-inline-start: var(--tug-space-lg);
+.sp-cycle-side-steps {
+  display: block;
+  align-self: stretch;
 }
 
-.sp-cycle-sidebar-rule {
-  height: 1px;
-  margin-block: var(--tug-space-xs);
+/* A sketch's first line, on one line; and the whole of it, open. */
+.sp-cycle-side-want {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-field-text-normal-label-rest);
+}
+
+.sp-cycle-side-sketch {
+  display: block;
+  align-self: stretch;
+  font-size: var(--tug-font-size-xs);
+  line-height: 1.5;
+}
+
+/* A folded or rested cycle: one segment per entry, in the state's tone. */
+.sp-cycle-strip {
+  display: flex;
+  gap: 3px;
+  padding-inline-start: calc(var(--tug-space-lg) + var(--tug-space-xs));
+  padding-block: var(--tug-space-2xs);
+}
+
+.sp-cycle-strip > span {
+  flex: 1 1 0;
+  max-width: 36px;
+  height: 5px;
+  border-radius: 2px;
   background: var(--tugx-block-hairline);
+}
+
+.sp-cycle-strip > span[data-state="joined"] {
+  background: var(--tug7-element-tone-fill-normal-success-rest);
+}
+
+.sp-cycle-strip > span[data-state="running"] {
+  background: var(--tug7-element-tone-fill-normal-active-rest);
+}
+
+.sp-cycle-strip > span[data-state="ready"] {
+  background: var(--tug7-element-tone-border-normal-accent-rest);
 }
