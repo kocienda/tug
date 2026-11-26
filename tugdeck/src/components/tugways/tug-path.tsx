@@ -80,14 +80,22 @@ export interface TugPathProps
    * {@link splitPath}.
    */
   tailLength?: number;
+  /**
+   * Decorate a run before it is placed: called with each run's text and its
+   * offset in `path`, so a mount can emphasize the characters a search
+   * matched in whichever run they fall. Absent, each run is its plain text.
+   */
+  renderRun?: (text: string, start: number) => React.ReactNode;
 }
 
 /**
  * Render `path` with a middle ellipsis (see the module docstring).
  */
 export const TugPath = React.forwardRef<HTMLSpanElement, TugPathProps>(
-  function TugPath({ path, tailLength, className, ...rest }, ref) {
+  function TugPath({ path, tailLength, renderRun, className, ...rest }, ref) {
     const { head, tail } = splitPath(path, tailLength);
+    const run = (text: string, start: number): React.ReactNode =>
+      renderRun !== undefined ? renderRun(text, start) : text;
     return (
       <span
         ref={ref}
@@ -98,8 +106,8 @@ export const TugPath = React.forwardRef<HTMLSpanElement, TugPathProps>(
         {/* Rendered even when empty: it is the flex child that absorbs the
             shrink, and a path shorter than its box has an empty head by
             definition rather than a missing one. */}
-        <span className={TUG_PATH_HEAD_CLASS}>{head}</span>
-        <span className="tug-path-tail">{tail}</span>
+        <span className={TUG_PATH_HEAD_CLASS}>{run(head, 0)}</span>
+        <span className="tug-path-tail">{run(tail, head.length)}</span>
       </span>
     );
   },

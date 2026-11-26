@@ -26,7 +26,11 @@
 //! with a test-name pattern no test carries, which loads every file and
 //! registers every test, runs none, and says how many it skipped
 //! ([`collect_bun_total`]). A command that already filters by test name has
-//! no such count to ask for, and its run carries none. When a run ends, its
+//! no such count to ask for, and its run carries none. `swift test` does not
+//! either, so before a swift run the wrapper asks `swift test list` with the
+//! same options, which builds what the run would build and names every test,
+//! and counts the names the run's `--filter` and `--skip` keep
+//! ([`collect_swift_total`]). When a run ends, its
 //! last report carries the counts its junit document recorded.
 //!
 //! A run that writes no junit document — a `cargo test`, or a nextest run
@@ -392,6 +396,71 @@ fn collect_bun_total(command: &[String]) -> Option<u64> {
         .output()
         .ok()?;
     parse_bun_collected(&strip_ansi(&String::from_utf8_lossy(&out.stderr)))
+}
+
+/// The `swift test` options that choose tests: each `--filter` and each
+/// `--skip`, as `--filter X` or `--filter=X`.
+fn swift_name_patterns(command: &[String]) -> (Vec<String>, Vec<String>) {
+    let (mut keep, mut skip) = (Vec::new(), Vec::new());
+    let mut args = command.iter();
+    while let Some(a) = args.next() {
+        if a == "--filter" || a == "--skip" {
+            let into = if a == "--filter" { &mut keep } else { &mut skip };
+            if let Some(v) = args.next() {
+                into.push(v.clone());
+            }
+        } else if let Some(v) = a.strip_prefix("--filter=") {
+            keep.push(v.to_string());
+        } else if let Some(v) = a.strip_prefix("--skip=") {
+            skip.push(v.to_string());
+        }
+    }
+    (keep, skip)
+}
+
+/// How many of `swift test list`'s names the run will execute: those any
+/// `--filter` matches (all, with none) and no `--skip` matches, each a
+/// regex searched in the name, as swift reads them. `None` when a pattern
+/// does not compile here, since the count would then be a guess.
+fn count_swift_listed(listed: &str, command: &[String]) -> Option<u64> {
+    let compile = |ps: Vec<String>| -> Option<Vec<regex::Regex>> {
+        ps.iter().map(|p| regex::Regex::new(p).ok()).collect()
+    };
+    let (keep, skip) = swift_name_patterns(command);
+    let (keep, skip) = (compile(keep)?, compile(skip)?);
+    let n = listed
+        .lines()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .filter(|name| keep.is_empty() || keep.iter().any(|r| r.is_match(name)))
+        .filter(|name| !skip.iter().any(|r| r.is_match(name)))
+        .count();
+    Some(n as u64)
+}
+
+/// How many tests a `swift test` command will run, from swift itself: the
+/// command with `list` after `test`, which takes the run's options, builds
+/// what the run would build, and prints one test name per line. Its build
+/// output goes to the reader as the run's own would, so the build is not
+/// dark; the run's build after it is a no-op. `None` when the command is
+/// not `swift test …`, or the listing failed — a build error, which the run
+/// itself then prints and fails on.
+fn collect_swift_total(command: &[String]) -> Option<u64> {
+    if command.get(1).map(String::as_str) != Some("test") {
+        return None;
+    }
+    let out = Command::new(command.first()?)
+        .arg("test")
+        .arg("list")
+        .args(&command[2..])
+        .stdin(Stdio::null())
+        .stderr(Stdio::inherit())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    count_swift_listed(&String::from_utf8_lossy(&out.stdout), command)
 }
 
 /// The sink a run reports through: a [`Poster`] when there is a calling
@@ -1407,6 +1476,7 @@ pub fn run(args: RunArgs) -> Result<(), AppError> {
     // run is not made to wait on it.
     let collected = match args.kind {
         RunKind::Bun if have_calling_session() => collect_bun_total(&args.command),
+        RunKind::Swift if have_calling_session() => collect_swift_total(&args.command),
         _ => None,
     };
 
@@ -2181,6 +2251,30 @@ mod tests {
         let stderr = "bun test v1.3.9 (cf6cdbbb)\n\nerror: regex \"x\" matched 0 tests. Searched 732 files (skipping 10998 tests) [2.47s]\n";
         assert_eq!(parse_bun_collected(stderr), Some(10998));
         assert_eq!(parse_bun_collected("Ran 4 tests across 2 files."), None);
+    }
+
+    #[test]
+    fn swift_counts_the_listed_tests_its_filter_and_skip_keep() {
+        let argv =
+            |words: &[&str]| -> Vec<String> { words.iter().map(|s| s.to_string()).collect() };
+        let listed = "Kit.AffineTests/testClips\nKit.AffineTests/testMirrors\nKit.FrameTests/testWhole\nKit.Modern/modern()\n";
+        assert_eq!(count_swift_listed(listed, &argv(&["swift", "test"])), Some(4));
+        assert_eq!(
+            count_swift_listed(listed, &argv(&["swift", "test", "--filter", "Affine"])),
+            Some(2)
+        );
+        assert_eq!(
+            count_swift_listed(
+                listed,
+                &argv(&["swift", "test", "--filter=Affine", "--filter", "modern\\(", "--skip", "Clips"])
+            ),
+            Some(2)
+        );
+        // A pattern this side cannot read is no count, not a wrong one.
+        assert_eq!(
+            count_swift_listed(listed, &argv(&["swift", "test", "--filter", "(?<=x)a"])),
+            None
+        );
     }
 
     #[test]

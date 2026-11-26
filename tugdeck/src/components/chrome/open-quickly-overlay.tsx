@@ -614,6 +614,9 @@ function OpenQuicklyBody(): React.ReactElement {
       // mind". The overlay swallows it either way, so nothing beneath the
       // dialog activates.
       dismissOnOutsideClick
+      // Every row is a project-relative path; its filename is what the
+      // reader is scanning for, so the directory chain is what elides.
+      labelsArePaths
       header={
         <OpenQuicklyScopeRow
           value={scopeValue}

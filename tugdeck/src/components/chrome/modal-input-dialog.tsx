@@ -79,6 +79,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import "./modal-input-dialog.css";
 
 import { TugInput } from "@/components/tugways/tug-input";
+import { TugPath } from "@/components/tugways/tug-path";
 import { group } from "@/components/tugways/tug-animator";
 import { runOverlayExit } from "@/components/tugways/overlay-motion";
 import { ATTACHED_LIST_ATTRIBUTE } from "@/components/tugways/focus-manager";
@@ -161,23 +162,35 @@ export interface ModalInputDialogProps {
    * the interaction either way, so nothing beneath it activates.
    */
   dismissOnOutsideClick?: boolean;
+  /**
+   * The rows are file paths: truncate each in the middle, keeping the
+   * filename whole and eliding the directory chain, rather than at the end,
+   * which would cut away the one part the reader is looking for. Default
+   * `false` — plain labels end-truncate.
+   */
+  labelsArePaths?: boolean;
 }
 
 /**
  * Split `label` into matched / unmatched runs from a provider's `[start, end)`
  * match ranges, so matched characters can be emphasized the way the composer's
- * completion popup does.
+ * completion popup does. `from`/`to` render only that slice of the label, with
+ * the ranges clipped to it, for a label drawn as more than one run.
  */
-function renderLabel(
+export function renderLabel(
   label: string,
   matches: [number, number][] | undefined,
+  from = 0,
+  to = label.length,
 ): React.ReactNode {
-  if (!matches || matches.length === 0) return label;
+  if (!matches || matches.length === 0) return label.slice(from, to);
   const ordered = [...matches].sort((a, b) => a[0] - b[0]);
   const parts: React.ReactNode[] = [];
-  let cursor = 0;
-  ordered.forEach(([start, end], i) => {
+  let cursor = from;
+  ordered.forEach(([start, rawEnd], i) => {
+    const end = Math.min(rawEnd, to);
     const s = Math.max(cursor, start);
+    if (s >= to) return;
     if (s > cursor) parts.push(label.slice(cursor, s));
     if (end > s) {
       parts.push(
@@ -188,7 +201,7 @@ function renderLabel(
     }
     cursor = Math.max(cursor, end);
   });
-  if (cursor < label.length) parts.push(label.slice(cursor));
+  if (cursor < to) parts.push(label.slice(cursor, to));
   return parts;
 }
 
@@ -226,6 +239,7 @@ export function ModalInputDialog({
   header,
   emptyLabel,
   dismissOnOutsideClick = false,
+  labelsArePaths = false,
 }: ModalInputDialogProps): React.ReactElement {
   const overlayRoot = useCanvasOverlay();
   const [panel, setPanel] = useState<HTMLDivElement | null>(null);
@@ -595,7 +609,21 @@ export function ModalInputDialog({
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => commit(item)}
                   >
-                    {renderLabel(item.label, item.matches)}
+                    {labelsArePaths ? (
+                      <TugPath
+                        path={item.label}
+                        renderRun={(text, start) =>
+                          renderLabel(
+                            item.label,
+                            item.matches,
+                            start,
+                            start + text.length,
+                          )
+                        }
+                      />
+                    ) : (
+                      renderLabel(item.label, item.matches)
+                    )}
                   </li>
                 ))}
               </ul>
