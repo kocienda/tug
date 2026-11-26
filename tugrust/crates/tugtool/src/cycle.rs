@@ -1,5 +1,5 @@
-//! `tugtool cycle create|add-entry|add-sketch|attach|list|show` — a cycle's
-//! record, written and read back.
+//! `tugtool cycle create|rename|add-entry|add-sketch|attach|find|list|show` —
+//! a cycle's record, written and read back.
 //!
 //! A cycle is a container of related arcs, briefs and sketches. The writing
 //! verbs act on this checkout's cycles; `show` reads a cycle by id from any
@@ -41,7 +41,11 @@ pub fn dispatch(cmd: CycleCommands, json: bool) -> ExitCode {
         CycleCommands::Attach { id, n, arc } => {
             ("cycle attach", run_attach(&paths, &id, n, &arc, json))
         }
-        CycleCommands::List => ("cycle list", run_list(&paths, json)),
+        CycleCommands::Rename { id, name } => {
+            ("cycle rename", run_rename(&paths, &id, &name, json))
+        }
+        CycleCommands::Find { brief } => ("cycle find", run_find(&paths, &brief, json)),
+        CycleCommands::List { mine } => ("cycle list", run_list(&paths, mine, json)),
         CycleCommands::Show { id } => return run_show(&paths, &id, json),
     };
     match result {
@@ -60,12 +64,16 @@ struct CreatePayload {
     name: String,
 }
 
+/// The calling session's live segment, through the one reader of the
+/// variable ([P01]); with no instance to ask, the posted id is the answer.
+/// `create` records it and `list --mine` filters by it, so the two agree.
+fn writer() -> Option<String> {
+    crate::session_identity::resolve_soft(None).map(|r| r.session_id)
+}
+
 fn run_create(paths: &Paths, name: &str, json: bool) -> Result<(), AppError> {
     let repo = repo()?;
-    // The calling session's live segment, through the one reader of the
-    // variable ([P01]); with no instance to ask, the posted id is the answer.
-    let writer = crate::session_identity::resolve_soft(None).map(|r| r.session_id);
-    let made = cycle::create_cycle(paths, &repo, name, writer.as_deref())?;
+    let made = cycle::create_cycle(paths, &repo, name, writer().as_deref())?;
     if json {
         print_ok(
             "cycle create",
@@ -76,6 +84,35 @@ fn run_create(paths: &Paths, name: &str, json: bool) -> Result<(), AppError> {
         );
     } else {
         println!("{}", made.id);
+    }
+    Ok(())
+}
+
+fn run_rename(paths: &Paths, id: &str, name: &str, json: bool) -> Result<(), AppError> {
+    let repo = repo()?;
+    let renamed = cycle::rename_cycle(paths, &repo, id, name)?;
+    if json {
+        print_ok(
+            "cycle rename",
+            CreatePayload {
+                id: renamed.id,
+                name: renamed.name,
+            },
+        );
+    } else {
+        println!("{}", renamed.name);
+    }
+    Ok(())
+}
+
+fn run_find(paths: &Paths, brief: &str, json: bool) -> Result<(), AppError> {
+    let repo = repo()?;
+    let found = cycle::find_entry_by_brief(paths, &repo, &brief_path(&repo, brief))
+        .map(|(id, n)| EntryPayload { id, n });
+    if json {
+        print_ok("cycle find", found);
+    } else if let Some(entry) = found {
+        println!("{}  {}", entry.id, entry.n);
     }
     Ok(())
 }
@@ -196,9 +233,17 @@ struct ListRow {
     total: usize,
 }
 
-fn run_list(paths: &Paths, json: bool) -> Result<(), AppError> {
+fn run_list(paths: &Paths, mine: bool, json: bool) -> Result<(), AppError> {
     let repo = repo()?;
-    let rows: Vec<ListRow> = cycle::cycles(paths, &repo)
+    let records = if mine {
+        // With no session to ask, no cycle is this session's.
+        writer()
+            .map(|w| cycle::cycles_by(paths, &repo, &w))
+            .unwrap_or_default()
+    } else {
+        cycle::cycles(paths, &repo)
+    };
+    let rows: Vec<ListRow> = records
         .iter()
         .map(|record| {
             let view = cycle::view_cycle(paths, record);

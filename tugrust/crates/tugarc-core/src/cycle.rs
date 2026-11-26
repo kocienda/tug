@@ -142,6 +142,67 @@ pub fn create_cycle(
     Ok(record)
 }
 
+/// Rename cycle `id`, keeping its id, and return the record as written.
+///
+/// A cycle is renamed only by hand: the skills name a cycle once, when they
+/// create it, and never call this on their own judgment. An empty name is
+/// refused.
+pub fn rename_cycle(
+    paths: &Paths,
+    repo: &Path,
+    id: &str,
+    name: &str,
+) -> Result<CycleRecord, ArcError> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(ArcError::Refused("a cycle needs a name".into()));
+    }
+    let mut record = load(paths, repo, id)?;
+    record.name = name.to_string();
+    save(&mut record)?;
+    Ok(record)
+}
+
+/// The entry in this checkout that holds brief `brief`, named relative to the
+/// project root, as `(cycle id, entry number)`.
+///
+/// The most recently changed cycle is asked first, and within a cycle the
+/// earliest entry. `None` when no entry holds the brief.
+pub fn find_entry_by_brief(paths: &Paths, repo: &Path, brief: &str) -> Option<(String, u32)> {
+    let wanted = normal_brief(brief);
+    if wanted.is_empty() {
+        return None;
+    }
+    cycles(paths, repo).into_iter().find_map(|record| {
+        let n = record
+            .entries
+            .iter()
+            .filter(|e| normal_brief(&e.brief) == wanted)
+            .map(|e| e.n)
+            .min()?;
+        Some((record.id, n))
+    })
+}
+
+/// This checkout's cycles that session `writer` created, the most recently
+/// changed first. A cycle that recorded no writer belongs to nobody.
+pub fn cycles_by(paths: &Paths, repo: &Path, writer: &str) -> Vec<CycleRecord> {
+    cycles(paths, repo)
+        .into_iter()
+        .filter(|record| record.created_by.as_deref() == Some(writer))
+        .collect()
+}
+
+/// A brief path in the one spelling entries are compared in: trimmed, with
+/// any leading `./` taken off.
+fn normal_brief(brief: &str) -> &str {
+    let mut path = brief.trim();
+    while let Some(rest) = path.strip_prefix("./") {
+        path = rest;
+    }
+    path
+}
+
 /// Add an entry to cycle `id` and return its number.
 ///
 /// Refused when the brief path is empty or absolute, when a wait names an
@@ -895,6 +956,81 @@ mod tests {
         write_record(&older).unwrap();
         let listed: Vec<String> = cycles(&paths, &repo).into_iter().map(|c| c.name).collect();
         assert_eq!(listed, vec!["first", "second"]);
+    }
+
+    #[test]
+    fn rename_keeps_the_id_and_moves_updated() {
+        let (_t, repo, paths) = scratch();
+        let made = create_cycle(&paths, &repo, "Old name", Some("sess-1")).unwrap();
+        let mut older = made.clone();
+        older.updated = "2000-01-01T00:00:00Z".into();
+        write_record(&older).unwrap();
+
+        let renamed = rename_cycle(&paths, &repo, &made.id, "  New name ").unwrap();
+        assert_eq!(renamed.id, made.id);
+        assert_eq!(renamed.name, "New name");
+        assert!(renamed.updated.as_str() > "2000-01-01T00:00:00Z");
+        assert_eq!(renamed.created_by.as_deref(), Some("sess-1"));
+        assert_eq!(find_cycle(&paths, &made.id)[0].1.name, "New name");
+
+        assert!(matches!(
+            rename_cycle(&paths, &repo, &made.id, "  "),
+            Err(ArcError::Refused(_))
+        ));
+        assert_eq!(find_cycle(&paths, &made.id)[0].1.name, "New name");
+        assert!(rename_cycle(&paths, &repo, "0000beef", "X").is_err());
+    }
+
+    #[test]
+    fn an_entry_is_found_by_its_brief_in_the_most_recent_cycle() {
+        let (temp, repo, paths) = scratch();
+        let first = create_cycle(&paths, &repo, "first", None).unwrap().id;
+        add_entry(&paths, &repo, &first, entry("briefs/a.md", &[])).unwrap();
+        add_entry(&paths, &repo, &first, entry("briefs/b.md", &[])).unwrap();
+        assert_eq!(
+            find_entry_by_brief(&paths, &repo, "briefs/b.md"),
+            Some((first.clone(), 2))
+        );
+        assert_eq!(
+            find_entry_by_brief(&paths, &repo, " ./briefs/a.md "),
+            Some((first.clone(), 1)),
+            "one spelling of the path"
+        );
+        assert_eq!(find_entry_by_brief(&paths, &repo, "briefs/none.md"), None);
+        assert_eq!(find_entry_by_brief(&paths, &repo, ""), None);
+
+        let mut older = find_cycle(&paths, &first).remove(0).1;
+        older.updated = "2000-01-01T00:00:00Z".into();
+        write_record(&older).unwrap();
+        let second = create_cycle(&paths, &repo, "second", None).unwrap().id;
+        add_entry(&paths, &repo, &second, entry("briefs/a.md", &[])).unwrap();
+        assert_eq!(
+            find_entry_by_brief(&paths, &repo, "briefs/a.md"),
+            Some((second, 1)),
+            "the most recently changed cycle answers"
+        );
+
+        let other = temp.path().join("other");
+        fs::create_dir_all(&other).unwrap();
+        assert_eq!(
+            find_entry_by_brief(&paths, &other, "briefs/a.md"),
+            None,
+            "another checkout's entries are not found here"
+        );
+    }
+
+    #[test]
+    fn cycles_by_keeps_only_the_writers_cycles() {
+        let (_t, repo, paths) = scratch();
+        let mine = create_cycle(&paths, &repo, "mine", Some("sess-1")).unwrap();
+        create_cycle(&paths, &repo, "theirs", Some("sess-2")).unwrap();
+        create_cycle(&paths, &repo, "nobody's", None).unwrap();
+        let names: Vec<String> = cycles_by(&paths, &repo, "sess-1")
+            .into_iter()
+            .map(|c| c.name)
+            .collect();
+        assert_eq!(names, vec![mine.name]);
+        assert!(cycles_by(&paths, &repo, "sess-3").is_empty());
     }
 
     fn linked(n: u32, waits: &[u32], arc: Option<(&str, &str)>) -> CycleEntry {

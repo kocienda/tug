@@ -1,10 +1,12 @@
 //! `tugtool sketch record|show` — a sketch's record, kept and read back.
 //!
 //! `record` keeps an arc's working `sketch.md` as a version under the
-//! sketch's own id. `show` reads a version back by id, from any checkout's
+//! sketch's own id, or, with no arc, the sketch text it reads on stdin as a
+//! sketch tied to no arc. `show` reads a version back by id, from any checkout's
 //! store on this machine, so it needs no repository.
 
 use serde::Serialize;
+use std::io::{IsTerminal, Read};
 use std::process::ExitCode;
 use tugarc_core::sketch::{self, SketchArc, SketchVersion};
 use tugcore::instance::Paths;
@@ -20,7 +22,7 @@ const EXIT_ABSENT: u8 = 3;
 pub fn dispatch(cmd: SketchCommands, json: bool) -> ExitCode {
     let paths = Paths::from_env();
     match cmd {
-        SketchCommands::Record { arc } => match run_record(&paths, &arc, json) {
+        SketchCommands::Record { arc, id } => match run_record(&paths, arc, id, json) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => e.report("sketch record", json),
         },
@@ -32,10 +34,33 @@ pub fn dispatch(cmd: SketchCommands, json: bool) -> ExitCode {
     }
 }
 
-fn run_record(paths: &Paths, arc: &str, json: bool) -> Result<(), AppError> {
+fn run_record(
+    paths: &Paths,
+    arc: Option<String>,
+    id: Option<String>,
+    json: bool,
+) -> Result<(), AppError> {
     let repo = tugtool_core::find_repo_root()
         .map_err(|e| AppError::Exit1("not_a_repository", e.to_string()))?;
-    let out = sketch::record_arc_sketch(paths, &repo, arc)?;
+    let out = match arc {
+        Some(arc) => sketch::record_arc_sketch(paths, &repo, &arc)?,
+        None => {
+            if std::io::stdin().is_terminal() {
+                return Err(AppError::Exit1(
+                    "no_sketch",
+                    "name an arc, or pipe the sketch text on stdin".into(),
+                ));
+            }
+            let mut text = String::new();
+            std::io::stdin().read_to_string(&mut text).map_err(|e| {
+                AppError::Exit1(
+                    "stdin_unreadable",
+                    format!("could not read the sketch: {e}"),
+                )
+            })?;
+            sketch::record_free_sketch(paths, &repo, &text, id.as_deref())?
+        }
+    };
     if json {
         print_ok("sketch record", &out);
         return Ok(());

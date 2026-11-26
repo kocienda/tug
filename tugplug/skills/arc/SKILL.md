@@ -182,7 +182,47 @@ It refuses without a calling session, because an arc runs *on a card* and there 
 
 An arc whose receipt names no live session is bound to nothing, and every stage it seats will rotate onto a card that is not there. **If the receipt is not what it should be, say so and run `tugtool arc doctor <name>`** — it compares the arc record against the binding and the ledger and names which disagrees. This is the one session that can see the anchor being set; a stage that finds it wrong later has to recover from it instead.
 
-With the receipt confirmed, run `tugtool sketch record <name>`, which gives the sketch its id and keeps the text you wrote as its first version. It comes after the opening and never before it: only the opening starts a new generation of a name that was used before, and a record made earlier would file this arc's sketch under the previous arc's id. That was the last thing you do. Say what happens next, and end the turn. **Ending the turn is the hand-off.** Do not wait for a rotation, do not poll `arc record`, and do not print a command for the user to click.
+With the receipt confirmed, run `tugtool sketch record <name> --json`, which gives the sketch its id (`data.id`) and keeps the text you wrote as its first version. It comes after the opening and never before it: only the opening starts a new generation of a name that was used before, and a record made earlier would file this arc's sketch under the previous arc's id. When step 3 wrote no record, there is nothing to run.
+
+**Then put the arc on its cycle.** A cycle is the record of a run of related work: lettered sketches, which say where it came from, and numbered entries, one brief each, each carried by the arc opened on it. Every arc is on one. `arc run` has already written the arc's opening into the arc log, which is what `attach` reads, so the attach follows the receipt directly.
+
+- **A continuation changes nothing.** When the receipt says `resumed`, the arc was put on its cycle when it first opened: run no cycle verb.
+- **A handed-in brief finds its entry by the path you were handed** (grammar rule 1), never by the copy under the arc's directory, since that is the path `/tugplug:brief` recorded:
+
+  ```bash
+  tugtool cycle find --brief <the path they handed you> --json
+  ```
+
+  When `data` names a cycle, attach this arc to that entry, and do nothing more: the cycle's own sketches already say where the entry came from, so this arc's sketch is not added to it.
+
+  ```bash
+  tugtool cycle attach <data.id> <data.n> <name> --json
+  ```
+
+- **Anything else becomes a cycle of one**: a bare idea, a brief on no cycle, a brief written before cycles were kept. Name it by the rule below, create it, add this arc's sketch as A when one was recorded, add entry 1, and attach it:
+
+  ```bash
+  tugtool cycle create --name "<name by the rule>" --json
+  tugtool cycle add-sketch <cycle> <sketch> --json
+  tugtool cycle add-entry <cycle> --brief <path> --from A --json
+  tugtool cycle attach <cycle> 1 <name> --json
+  ```
+
+  `<path>` is the path you were handed, or the arc's own brief, `.tug/arcs/<name>/brief.md`, when nothing was handed in. With no sketch recorded, skip `add-sketch` and `--from`.
+
+**The naming rule.** A cycle is named once, when it is created, from the opening sentence of its sketch A: the want that opens the sketch you just recorded. When no sketch was recorded, the brief's `**Purpose:**` line stands in. The name is the thing the work changes, as a noun phrase of two to four words in sentence case. It has no verb, uses the source's own plain words, and keeps proper nouns. It never carries an arc name, kebab-case, an id, a date, the project's name, or the words "cycle" or "work".
+
+| Sketch A opens… | Name | What it shows |
+|---|---|---|
+| "Set the words Liven draws in its pictures and movies in IBM Plex instead of Apple's system typeface…" | IBM Plex typeface | The subject is kept and the verb dropped |
+| "Make dockets carry a whole run of work, from one conversation to many briefs landed in order…" | Dockets of many briefs | A later sketch B leaves the name alone |
+| "Stop the end-of-arc check from re-running test suites over code that has not changed…" | Remembered test runs | The name comes from the sketch, not from the arc's name `verify-memo` |
+
+A cycle is never renamed on the door's own judgment, and a later sketch never renames one. When the user asks for a rename, run `tugtool cycle rename <cycle> --name "<the name they gave>"`.
+
+**Cycle writes are bookkeeping, and they never stop the hand-off.** If `sketch record` or any `tugtool cycle` verb refuses, say so in one sentence with its output and carry on: the arc is open and the wheel still has it. An arc missing from its cycle can be put right by hand; a door that stopped on one would strand the arc the user asked for.
+
+That was the last thing you do. Say what happens next, and end the turn. **Ending the turn is the hand-off.** Do not wait for a rotation, do not poll `arc record`, and do not print a command for the user to click.
 
 ### 7. Say what happens next
 

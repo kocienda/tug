@@ -1,14 +1,16 @@
-//! `tugtool cycle create|add-entry|add-sketch|attach|list|show`: a cycle's
-//! record written in a scratch checkout, and every entry's state read back
-//! from the arc log.
+//! `tugtool cycle create|rename|add-entry|add-sketch|attach|find|list|show`:
+//! a cycle's record written in a scratch checkout, and every entry's state
+//! read back from the arc log; and an arc-less sketch recorded on stdin, the
+//! way a skill with no arc records one.
 
 mod common;
 use common::tugtool;
 use tugcore::instance::Paths;
 use tugcore::test_fixtures::git::{GitFixture, git};
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 
 struct Scratch {
     _repo_dir: tempfile::TempDir,
@@ -194,4 +196,122 @@ fn a_cycle_is_written_and_its_entries_read_from_the_arc_log() {
         .output()
         .unwrap();
     assert_eq!(absent.status.code(), Some(3), "{absent:?}");
+}
+
+/// Run `tugtool sketch record [args…] --json` with `text` on stdin and return
+/// the envelope's data.
+fn record_on_stdin(s: &Scratch, args: &[&str], text: &str) -> serde_json::Value {
+    let mut child = s
+        .tug_in(&s.root)
+        .args(["sketch", "record"])
+        .args(args)
+        .arg("--json")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(text.as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(out.status.success(), "{out:?}");
+    let envelope: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    envelope["data"].clone()
+}
+
+#[test]
+fn a_skill_records_a_free_sketch_finds_its_entry_and_renames_by_hand() {
+    let s = Scratch::new();
+
+    // A sketch with no arc, read on stdin, then a new version under its id.
+    let first = record_on_stdin(&s, &[], "# Sketch\n\nWant dockets.\n");
+    let sketch_id = first["id"].as_str().unwrap().to_string();
+    assert_eq!(first["minted"], true);
+    let next = record_on_stdin(
+        &s,
+        &["--id", &sketch_id],
+        "# Sketch\n\nWant dockets of many briefs.\n",
+    );
+    assert_eq!(next["id"], sketch_id.as_str());
+    assert_eq!(next["version"], 2);
+    assert_eq!(next["minted"], false);
+    let shown = s.json(&["sketch", "show", &sketch_id]);
+    assert!(shown.get("arc").is_none(), "tied to no arc: {shown}");
+    assert_eq!(shown["text"], "# Sketch\n\nWant dockets of many briefs.\n");
+    assert!(
+        !s.out(&["sketch", "record", "drawn", "--id", &sketch_id])
+            .status
+            .success(),
+        "an arc and an id together are refused"
+    );
+
+    // The cycle is created from it, and its entry found again by the brief.
+    let id = s.ok(&["cycle", "create", "--name", "Dockets"]);
+    assert_eq!(s.ok(&["cycle", "add-sketch", &id, &sketch_id]), "A");
+    s.ok(&[
+        "cycle",
+        "add-entry",
+        &id,
+        "--brief",
+        "briefs/one.md",
+        "--from",
+        "A",
+    ]);
+    s.ok(&[
+        "cycle",
+        "add-entry",
+        &id,
+        "--brief",
+        "briefs/two.md",
+        "--wait",
+        "1",
+    ]);
+    assert_eq!(
+        s.ok(&["cycle", "find", "--brief", "briefs/two.md"]),
+        format!("{id}  2")
+    );
+    let absolute = s.root.join("briefs/one.md");
+    let found = s.json(&["cycle", "find", "--brief", absolute.to_str().unwrap()]);
+    assert_eq!(found["id"], id.as_str());
+    assert_eq!(found["n"], 1, "an absolute path inside the checkout");
+    assert_eq!(s.ok(&["cycle", "find", "--brief", "briefs/none.md"]), "");
+    assert!(
+        s.json(&["cycle", "find", "--brief", "briefs/none.md"])
+            .is_null()
+    );
+
+    // `--mine` is the writer's, and nobody else's.
+    let mine = s.json(&["cycle", "list", "--mine"]);
+    assert_eq!(mine.as_array().unwrap().len(), 1);
+    assert_eq!(mine[0]["id"], id.as_str());
+    let theirs = s
+        .tug_in(&s.root)
+        .env("TUG_SESSION_ID", "sess-other")
+        .args(["cycle", "list", "--mine", "--json"])
+        .output()
+        .unwrap();
+    assert!(theirs.status.success(), "{theirs:?}");
+    let theirs: serde_json::Value = serde_json::from_slice(&theirs.stdout).unwrap();
+    assert_eq!(theirs["data"], serde_json::json!([]));
+    assert_eq!(s.json(&["cycle", "list"]).as_array().unwrap().len(), 1);
+
+    // A rename by hand keeps the id.
+    assert_eq!(
+        s.ok(&["cycle", "rename", &id, "--name", "Dockets of many briefs"]),
+        "Dockets of many briefs"
+    );
+    assert_eq!(
+        s.ok(&["cycle", "list"]),
+        format!("{id}  0/2  Dockets of many briefs")
+    );
+    assert!(
+        !s.out(&["cycle", "rename", &id, "--name", " "])
+            .status
+            .success(),
+        "an empty name is refused"
+    );
 }

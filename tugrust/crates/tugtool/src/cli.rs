@@ -671,14 +671,21 @@ impl UnitCommands {
 
 #[derive(Subcommand)]
 pub enum SketchCommands {
-    /// Keep `.tug/arcs/<arc>/sketch.md` as the newest version of the arc's
-    /// sketch, minting the sketch's id the first time.
+    /// Keep a sketch as its newest version, minting its id the first time,
+    /// and print the id.
     ///
-    /// Run it right after writing the sketch. Text byte-identical to the
-    /// latest version is not kept twice.
+    /// With an arc, keeps `.tug/arcs/<arc>/sketch.md` as the arc's sketch;
+    /// run it right after writing that file. With no arc, reads the sketch
+    /// text on stdin and keeps it as a sketch tied to no arc: a fresh id is
+    /// minted, or with `--id` the text becomes a new version of that arc-less
+    /// sketch in this checkout. Text byte-identical to the latest version is
+    /// not kept twice.
     Record {
-        /// Arc name.
-        arc: String,
+        /// Arc name. Omit it to read the sketch on stdin.
+        arc: Option<String>,
+        /// An arc-less sketch to keep the text as a new version of.
+        #[arg(long, conflicts_with = "arc")]
+        id: Option<String>,
     },
     /// Print a sketch's text, verbatim, by its id.
     ///
@@ -752,9 +759,34 @@ pub enum CycleCommands {
         /// The arc's name.
         arc: String,
     },
+    /// Rename a cycle, keeping its id, and print its new name.
+    ///
+    /// A cycle is renamed only by hand, with the name the user gave. An
+    /// empty name is refused.
+    Rename {
+        /// The cycle's id.
+        id: String,
+        /// The cycle's new name.
+        #[arg(long)]
+        name: String,
+    },
+    /// Print the cycle id and entry number that hold a brief in this
+    /// checkout, or nothing when no entry does.
+    ///
+    /// Exits 0 either way. The most recently changed cycle is asked first.
+    Find {
+        /// The brief's path, relative to the project root or absolute
+        /// inside the checkout.
+        #[arg(long)]
+        brief: String,
+    },
     /// List this checkout's cycles, the most recently changed first, each
     /// with how many of its entries have landed.
-    List,
+    List {
+        /// Only the cycles the calling session created.
+        #[arg(long)]
+        mine: bool,
+    },
     /// Print a cycle with every entry's state.
     ///
     /// Read-only. Scans every checkout's cycles on this machine, so it needs

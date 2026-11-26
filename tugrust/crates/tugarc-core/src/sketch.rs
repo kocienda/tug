@@ -16,7 +16,9 @@
 //! arc. A sketch recorded for an arc is tied to it twice: an `arc-sketch <id>`
 //! line in the arc log, written while the generation is open, and the store's
 //! `arc` link (the arc's name and its generation's start), which is the whole
-//! of the tie once the generation has ended. The text is stored whole and is
+//! of the tie once the generation has ended. A sketch a conversation settled
+//! before any arc opened is recorded with no arc at all, by
+//! [`record_free_sketch`]. The text is stored whole and is
 //! never given an id line or a header; the id lives outside the file.
 
 use serde::{Deserialize, Serialize};
@@ -160,16 +162,83 @@ pub fn record_arc_sketch(paths: &Paths, repo: &Path, arc: &str) -> Result<Record
         })?;
     }
 
-    let latest = record.latest();
-    if latest > 0 && read_version(&record, Some(latest)).is_ok_and(|t| t == text) {
-        return Ok(RecordOutcome {
-            id,
-            version: latest,
-            minted,
-            appended: false,
-        });
-    }
+    let (version, appended) = keep_version(&mut record, &text)?;
+    Ok(RecordOutcome {
+        id,
+        version,
+        minted,
+        appended,
+    })
+}
 
+/// Keep `text` as a sketch tied to no arc, as a conversation with no arc
+/// records the sketch it settled.
+///
+/// With no `id`, a fresh id is minted. With one, the text is kept as the
+/// newest version of that sketch, which must be in this checkout's store and
+/// tied to no arc: an arc's sketch is kept through its arc. Either way the
+/// text is appended unless it is byte-identical to the latest, and empty text
+/// is refused.
+pub fn record_free_sketch(
+    paths: &Paths,
+    repo: &Path,
+    text: &str,
+    id: Option<&str>,
+) -> Result<RecordOutcome, ArcError> {
+    if text.trim().is_empty() {
+        return Err(ArcError::Refused(
+            "no sketch to record: the text is empty".into(),
+        ));
+    }
+    crate::log::refuse_unredirected_temp_repo(paths, repo);
+    let root = sketch_root(paths, repo);
+    let (mut record, minted) = match id {
+        Some(id) => {
+            let record = valid_id(id)
+                .then(|| read_record(&root.join(id)))
+                .flatten()
+                .ok_or_else(|| {
+                    ArcError::Refused(format!("sketch {id} is not in this checkout's store"))
+                })?;
+            if let Some(arc) = &record.arc {
+                return Err(ArcError::Refused(format!(
+                    "sketch {id} belongs to arc {}; record it through the arc",
+                    arc.name
+                )));
+            }
+            (record, false)
+        }
+        None => {
+            let id = mint_id(paths);
+            let record = SketchRecord {
+                dir: root.join(&id),
+                id,
+                created: now_iso8601(),
+                project_dir: project_dir_of(repo),
+                arc: None,
+                versions: Vec::new(),
+            };
+            (record, true)
+        }
+    };
+    let (version, appended) = keep_version(&mut record, text)?;
+    Ok(RecordOutcome {
+        id: record.id,
+        version,
+        minted,
+        appended,
+    })
+}
+
+/// Append `text` to `record` as its newest version and write the record,
+/// unless the text is byte-identical to the latest. Returns the version the
+/// text now is and whether it was appended.
+fn keep_version(record: &mut SketchRecord, text: &str) -> Result<(u32, bool), ArcError> {
+    let latest = record.latest();
+    if latest > 0 && read_version(record, Some(latest)).is_ok_and(|t| t == text) {
+        return Ok((latest, false));
+    }
+    let dir = record.dir.clone();
     fs::create_dir_all(&dir).map_err(|e| ArcError::io("could not create the sketch", &dir, e))?;
     let n = latest + 1;
     write_atomically(&dir.join(format!("v{n}.md")), text.as_bytes(), "sketch")?;
@@ -177,15 +246,10 @@ pub fn record_arc_sketch(paths: &Paths, repo: &Path, arc: &str) -> Result<Record
         n,
         at: now_iso8601(),
     });
-    let json = serde_json::to_string_pretty(&record)
+    let json = serde_json::to_string_pretty(&*record)
         .map_err(|e| ArcError::Refused(format!("could not serialize {SKETCH_JSON}: {e}")))?;
     write_atomically(&dir.join(SKETCH_JSON), (json + "\n").as_bytes(), "sketch")?;
-    Ok(RecordOutcome {
-        id,
-        version: n,
-        minted,
-        appended: true,
-    })
+    Ok((n, true))
 }
 
 /// Every record of `id` under the data root, each with the project state dir
@@ -493,5 +557,53 @@ mod tests {
         let (_t, repo, paths) = scratch();
         let err = record_arc_sketch(&paths, &repo, "none").unwrap_err();
         assert!(matches!(err, ArcError::Refused(_)), "{err:?}");
+    }
+
+    #[test]
+    fn a_free_sketch_mints_then_keeps_versions_under_its_id() {
+        let (_t, repo, paths) = scratch();
+        let first = record_free_sketch(&paths, &repo, V1, None).unwrap();
+        assert!(first.minted && first.appended && first.version == 1);
+        assert!(valid_id(&first.id));
+        assert_eq!(sketch_lines(&paths, &repo), 0, "no arc, no log line");
+
+        let same = record_free_sketch(&paths, &repo, V1, Some(&first.id)).unwrap();
+        assert!(!same.minted && !same.appended && same.version == 1);
+        let next = record_free_sketch(&paths, &repo, V2, Some(&first.id)).unwrap();
+        assert_eq!(next.id, first.id);
+        assert!(next.appended && next.version == 2);
+
+        let found = find_sketch(&paths, &first.id);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].1.arc, None);
+        assert_eq!(read_version(&found[0].1, Some(1)).unwrap(), V1);
+        assert_eq!(read_version(&found[0].1, None).unwrap(), V2);
+
+        let other = record_free_sketch(&paths, &repo, V1, None).unwrap();
+        assert_ne!(other.id, first.id, "no id means a new sketch");
+    }
+
+    #[test]
+    fn a_free_sketch_refuses_empty_text_an_unknown_id_and_an_arcs_sketch() {
+        let (temp, repo, paths) = scratch();
+        assert!(matches!(
+            record_free_sketch(&paths, &repo, " \n", None),
+            Err(ArcError::Refused(_))
+        ));
+        assert!(record_free_sketch(&paths, &repo, V1, Some("0000beef")).is_err());
+        assert!(record_free_sketch(&paths, &repo, V1, Some("../etc")).is_err());
+
+        write_sketch(&repo, "sk", V1);
+        let arcs = record_arc_sketch(&paths, &repo, "sk").unwrap();
+        let err = record_free_sketch(&paths, &repo, V2, Some(&arcs.id)).unwrap_err();
+        assert!(err.to_string().contains("arc sk"), "{err}");
+
+        let other = temp.path().join("other");
+        fs::create_dir_all(&other).unwrap();
+        let elsewhere = record_free_sketch(&paths, &other, V1, None).unwrap();
+        assert!(
+            record_free_sketch(&paths, &repo, V2, Some(&elsewhere.id)).is_err(),
+            "another checkout's sketch is not versioned here"
+        );
     }
 }

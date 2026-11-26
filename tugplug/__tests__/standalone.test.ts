@@ -12,7 +12,7 @@
  * build rather than passing vacuously.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildClaudeArgs, PLUGIN_PROMPT_FILES, readPluginPrompts } from "../../tugcode/src/session.ts";
@@ -530,6 +530,91 @@ describe("the arc verbs on a project that declares nothing", () => {
   });
 });
 
+/** tugtool's `--json` envelope's `data`, asserting the call succeeded. */
+function data(args: string[], extra: Record<string, string> = {}, stdin?: string) {
+  const r = stdin === undefined
+    ? tugtool(["--json", ...args], extra)
+    : run([join(bundle, "Contents/MacOS/tugtool"), "--json", ...args], {
+        env: env({ PATH: `${join(bundle, "Contents/MacOS")}:${BARE_PATH}`, ...extra }),
+        stdin,
+      });
+  expect(r.code, `tugtool ${args.join(" ")}: ${r.err}`).toBe(0);
+  return JSON.parse(r.out).data;
+}
+
+describe("the cycle verbs the brief skill and the door call, from the bundle alone", () => {
+  // A session the cycle records as its writer, as a live card supplies one.
+  const writer = { TUG_SESSION_ID: "sess-standalone" };
+  const SKETCH = "# Sketch\n\nMake dockets carry many briefs.\n\nA docket is a list of briefs.\n\n- Each brief is an entry\n\nSource: session sess-standalone, turns 1–2\n";
+
+  test("the brief skill: a free sketch, its cycle, and entries with stated waits", () => {
+    // The sketch goes to the store on stdin, and nothing lands in the project.
+    const sketch = data(["sketch", "record"], writer, SKETCH);
+    expect(sketch.minted).toBe(true);
+    const grown = data(["sketch", "record", "--id", sketch.id], writer, SKETCH.replace("1–2", "1–4"));
+    expect(grown.id).toBe(sketch.id);
+    expect(grown.version).toBe(2);
+    expect(run(["git", "status", "--porcelain", ".tug"]).out.trim()).toBe("");
+
+    // No cycle is this session's yet, so the skill creates one.
+    expect(data(["cycle", "list", "--mine"], writer)).toEqual([]);
+    const cycle = data(["cycle", "create", "--name", "Dockets of many briefs"], writer);
+    expect(data(["cycle", "add-sketch", cycle.id, sketch.id], writer).letter).toBe("A");
+    expect(data(["cycle", "add-entry", cycle.id, "--brief", "briefs/smoke-brief.md", "--from", "A"], writer).n).toBe(1);
+
+    // A second brief finds the cycle through --mine and states its wait.
+    const mine = data(["cycle", "list", "--mine"], writer);
+    expect(mine.map((c: { id: string }) => c.id)).toEqual([cycle.id]);
+    expect(data(["cycle", "add-sketch", cycle.id, sketch.id], writer).letter).toBe("A");
+    const second = data(
+      ["cycle", "add-entry", cycle.id, "--brief", "briefs/second-brief.md", "--from", "A", "--wait", "1", "--note", "after the spike"],
+      writer,
+    );
+    expect(second.n).toBe(2);
+    expect(data(["cycle", "list", "--mine"], { TUG_SESSION_ID: "sess-elsewhere" })).toEqual([]);
+
+    // A rename by hand keeps the id.
+    expect(data(["cycle", "rename", cycle.id, "--name", "Dockets"], writer)).toEqual({ id: cycle.id, name: "Dockets" });
+  });
+
+  test("the door: a handed-in brief's entry found and attached, and a cycle of one", () => {
+    const cycle = data(["cycle", "list", "--mine"], writer)[0];
+    const found = data(["cycle", "find", "--brief", "briefs/smoke-brief.md"], writer);
+    expect(found).toEqual({ id: cycle.id, n: 1 });
+    expect(data(["cycle", "find", "--brief", join(realpathSync(project), "briefs/smoke-brief.md")], writer)).toEqual(found);
+    expect(data(["cycle", "find", "--brief", "briefs/none-brief.md"], writer)).toBeNull();
+
+    // `arc run` writes the arc's opening to the arc log before the door
+    // attaches; the server is not here, so the line is written as it would.
+    const projects = join(dataDir, "Tug/projects");
+    const state = readdirSync(projects)
+      .map((p) => join(projects, p))
+      .find((p) => existsSync(join(p, "cycles", cycle.id)));
+    expect(state, "the cycle's project state dir").toBeDefined();
+    appendFileSync(join(state!, "arc-log.md"), "2026-11-25T00:00:00.000Z  dockets  arc-start  .tug/arcs/dockets/brief.md\n");
+    appendFileSync(join(state!, "arc-log.md"), "2026-11-25T00:00:01.000Z  plex  arc-start  .tug/arcs/plex/brief.md\n");
+
+    expect(data(["cycle", "attach", found.id, String(found.n), "dockets"], writer).arc.name).toBe("dockets");
+
+    // A bare idea: the arc's own sketch, recorded through the arc, is sketch A
+    // of a cycle of one, and entry 1 is the arc's own brief.
+    mkdirSync(join(project, ".tug/arcs/plex"), { recursive: true });
+    writeFileSync(join(project, ".tug/arcs/plex/sketch.md"), "# Sketch\n\nSet the words in IBM Plex.\n\nSource: session sess-standalone, turns 3–4\n");
+    const arcSketch = data(["sketch", "record", "plex"], writer);
+    const one = data(["cycle", "create", "--name", "IBM Plex typeface"], writer);
+    expect(data(["cycle", "add-sketch", one.id, arcSketch.id], writer).letter).toBe("A");
+    expect(data(["cycle", "add-entry", one.id, "--brief", ".tug/arcs/plex/brief.md", "--from", "A"], writer).n).toBe(1);
+    expect(data(["cycle", "attach", one.id, "1", "plex"], writer).arc.name).toBe("plex");
+
+    // Both arcs read as running on their cycles, from anywhere.
+    const shown = data(["cycle", "show", cycle.id], writer);
+    expect(shown.entries[0].arc.name).toBe("dockets");
+    expect(shown.entries[0].state).toBe("running");
+    expect(shown.sketches.length, "the door adds no second sketch to a found entry").toBe(1);
+    expect(data(["cycle", "show", one.id], writer).entries[0].state).toBe("running");
+  });
+});
+
 describe("brief, explain and viz are the skills a model may reach for", () => {
   test("only skills/brief, skills/explain and skills/viz carry no disable-model-invocation", () => {
     const skills = join(pluginRoot, "skills");
@@ -613,7 +698,7 @@ describe("every verb a skill names is one the shipped binary has", () => {
   // checked, which is the quieter half of the blindness the scanner had: the
   // mention matches, `help.has(ns)` is false, and nothing is resolved. So the
   // list carries every namespace a skill names a verb under.
-  const namespaces = ["arc", "plan", "brief", "draft", "file", "host", "hook", "changes", "session", "apptest"] as const;
+  const namespaces = ["arc", "plan", "brief", "draft", "file", "host", "hook", "changes", "session", "apptest", "cycle", "sketch"] as const;
 
   test("tugtool <namespace> <verb> mentions resolve against --help", () => {
     const help = new Map<string, string>();
