@@ -1,6 +1,6 @@
 # A cycle's entry is headed by its brief's title, and the three-panel arc view goes
 
-**Purpose:** A cycle's surfaces name each piece of work by its arc's name, which is a handle and says nothing about what the work is. The brief is what says it, and the brief's title appears on no headline. Each entry should be headed by its brief's title, with the arc named under it once an arc exists. And a session whose arc is not yet on a cycle is shown an older view, three boxes numbered Sketch, Brief and Arc, which the user wants gone from the application: every arc should show the cycle's map.
+**Purpose:** A cycle's surfaces name each piece of work by its arc's name, which is a handle and says nothing about what the work is. The brief is what says it, and the brief's title appears on no headline. Each entry should be headed by its brief's title, with the arc named under it once an arc exists. And a session whose arc is not yet on a cycle is shown an older view, three boxes numbered Sketch, Brief and Arc, which the user wants gone from the application: every arc should show the cycle's map. And the cycle shade opens with everything unfolded, which buries the user: its default should be the map and one line per item, with more shown only when the user clicks.
 
 ---
 
@@ -13,6 +13,8 @@ The first answer tried was to put the brief on the map as a node of its own, bet
 The answer the user accepted, after seeing it in the spike ("Let's go with this"): the tile is the brief, and the arc is what happens to it. So the brief's title is the headline of the entry everywhere, and the map is left alone.
 
 A second report came from an arc in the Liven project, `liven-cast-interface`, whose shade showed three boxes, `1 SKETCH` reading None, `2 BRIEF` and `3 ARC` with a Start button, under the header `ARC`. The user: "I do not want to see this interface anymore. I want to see the diagrams that we have in the spike."
+
+A third report, on the cycle shade itself, raised over a cycle of three: the whole sketch, the running arc's thirteen steps, its verbs and the brief's decisions, all open at once. The user: "I do not want to see this huge shade open up that just buries the user in information. If they click, we'll show them more information, but as a default view, I do not want to see this pile of information." And of the brief: "I don't want to see the brief if we're not showing it in the diagram. We only open it if the user clicks the link."
 
 ---
 
@@ -42,6 +44,8 @@ A second report came from an arc in the Liven project, `liven-cast-interface`, w
 
 **[F12] The spike still draws the three boxes for a cycle of one.** `tugdeck/src/spikes/spike-cycle-band.tsx` renders `SessionArcPanels` from `panelsFor` when the cycle has a single entry, so the spike is behind the law on this point. Seven app-tests read the panels: `at0473`, `at0475`, `at0525`, `at0627`, `at0859`, `at0860` and `at0861`. **(verified by grep; the tests were not read)**
 
+**[F13] The cycle shade draws every asset open.** In `tugdeck/src/components/tugways/cards/session-cycle-shade.tsx` a sketch's row shows its whole text, the bound arc's entry shows its lifecycle block, every step and its verbs (`hereBody`), and under them the brief's Decisions and Findings (`hereBrief`, `ArcBriefHeadings`), with a joined entry's line beside them. The user's screenshot of a three-entry cycle runs to about two screens. The Cycles & Arcs card already does the other thing: each asset is one row that opens in place when pressed. **(verified by reading the component's entry and sketch rows; the screenshot is the user's)**
+
 ---
 
 ## Decisions {#decisions}
@@ -58,15 +62,19 @@ A second report came from an arc in the Liven project, `liven-cast-interface`, w
 
 **[B06] The map is unchanged.** It keeps two kinds of node, sketch seals and numbered entry tiles, and the wires between them. The brief gets no node ([F02]).
 
-**[B07] The law says so.** `tuglaws/cycles.md` gains the rule that an entry is headed by its brief's title and that an arc is named once it opens, with the brief node on the map recorded as rejected beside it.
+**[B07] The law says so.** `tuglaws/cycles.md` gains the rule that an entry is headed by its brief's title and that an arc is named once it opens, with the brief node on the map recorded as rejected beside it. It also records that the shade's assets start closed and that the three-panel view is gone ([B08], [B12], [B13]), each as a dated reversal where it replaces a rule the law holds today.
 
-**[B08] The three-panel view is removed from the application.** A session bound to an arc always shows the cycle body: the header, the map, the asset list and the footer. `SessionArcPanels` and the `one` form go, with their stylesheet and their tests, once nothing draws them. Nothing is lost by it: the bound arc's entry in the cycle body already holds the arc's steps and verbs and its brief's headings ([F11]).
+**[B08] The three-panel view is removed from the application.** A session bound to an arc always shows the cycle body: the header, the map, the asset list and the footer. `SessionArcPanels` and the `one` form go, with their stylesheet and their tests, once nothing draws them. Nothing is lost by it: the bound arc's entry in the cycle body holds the arc's steps and verbs once it is opened ([F11], [B12]).
 
 **[B09] An arc not yet on a cycle is shown as the cycle of one it is about to be.** While no entry carries the bound arc ([F09]), the deck composes a cycle of one from the arc's own facts: its sketch when it has one, its brief and its title, and its arc. The shade draws the same body from it, so the map reads `A` to `1`, or the tile `1` alone when the arc has no sketch, from the moment the arc exists, and the real cycle takes its place when the attach lands. It is named by the brief's title until then. This is a reading of facts the arc already carries, and nothing is written.
 
 **[B10] An arc that stays on no cycle is a defect that is reported.** `tugtool cycle check` lists a live arc that no entry carries, beside the chain breaks it lists today ([F10]). The stand-in of [B09] covers the gap on screen, and the check keeps the gap from being hidden by it.
 
 **[B11] The spike's cycle of one is brought to the same body.** The spike drops its three panels for a single entry and draws the map and the list, so that the spike, the law and the product show one thing ([F12]).
+
+**[B12] The cycle shade opens closed: the map, and one line per asset.** By default a sketch's row is its letter and its opening sentence, and an entry's row is its number, its brief's title and its state mark, with the arc's chip and session for one that is running. A press on a row, or on its tile or seal on the map, opens that asset in place: the sketch whole, or the entry's steps and verbs, its brief's file link, what it waits on and its note. A second press closes it. This is the rule the Cycles & Arcs card already follows ([F13]), so the two surfaces behave alike. The bound arc's own entry starts closed too: the footer's Now line already says where it stands, and one press reaches its steps and its Stop.
+
+**[B13] The brief's contents are not listed on a cycle's surfaces.** The Decisions and Findings headings leave the shade. The brief is on the map as its tile and in its row as its title ([B01], [B02]), and its file link opens the document. The user's rule: the brief is shown when the user clicks its link, and not before.
 
 ---
 
@@ -78,6 +86,7 @@ A second report came from an arc in the Liven project, `liven-cast-interface`, w
 - **Any change to how an arc is drawn outside a cycle.** The loose arc rows of the Cycles & Arcs card and the arc's own lifecycle faces keep the arc's name.
 - **Retiring the spike.** It stays until the user has confirmed the shipped surfaces. Its cycle of one changes ([B11]); nothing else in it does.
 - **Moving the attach into `tugtool arc run`.** It would close the gap at its source, but a cycle of one needs a name and a sketch in the user's words, which the door writes and a verb cannot. The stand-in and the check cover it ([B09], [B10]).
+- **An entry that starts open.** Rejected for every entry, the session's own included ([B12]).
 - **Keeping the three panels for any case.** Rejected by the user. An arc with no cycle is drawn as a cycle of one, not as a view of its own.
 
 ---
@@ -90,6 +99,7 @@ A second report came from an arc in the Liven project, `liven-cast-interface`, w
 - The surfaces: the shade's entry row, its footer and the Brief panel of a cycle of one in `tugdeck/src/components/tugways/cards/`, and the entry row in `tugdeck/src/components/arcs/arcs-card.tsx`, each headed by the title with the arc's chip beneath it for a running or joined entry ([B02], [B04]).
 - The app-tests that read an entry by its arc's name, `at0898-cycle-shade` and `at0899-cycles-arcs-card-section` among them, moved to the title while keeping what each one guarantees.
 - The stand-in: a cycle of one composed from the arc's facts where `chooseCycle` finds none, the `one` form and `SessionArcPanels` removed, and the spike's cycle of one drawn as the map and the list ([B08], [B09], [B11]).
+- The shade's rows closed by default and opened in place by a press on the row or the map, and the brief's headings removed from it ([B12], [B13]); the shade app-tests that read an open entry press it first.
 - The seven app-tests that read the panels ([F12]) moved to the cycle body, each keeping what it guarantees about the arc's steps, verbs and brief.
 - `tugtool cycle check` listing a live arc on no cycle, with its test ([B10]).
 - The law ([B07]).
