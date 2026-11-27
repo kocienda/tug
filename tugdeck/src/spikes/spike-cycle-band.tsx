@@ -21,10 +21,13 @@
  *     wires are drawn here because they are the thing being explored;
  *     everything else is composed.
  *   - **The assets**, one list under the map and the only other drawing of
- *     anything on it: each sketch whole, then each entry it heads, an entry
- *     being its arc, its brief as a file atom that opens it, the session
- *     running it when that is another session, what it waits on as the
- *     numbers the map wears, and its steps once it runs. The list scrolls by
+ *     anything on it: each sketch whole, then each entry it heads. An entry
+ *     is a brief, and its arc is what happens to that brief, so the entry is
+ *     headed by its brief's title, on its tile's tooltip as well. Under the
+ *     title: its arc once one has opened, the brief as a file atom that
+ *     opens it, the session running it when that is another session, what
+ *     it waits on as the numbers the map wears, and its steps once it runs.
+ *     An entry no arc has opened names no arc. The list scrolls by
  *     itself. A press on the map scrolls the pressed asset to the top of the
  *     list and moves nothing else, so the point pressed stays under the
  *     pointer. Only when the shade is too short for the map and a few lines
@@ -105,6 +108,8 @@ interface Entry {
   n: number;
   arc: string;
   brief: string;
+  /** The brief's title: what the work is, in a sentence. It heads the entry everywhere. */
+  title: string;
   /** The entries that must have joined before this one is ready. */
   waits: readonly number[];
   /** What the user owes the entry. A note, never a state. */
@@ -124,18 +129,18 @@ const STEPS_SHIP = [
 ];
 
 const EIGHT: readonly Entry[] = [
-  { n: 1, arc: "liven-tooled-ground", brief: "liven-tooled-ground-spike-brief.md", waits: [], sketch: 1, steps: STEPS_SPIKE },
-  { n: 2, arc: "liven-neomod-spike", brief: "liven-neomod-spike-brief.md", waits: [], note: "Needs your mood board", sketch: 1, steps: STEPS_SPIKE },
-  { n: 3, arc: "liven-prop-rig-spike", brief: "liven-prop-rig-spike-brief.md", waits: [], sketch: 1, steps: STEPS_SPIKE },
-  { n: 4, arc: "liven-tooled-one-look", brief: "liven-tooled-one-look-brief.md", waits: [1], note: "After you approve the spike", sketch: 1, steps: STEPS_SHIP },
-  { n: 5, arc: "liven-default-style", brief: "liven-default-manner-brief.md", waits: [4], sketch: 1, steps: STEPS_SHIP },
-  { n: 6, arc: "liven-neomod-style", brief: "liven-neomod-manner-brief.md", waits: [2, 5], sketch: 1, steps: STEPS_SHIP },
-  { n: 7, arc: "liven-prop-rig", brief: "liven-prop-rig-brief.md", waits: [3, 4], sketch: 1, steps: STEPS_SHIP },
-  { n: 8, arc: "liven-rigged-cast", brief: "liven-rigged-cast-brief.md", waits: [4, 5, 7], sketch: 2, steps: STEPS_SHIP },
+  { n: 1, arc: "liven-tooled-ground", brief: "liven-tooled-ground-spike-brief.md", title: "Try the tooled ground on a sheet", waits: [], sketch: 1, steps: STEPS_SPIKE },
+  { n: 2, arc: "liven-neomod-spike", brief: "liven-neomod-spike-brief.md", title: "Try the neomod look on a sheet", waits: [], note: "Needs your mood board", sketch: 1, steps: STEPS_SPIKE },
+  { n: 3, arc: "liven-prop-rig-spike", brief: "liven-prop-rig-spike-brief.md", title: "Try a rigged prop on a sheet", waits: [], sketch: 1, steps: STEPS_SPIKE },
+  { n: 4, arc: "liven-tooled-one-look", brief: "liven-tooled-one-look-brief.md", title: "The tooled style keeps one look", waits: [1], note: "After you approve the spike", sketch: 1, steps: STEPS_SHIP },
+  { n: 5, arc: "liven-default-style", brief: "liven-default-manner-brief.md", title: "The default style borrows its roles from one table", waits: [4], sketch: 1, steps: STEPS_SHIP },
+  { n: 6, arc: "liven-neomod-style", brief: "liven-neomod-manner-brief.md", title: "Ship the neomod style on borrowed roles", waits: [2, 5], sketch: 1, steps: STEPS_SHIP },
+  { n: 7, arc: "liven-prop-rig", brief: "liven-prop-rig-brief.md", title: "Rig props on the settled edges", waits: [3, 4], sketch: 1, steps: STEPS_SHIP },
+  { n: 8, arc: "liven-rigged-cast", brief: "liven-rigged-cast-brief.md", title: "Rig the cast, one batch at a time", waits: [4, 5, 7], sketch: 2, steps: STEPS_SHIP },
 ];
 
 const ONE: readonly Entry[] = [
-  { n: 1, arc: "window-menu-sections", brief: "window-menu-sections-brief.md", waits: [], sketch: 1, steps: STEPS_SHIP },
+  { n: 1, arc: "window-menu-sections", brief: "window-menu-sections-brief.md", title: "The Window menu groups its panes in sections", waits: [], sketch: 1, steps: STEPS_SHIP },
 ];
 
 /** A cycle's sketches, in the order they were kept. */
@@ -448,14 +453,14 @@ function CycleMapView({
           const state = stateOf(entry, reading.runs);
           const done = doneOf(entry, reading.runs);
           return (
-            <TugTooltip key={node.n} content={`${entry.arc} · ${sentenceOf(entry, reading)}`}>
+            <TugTooltip key={node.n} content={`${entry.title} · ${sentenceOf(entry, reading)}`}>
               <button
                 type="button"
                 className="sp-cycle-tile"
                 data-state={state}
                 data-chosen={chosen.has(entryKey(node.n)) || undefined}
                 data-elsewhere={reading.runs.get(node.n) === "elsewhere" || undefined}
-                aria-label={`${node.n}, ${entry.arc}, ${sentenceOf(entry, reading)}`}
+                aria-label={`${node.n}, ${entry.title}, ${sentenceOf(entry, reading)}`}
                 style={{
                   left: xOf(dims, node),
                   top: dims.pad + node.row * dims.rowH,
@@ -647,9 +652,10 @@ function EntryAsset({
       <TugListRow
         selected={chosen.has(key)}
         leading={<span className="sp-cycle-number">{entry.n}</span>}
-        title={
-          <span className="sp-cycle-title">
-            <TugArcAtom name={entry.arc} />
+        title={<span className="sp-cycle-brief-title">{entry.title}</span>}
+        description={
+          <span className="sp-cycle-facts">
+            {run !== undefined ? <TugArcAtom name={entry.arc} /> : null}
             {run === "elsewhere" ? (
               <SessionChip session={OTHER} presses={presses} />
             ) : run === "here" ? (
@@ -657,10 +663,6 @@ function EntryAsset({
                 this session
               </TugLabel>
             ) : null}
-          </span>
-        }
-        description={
-          <span className="sp-cycle-facts">
             <TugAtomRef entity={{ kind: "file", path: `${ROOT}/briefs/${entry.brief}` }} />
             <Waits entry={entry} reading={reading} />
             {entry.note !== undefined && state !== "joined" ? (
@@ -742,7 +744,7 @@ function panelsFor(entry: Entry, reading: Reading): Record<"sketch" | "brief" | 
   const state = stateOf(entry, reading.runs);
   const brief: SessionArcPanel = {
     state: "done",
-    title: entry.arc.replace(/-/g, " "),
+    title: entry.title,
     detail: <TugAtomRef entity={{ kind: "file", path: `${ROOT}/briefs/${entry.brief}` }} />,
     body: (
       <div className="sp-cycle-decisions">
@@ -846,7 +848,7 @@ function ShadeFooter({ summary, presses }: { summary: Summary; presses: Presses 
         <span className="sp-cycle-footer-word">Now</span>
         {current !== null ? (
           <span className="sp-cycle-footer-what">
-            <TugArcAtom name={current.arc} />
+            <span className="sp-cycle-brief-title">{current.title}</span>
             <ArcLifecycleMark model={runningModel(current, 2).model} name={current.arc} size="rail" showWord />
           </span>
         ) : (
@@ -866,7 +868,7 @@ function ShadeFooter({ summary, presses }: { summary: Summary; presses: Presses 
         <span className="sp-cycle-footer-word">Next</span>
         {next !== null ? (
           <span className="sp-cycle-footer-what">
-            <TugArcAtom name={next.arc} />
+            <span className="sp-cycle-brief-title">{next.title}</span>
             {next.note !== undefined ? (
               <span className="sp-cycle-note">{next.note}</span>
             ) : summary.readyCount > 1 ? (
@@ -1138,6 +1140,7 @@ const SOLO: Entry = {
   n: 1,
   arc: "caret-blink-rate",
   brief: "caret-blink-rate-brief.md",
+  title: "Set the caret's blink rate",
   waits: [],
   sketch: 1,
   steps: STEPS_SHIP,
@@ -1149,9 +1152,9 @@ const SOLO_READING: Reading = { entries: [SOLO], runs: new Map<number, Run>([[1,
 /** A cycle that has come to rest: three arcs, all landed. */
 const RESTED: Reading = {
   entries: [
-    { n: 1, arc: "contrast-audit", brief: "contrast-audit-brief.md", waits: [], sketch: 1, steps: STEPS_SPIKE },
-    { n: 2, arc: "contrast-dark-ships", brief: "contrast-dark-ships-brief.md", waits: [1], sketch: 1, steps: STEPS_SHIP },
-    { n: 3, arc: "contrast-light-boats", brief: "contrast-light-boats-brief.md", waits: [1], sketch: 1, steps: STEPS_SHIP },
+    { n: 1, arc: "contrast-audit", brief: "contrast-audit-brief.md", title: "Audit contrast across the themes", waits: [], sketch: 1, steps: STEPS_SPIKE },
+    { n: 2, arc: "contrast-dark-ships", brief: "contrast-dark-ships-brief.md", title: "Bring the dark ships inside the contrast budget", waits: [1], sketch: 1, steps: STEPS_SHIP },
+    { n: 3, arc: "contrast-light-boats", brief: "contrast-light-boats-brief.md", title: "Bring the light boats inside the contrast budget", waits: [1], sketch: 1, steps: STEPS_SHIP },
   ],
   runs: new Map<number, Run>([
     [1, "joined"],
@@ -1173,8 +1176,9 @@ function CycleStrip({ reading }: { reading: Reading }): React.ReactElement {
 
 /**
  * An entry in the sidebar: one row, and the only drawing of the entry there.
- * Closed, it is the arc and one line of where it stands. Open, the same row
- * holds its session, its brief, what it waits on and its steps.
+ * Closed, it is the brief's title and one line of where it stands. Open, the
+ * same row holds its session, its arc, its brief, what it waits on and its
+ * steps.
  */
 function SidebarEntry({
   entry,
@@ -1239,7 +1243,7 @@ function SidebarEntry({
         onClick={onPress}
       >
         <span className="sp-cycle-side-content">
-          <TugArcAtom name={entry.arc} />
+          <span className="sp-cycle-brief-title">{entry.title}</span>
           {open ? null : worker}
           {waits}
           {open ? (
@@ -1260,6 +1264,11 @@ function SidebarEntry({
                 <span className="sp-cycle-side-line">Not ready. Its steps appear once it runs.</span>
               )}
               {worker}
+              {run !== undefined ? (
+                <span className="sp-cycle-side-line">
+                  <TugArcAtom name={entry.arc} />
+                </span>
+              ) : null}
               <span className="sp-cycle-side-line">
                 <TugAtomRef entity={{ kind: "file", path: `${ROOT}/briefs/${entry.brief}` }} />
               </span>

@@ -487,6 +487,16 @@
   line-height: 1.2;
 }
 
+/* An entry's headline: its brief's title, on one line. */
+.sp-cycle-brief-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--tug-font-weight-semibold);
+  color: var(--tugx-block-text-color);
+}
+
 .sp-cycle-title {
   display: inline-flex;
   flex-wrap: wrap;
