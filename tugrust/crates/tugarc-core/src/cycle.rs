@@ -174,6 +174,7 @@ pub fn rename_cycle(
     if name.is_empty() {
         return Err(ArcError::Refused("a cycle needs a name".into()));
     }
+    let _held = hold_cycle(paths, repo, id)?;
     let mut record = load(paths, repo, id)?;
     record.name = name.to_string();
     save(&mut record)?;
@@ -303,6 +304,7 @@ fn normal_brief(brief: &str) -> &str {
 /// remember it. A wait can only name an entry already there, so a new entry
 /// cannot close a loop; the whole graph is checked all the same.
 pub fn add_entry(paths: &Paths, repo: &Path, id: &str, entry: NewEntry) -> Result<u32, ArcError> {
+    let _held = hold_cycle(paths, repo, id)?;
     let mut record = load(paths, repo, id)?;
     let brief = relative_brief(&entry.brief)?;
     let n = record.entries.iter().map(|e| e.n).max().unwrap_or(0) + 1;
@@ -369,6 +371,7 @@ pub fn add_from(
     n: u32,
     letters: Vec<String>,
 ) -> Result<Vec<String>, ArcError> {
+    let _held = hold_cycle(paths, repo, id)?;
     let mut record = load(paths, repo, id)?;
     if letters.iter().all(|l| l.trim().is_empty()) {
         return Err(ArcError::Refused(
@@ -452,6 +455,7 @@ pub fn add_sketch(
     sketch_id: &str,
     brief: Option<&str>,
 ) -> Result<String, ArcError> {
+    let _held = hold_cycle(paths, repo, id)?;
     let mut record = load(paths, repo, id)?;
     let brief = brief.map(relative_brief).transpose()?;
     if let Some(at) = record.sketches.iter().position(|s| s.id == sketch_id) {
@@ -507,6 +511,7 @@ pub fn attach(
     arc: &str,
 ) -> Result<CycleArc, ArcError> {
     validate_arc_name(arc).map_err(ArcError::InvalidName)?;
+    let _held = hold_cycle(paths, repo, id)?;
     let mut record = load(paths, repo, id)?;
     let log_path = tugtool_core::paths::arc_log_path_at(paths, repo);
     let log = fs::read_to_string(&log_path).unwrap_or_default();
@@ -585,6 +590,7 @@ pub fn drop_item(
     id: &str,
     item: &str,
 ) -> Result<DroppedItem, ArcError> {
+    let _held = hold_cycle(paths, repo, id)?;
     let mut record = load(paths, repo, id)?;
     let item = item.trim();
     if let Ok(n) = item.parse::<u32>() {
@@ -1178,6 +1184,43 @@ pub fn view_cycle_in(log: &str, record: &CycleRecord) -> CycleView {
     }
 }
 
+/// The file a writer locks for the length of one read, change and write.
+const CYCLE_LOCK: &str = "cycle.json.lock";
+
+/// Hold cycle `id` against every other writer until the returned file drops.
+///
+/// Each verb that changes a record reads it, changes it and writes it whole,
+/// and the write replaces the file, so two writers that both read before
+/// either wrote would leave only the second one's change. The `/arc` door in
+/// two sessions can do that, and so can anything else that keeps a cycle. The
+/// lock is on a sibling file, never on `cycle.json` itself, because the write
+/// renames a new file into place and a lock on the old one would guard
+/// nothing. A cycle that is not here is not locked; `load` refuses it next.
+fn hold_cycle(paths: &Paths, repo: &Path, id: &str) -> Result<Option<fs::File>, ArcError> {
+    use std::os::fd::AsRawFd;
+    let dir = cycle_root(paths, repo).join(id);
+    if !valid_id(id) || !dir.is_dir() {
+        return Ok(None);
+    }
+    let path = dir.join(CYCLE_LOCK);
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+        .map_err(|e| ArcError::io("could not open the cycle's lock", &path, e))?;
+    // SAFETY: `flock` takes the descriptor of a file this function owns and
+    // keeps open; the kernel releases the lock when the file is closed.
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
+        return Err(ArcError::io(
+            "could not lock the cycle",
+            &path,
+            std::io::Error::last_os_error(),
+        ));
+    }
+    Ok(Some(file))
+}
+
 /// This checkout's cycle `id`; refused when it is not here.
 fn load(paths: &Paths, repo: &Path, id: &str) -> Result<CycleRecord, ArcError> {
     if !valid_id(id) {
@@ -1476,6 +1519,24 @@ mod tests {
         assert_eq!(again.created.as_deref(), Some("2026-11-02T00:00:00Z"));
         let record = &find_cycle(&paths, &id)[0].1;
         assert_eq!(record.entry(1).unwrap().arc.as_ref(), Some(&again));
+    }
+
+    #[test]
+    fn writers_at_once_each_keep_their_change() {
+        let (_t, repo, paths) = scratch();
+        let id = sketched(&paths, &repo, "C");
+        std::thread::scope(|scope| {
+            for i in 0..8 {
+                let (paths, repo, id) = (&paths, &repo, &id);
+                scope.spawn(move || {
+                    add_entry(paths, repo, id, entry(&format!("briefs/{i}.md"), &[])).unwrap();
+                });
+            }
+        });
+        let record = cycles(&paths, &repo).remove(0);
+        let mut numbers: Vec<u32> = record.entries.iter().map(|e| e.n).collect();
+        numbers.sort_unstable();
+        assert_eq!(numbers, (1..=8).collect::<Vec<u32>>(), "no writer's entry was lost");
     }
 
     #[test]

@@ -199,6 +199,80 @@ const SKETCHES: readonly CycleSketchWire[] = [
   },
 ];
 
+/** The turn of the steward's session in which each brief's arcs were first listed. */
+const LISTED_AT: Record<BriefKey, number> = { animals: 11, cast: 10, flora: 13, round: 0 };
+
+/** One place a sketch was written from: a turn of a session, and what was said there. */
+interface Source {
+  session: string;
+  turn: number;
+  said: string;
+}
+
+/**
+ * Where each sketch came from. `filled` is a sketch the keeper wrote after
+ * the fact, from the turns that settled the work, because none was recorded
+ * when the work was conceived.
+ */
+const SOURCES: Record<string, { filled: boolean; sources: readonly Source[] }> = {
+  A: {
+    filled: true,
+    sources: [
+      {
+        session: STEWARD,
+        turn: 1,
+        said: "Rig before inventory. Then the 100 new subjects are added rigged from the start, tech first.",
+      },
+      {
+        session: STEWARD,
+        turn: 10,
+        said: "The hundred are cut into twelve batches, one arc each, from Conversation to People.",
+      },
+      {
+        session: STEWARD,
+        turn: 13,
+        said: "Two animal arcs go first and two plant arcs go last, so the run is fifteen arcs.",
+      },
+    ],
+  },
+  B: {
+    filled: false,
+    sources: [
+      {
+        session: REVIEW_B,
+        turn: 1,
+        said: "The people and animals read as three casts. Redraw them as one across the three manners.",
+      },
+      {
+        session: STEWARD,
+        turn: 21,
+        said: "The review rounds' lessons are written into the briefs ahead before the next batch opens.",
+      },
+    ],
+  },
+};
+
+/** One thing the keeper did to the cycle, and the evidence it acted on. */
+interface Act {
+  what: string;
+  session: string;
+  /** The turn it read, or null when the evidence was a join. */
+  turn: number | null;
+}
+
+const ACTS_BEFORE: readonly Act[] = [
+  { what: "Put Rig fixes and People and animals round where they landed, on no list", session: REVIEW_B, turn: null },
+  { what: "Added Trees and Flowers to the end of the run", session: STEWARD, turn: 13 },
+  { what: "Took Birds off the queue, since it had landed", session: STEWARD, turn: 13 },
+  { what: "Wrote sketch A from the turns that settled the hundred members", session: STEWARD, turn: 10 },
+];
+
+const ACTS_AFTER: readonly Act[] = [
+  { what: "Read the list again: no arc added, removed or moved", session: STEWARD, turn: 21 },
+  { what: "Added turn 21 to sketch B's sources", session: STEWARD, turn: 21 },
+  ...ACTS_BEFORE,
+];
+
 const STEPS = [
   "Write down each member's naming feature",
   "Draw the batch in Default",
@@ -328,6 +402,7 @@ interface Presses {
   start: (item: Item, where: "here" | "new") => void;
   ask: () => void;
   goTo: (session: string) => void;
+  turn: (session: string, turn: number) => void;
 }
 
 const NO_ROWS = new Map<string, never>();
@@ -373,19 +448,18 @@ function WrappedMap({
 }): React.ReactElement {
   const seals = useMemo(() => cycleMapSketches(cycle), [cycle]);
   const rows = useMemo(() => {
+    const byN = new Map(tiles.map((t) => [t.n, t]));
     const out: CycleMapTile[][] = [];
     for (let i = 0; i < tiles.length; i += MAP_ROW) {
       const slice = tiles.slice(i, i + MAP_ROW);
       const here = new Set(slice.map((t) => t.n));
-      out.push(
-        i === 0
-          ? slice
-          : slice.map((t) => ({
-              ...t,
-              waits: t.waits.filter((w) => here.has(w)),
-              from: t.waits.length === 0 ? t.from : [],
-            })),
-      );
+      // A later row opens with the tile its run continues from, drawn again,
+      // so the wire into the row is the real one and the row is grounded.
+      const carried = [...new Set(slice.flatMap((t) => t.waits).filter((w) => !here.has(w)))]
+        .map((w) => byN.get(w))
+        .filter((t): t is CycleMapTile => t !== undefined)
+        .map((t) => ({ ...t, waits: [], from: [] }));
+      out.push([...carried, ...slice.map((t) => (i === 0 || t.waits.length === 0 ? t : { ...t, from: [] }))]);
     }
     return out;
   }, [tiles]);
@@ -469,19 +543,25 @@ function StartButtons({ item, presses }: { item: Item; presses: Presses }): Reac
   );
 }
 
-/** The shipped sketch row, unchanged. */
+/**
+ * The shipped sketch row, with one change: open, it says where it was written
+ * from, as the turns of the sessions that settled the work.
+ */
 function SketchAsset({
   sketch,
   heads,
   selected,
   onChoose,
+  presses,
 }: {
   sketch: CycleSketchWire;
   heads: readonly number[];
   selected: boolean;
   onChoose: (key: string) => void;
+  presses: Presses;
 }): React.ReactElement {
   const key = sketchKey(sketch.letter);
+  const origin = SOURCES[sketch.letter];
   return (
     <div
       className="session-cycle-shade-asset"
@@ -514,7 +594,37 @@ function SketchAsset({
         trailingReveal="always"
         onClick={() => onChoose(key)}
       />
-      {selected ? <div className="session-cycle-shade-sketch-body">{recordBody(sketch.text ?? "")}</div> : null}
+      {selected ? (
+        <div className="session-cycle-shade-sketch-body">
+          {recordBody(sketch.text ?? "")}
+          {origin !== undefined ? (
+            <div className="sp-prog-sources">
+              <div className="sp-prog-sources-head">
+                <span>Written from</span>
+                {origin.filled ? (
+                  <TugBadge size="xs" emphasis="ghost" role="agent">
+                    Filled in by the keeper
+                  </TugBadge>
+                ) : null}
+              </div>
+              {origin.sources.map((source) => (
+                <div key={`${source.session}-${source.turn}`} className="sp-prog-source">
+                  <SessionChip session={source.session} presses={presses} />
+                  <TugPushButton
+                    size="2xs"
+                    subtype="text"
+                    emphasis="ghost"
+                    onClick={() => presses.turn(source.session, source.turn)}
+                  >
+                    {`Turn ${source.turn}`}
+                  </TugPushButton>
+                  <span className="session-cycle-shade-quiet">{source.said}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -585,6 +695,25 @@ function EntryAsset({
                   {state === "waiting" ? (
                     <span className="session-cycle-shade-quiet">{read.sentence}</span>
                   ) : null}
+                  <span className="session-cycle-shade-waits">
+                    <span>From</span>
+                    <span className="session-cycle-shade-wait" data-met>
+                      {item.from}
+                    </span>
+                  </span>
+                  {item.listed ? (
+                    <TugPushButton
+                      size="2xs"
+                      subtype="text"
+                      emphasis="ghost"
+                      onClick={(e) => {
+                        e?.stopPropagation();
+                        presses.turn(STEWARD, LISTED_AT[item.brief]);
+                      }}
+                    >
+                      {`Listed in turn ${LISTED_AT[item.brief]}`}
+                    </TugPushButton>
+                  ) : null}
                 </>
               ) : null}
             </span>
@@ -652,6 +781,69 @@ function LandedFold({
         trailingReveal="always"
         onClick={onOpen}
       />
+    </div>
+  );
+}
+
+/** What the keeper did to this cycle, newest first, each with the evidence it acted on. */
+function KeeperAsset({
+  acts,
+  open,
+  onToggle,
+  presses,
+}: {
+  acts: readonly Act[];
+  open: boolean;
+  onToggle: () => void;
+  presses: Presses;
+}): React.ReactElement {
+  return (
+    <div className="session-cycle-shade-asset" data-kind="keeper" data-open={open || undefined}>
+      <TugListRow
+        selected={open}
+        leading={
+          <span className="session-cycle-shade-number">
+            <ChevronRight size={16} aria-hidden />
+          </span>
+        }
+        title={
+          <span className="session-cycle-shade-title">
+            <span className="session-cycle-shade-headline">Kept by the keeper</span>
+            <span className="session-cycle-shade-quiet sp-prog-of">{acts[0]?.what ?? ""}</span>
+          </span>
+        }
+        trailing={
+          <span className="session-cycle-shade-trailing">
+            <TugBadge size="xs" emphasis="ghost" role="agent">
+              {`${acts.length} changes`}
+            </TugBadge>
+          </span>
+        }
+        trailingReveal="always"
+        onClick={onToggle}
+      />
+      {open ? (
+        <div className="sp-prog-sources sp-prog-acts">
+          {acts.map((act) => (
+            <div key={act.what} className="sp-prog-source">
+              <span>{act.what}</span>
+              <SessionChip session={act.session} presses={presses} />
+              {act.turn !== null ? (
+                <TugPushButton
+                  size="2xs"
+                  subtype="text"
+                  emphasis="ghost"
+                  onClick={() => presses.turn(act.session, act.turn ?? 0)}
+                >
+                  {`Turn ${act.turn}`}
+                </TugPushButton>
+              ) : (
+                <span className="session-cycle-shade-quiet">on its join</span>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -777,6 +969,7 @@ function EvolvedShade({
 
   const [chosen, setChosen] = useState<ReadonlySet<string>>(NO_PICKS);
   const [unfolded, setUnfolded] = useState(false);
+  const [keeperOpen, setKeeperOpen] = useState(false);
   const view = cycleListView(keys, chosen);
   const listRef = useRef<HTMLDivElement | null>(null);
   const scrollOwed = useRef(false);
@@ -872,9 +1065,18 @@ function EvolvedShade({
               heads={headsOf(sketch.letter, sources)}
               selected={chosen.has(key)}
               onChoose={chooseRow}
+              presses={presses}
             />
           ) : null;
         })}
+        {captured && !view.narrowed ? (
+          <KeeperAsset
+            acts={moment.revised === null ? ACTS_BEFORE : ACTS_AFTER}
+            open={keeperOpen}
+            onToggle={() => setKeeperOpen((was) => !was)}
+            presses={presses}
+          />
+        ) : null}
       </div>
       <Footer reads={reads} items={items} cycle={cycle} moment={moment} captured={captured} presses={presses} />
     </div>
@@ -940,6 +1142,8 @@ function SpikeCycleProgression(): React.ReactElement {
           "Ask to review: a request naming the arcs landed since the list was stated, and the briefs still ahead, is in this card's prompt, unsent",
         ),
       goTo: (session) => setLast(`Session chip pressed: the card of liven/${TAGS[session] ?? session} comes forward`),
+      turn: (session, turn) =>
+        setLast(`Turn pressed: the card of liven/${TAGS[session] ?? session} comes forward, scrolled to turn ${turn}`),
     }),
     [],
   );

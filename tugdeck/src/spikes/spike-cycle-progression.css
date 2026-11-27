@@ -71,3 +71,40 @@
   font-family: var(--tug-font-family-mono);
   padding-bottom: var(--tug-space-xs);
 }
+
+/* Where a sketch was written from, and what the keeper did: one line each,
+   a session, a turn and what was said or done there. */
+.sp-prog-sources {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+  margin-top: var(--tug-space-sm);
+  padding-top: var(--tug-space-sm);
+  border-top: 1px solid var(--tugx-block-hairline);
+  font-size: var(--tug-font-size-sm);
+}
+
+.sp-prog-acts {
+  margin-top: 0;
+  padding: 0 var(--tug-space-md) var(--tug-space-sm) calc(var(--tug-space-lg) + 3em);
+  border-top: none;
+}
+
+.sp-prog-sources-head {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  font-size: var(--tug-font-size-2xs);
+  font-weight: var(--tug-font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tug7-element-field-text-normal-label-rest);
+}
+
+.sp-prog-source {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--tug-space-sm);
+  row-gap: var(--tug-space-2xs);
+}
