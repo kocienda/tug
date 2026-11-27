@@ -132,7 +132,7 @@ import {
   arcCellWord,
 } from "@/components/tugways/tug-arc-track";
 import { useArcForSession } from "@/lib/arc-session-index";
-import { CYCLE_CELL_WIDEST_FRACTION, cycleCellReading } from "./session-cycle-shade-model";
+import { CYCLE_ARC_JOINER, CYCLE_CELL_WIDEST_FRACTION, cycleCellReading } from "./session-cycle-shade-model";
 import { useSessionCycle } from "./use-session-cycle";
 import { arcCellReadingWord, reauditCellReading } from "@/lib/reaudit-row";
 import { useSessionGaps } from "@/lib/report-gaps-store";
@@ -1224,9 +1224,9 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // The fourth cell is labelled CYCLE:ARC, always, and its value is written
   // the way the label is: the cycle's entries landed over its entries, a
   // colon, and this session's arc's reading, its steps done over its steps or
-  // its stage's word when it is not walking steps, as `0/3:2/5`. A cycle of
+  // its stage's word when it is not walking steps, as `0/3 : 2/5`. A cycle of
   // one reads 0/1 or 1/1 like any other. A session with a cycle and no arc
-  // holds the arc's place with a dash, `1/1:—`, so the colon always says
+  // holds the arc's place with a dash, `1/1 : —`, so the colon always says
   // which half is which. One with an arc and no cycle shows the arc's reading
   // alone, and one with neither a dimmed `None`. The dots beside the readings
   // are always the state of this session's own arc.
@@ -1920,12 +1920,12 @@ export const SessionTelemetryStatusRow = React.forwardRef<
               data-widest={
                 cycleReading === null
                   ? ARC_CELL_WIDEST_WORD
-                  : `${CYCLE_CELL_WIDEST_FRACTION}:${ARC_CELL_WIDEST_WORD}`
+                  : `${CYCLE_CELL_WIDEST_FRACTION}${CYCLE_ARC_JOINER}${ARC_CELL_WIDEST_WORD}`
               }
               data-widest-alt={
                 cycleReading === null
                   ? ARC_CELL_WIDEST_FRACTION
-                  : `${CYCLE_CELL_WIDEST_FRACTION}:${ARC_CELL_WIDEST_FRACTION}`
+                  : `${CYCLE_CELL_WIDEST_FRACTION}${CYCLE_ARC_JOINER}${ARC_CELL_WIDEST_FRACTION}`
               }
             >
               {cycleReading === null ? (
@@ -1938,7 +1938,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
                 <span className="session-telemetry-cycle-arc-pair">
                   <span data-slot="session-telemetry-cycle-fraction">{cycleReading.text}</span>
                   <span className="session-telemetry-cycle-arc-colon" aria-hidden>
-                    :
+                    {CYCLE_ARC_JOINER}
                   </span>
                   <span data-slot="session-telemetry-arc-reading">
                     {arcReading !== "" ? arcReading : "—"}

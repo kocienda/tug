@@ -387,6 +387,14 @@ export interface CycleCellReading {
  */
 export const CYCLE_CELL_WIDEST_FRACTION = "0/0";
 
+/**
+ * What joins the cell's two readings, as `0/3 : 2/5`: a colon with a
+ * non-breaking space on each side. Ordinary spaces would be trimmed, since
+ * the colon sits in its own flex item; the sizing faces use the same joiner
+ * so the box matches what is drawn.
+ */
+export const CYCLE_ARC_JOINER = "\u00a0:\u00a0";
+
 /** The cycle's fraction for the cycle a card shows, or null with no cycle. */
 export function cycleCellReading(cycle: CycleWire | null): CycleCellReading | null {
   if (cycle === null || cycle.entries.length === 0) return null;

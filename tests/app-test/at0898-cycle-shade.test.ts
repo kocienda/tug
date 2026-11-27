@@ -260,7 +260,7 @@ describe.skipIf(!SHOULD_RUN)("AT0898: the cycle shade and the CYCLE cell", () =>
                label: (cell.querySelector(".session-telemetry-endcap-label")?.textContent ?? "").trim(),
                cycle: (value?.querySelector('[data-slot="session-telemetry-cycle-fraction"]')?.textContent ?? "").trim(),
                arc: (value?.querySelector('[data-slot="session-telemetry-arc-reading"]')?.textContent ?? "").trim(),
-               text: (pair?.textContent ?? "").replace(/\\s+/g, ""),
+               text: (pair?.textContent ?? "").replace(/\\s+/g, " ").trim(),
                aria: value?.getAttribute("aria-label") ?? null,
                pairRight: pair?.getBoundingClientRect().right ?? Infinity,
                cellRight: cell.getBoundingClientRect().right,
@@ -271,7 +271,7 @@ describe.skipIf(!SHOULD_RUN)("AT0898: the cycle shade and the CYCLE cell", () =>
         expect(cell.label, "the cell is labelled CYCLE:ARC").toBe("CYCLE:ARC");
         expect(cell.cycle, "its first reading is landed of total").toBe("0/3");
         expect(cell.arc, "and its second is the bound arc's own reading").not.toBe("");
-        expect(cell.text, "the two are written as the label is, joined by a colon").toBe(`0/3:${cell.arc}`);
+        expect(cell.text, "the two are written as the label is, joined by a spaced colon").toBe(`0/3 : ${cell.arc}`);
         expect(cell.pairRight, "both readings stay inside the cell").toBeLessThanOrEqual(cell.cellRight + 0.5);
         expect(cell.aria, "its accessible label names the cycle").toContain(CYCLE_NAME);
         expect(cell.aria, "and how much has landed").toContain("0 of 3 landed");

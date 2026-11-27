@@ -384,8 +384,9 @@
 
 /* The CYCLE:ARC cell's two readings, the cycle's fraction and then the
    arc's, joined by a colon in one row inside the value's column of sizing
-   faces, as the label joins its two words. Nothing separates them but the
-   colon, which is what the sizing faces declare between the two. */
+   faces, as the label joins its two words. The colon carries a
+   non-breaking space on each side (a flex item trims ordinary ones), and the
+   sizing faces declare the same joiner between the two. */
 .session-telemetry-cycle-arc-pair {
   display: inline-flex;
   align-items: baseline;
