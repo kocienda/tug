@@ -525,8 +525,8 @@ export interface MenuStateSessionBlock {
    */
   hasCustomName: boolean;
   /**
-   * The bound session is working on an arc. Gates Session ▸ New Arc, since a
-   * session holds one arc at a time.
+   * The bound session is working on an arc. No menu item reads it yet: there
+   * is no control that starts an arc.
    */
   hasArc: boolean;
 }

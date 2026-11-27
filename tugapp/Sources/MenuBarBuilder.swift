@@ -604,10 +604,6 @@ struct MenuBarBuilder {
         configureMenu.addItem(sessionCommandItem("Memory…", "memory", "session.memory"))
         sessionMenu.addItem(configureItem)
         sessionMenu.addItem(NSMenuItem.separator())
-        // New Arc runs `/arc` in this session; the registry gate dims it when
-        // the session has an arc, while a turn runs, and with no session. It
-        // carries no chord.
-        sessionMenu.addItem(sessionCommandItem("New Arc", "new-arc", "session.newArc"))
         sessionMenu.addItem(sessionCommandItem("Visualize Data…", "visualize-data", "session.visualizeData"))
         sessionMenu.addItem(sessionCommandItem("Explain Code…", "explain-code", "session.explainCode"))
 

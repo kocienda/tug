@@ -348,9 +348,6 @@ import {
 } from "../tug-pane-bulletin";
 import { lastAssistantCopyText } from "@/lib/turn-entry-markdown";
 import { compactionOutcome, compactionProgressStore } from "@/lib/compaction-progress-store";
-import { arcForSessionNow } from "@/lib/arc-session-index";
-import { openingCommandPayload } from "@/lib/opening-command-runner";
-import { logSessionLifecycle } from "@/lib/session-lifecycle-log";
 import { useCompactionRun } from "./session-compaction-run";
 import { MODAL_REST_LINE } from "./modal-rest-line";
 import "./session-card.css";
@@ -4327,26 +4324,6 @@ export function SessionCardBody({
     })();
   };
 
-  // New Arc ([B01]): send `/arc` as a turn in this session, the same bytes a
-  // typed `/arc` sends. The door names the arc and settles its brief, so
-  // nothing exists at the press. It runs only where the menu gate and the
-  // shade's button would let it: the session can take a turn and has no arc.
-  const startNewArc = (): void => {
-    const session = codeSessionStore.getSnapshot();
-    if (!session.canSubmit) return;
-    if (arcForSessionNow(session.tugSessionId) !== null) return;
-    const catalog = sessionMetadataStore.getSnapshot().slashCommands.map((c) => c.name);
-    const payload = openingCommandPayload({ name: "arc", args: "" }, catalog);
-    logSessionLifecycle("new_arc.sent", { card_id: cardId, name: payload.atoms[0]?.value });
-    codeSessionStore.send(payload.text, payload.atoms);
-  };
-
-  // The menu doors with no typed spelling: reachable from a menu item or a
-  // control in the card, never from the composer's command list.
-  const menuOnlySurfaces: Record<string, (args: string, draft?: SlashCommandDraft) => void> = {
-    "new-arc": () => startNewArc(),
-  };
-
   const slashCommandSurfaces: Record<
     LocalCommandName,
     (args: string, draft?: SlashCommandDraft) => void
@@ -5226,7 +5203,7 @@ export function SessionCardBody({
         type Surface = (args: string, draft?: SlashCommandDraft) => void;
         const open = (slashCommandSurfaces as Partial<Record<string, Surface>>)[
           payload.name
-        ] ?? menuOnlySurfaces[payload.name];
+        ];
         if (open !== undefined) open(payload.args, payload.draft);
       },
       // Seed the corresponding command chip at the head of the prompt

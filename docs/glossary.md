@@ -76,7 +76,7 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Discard.** End an arc without landing it. The worktree's uncommitted work is returned to the base first, the branch and worktree are removed, and the arc's documents are kept so you can come back to the decisions. Click **Discard** on the arc's row in the Arcs sidebar, or in the Changes tab of the card that holds it. A discard can be undone.
 
-**Door.** The one skill that opens the arc lane, `/arc`. It sharpens the conversation into a *brief* (or takes one you hand it), decides the arc's *kind* from the work, says which shape it chose and why, hands the brief to the *wheel*, and ends the turn. The door creates no worktree, commits nothing and joins nothing. *New Arc* opens it without typing.
+**Door.** The one skill that opens the arc lane, `/arc`. It sharpens the conversation into a *brief* (or takes one you hand it), decides the arc's *kind* from the work, says which shape it chose and why, hands the brief to the *wheel*, and ends the turn. The door creates no worktree, commits nothing and joins nothing.
 
 **Dot.** See *pulsing dot*.
 
@@ -131,8 +131,6 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 **Masthead.** The strip across the top of every card that names it and carries its controls. A session card's masthead carries the *pulsing dot*, the session's name, its *address* badges, a live activity *sparkline*, and two lines of narration from the *Observer*: what the session is working on and what it is doing right now.
 
 **Mention.** A file, a session or a commit put into a prompt by typing `@` and picking it from the list. `@@` narrows the list to sessions and `@#` to commits. The pick lands as an *atom*, and a session's becomes a *session reference*.
-
-**New Arc.** The *door* as a control: a button in the arc shade of a session with no arc, and Session > New Arc. It sends `/arc` as a turn in the session you are in, so the door takes up the conversation so far. Dimmed while a turn is running; the menu item is also dimmed when the session has an arc or the card has no session.
 
 **Observer.** The narrator behind the *Overview*. It digests what each session is doing into sentences as it goes and writes the two narration lines in each masthead. It only narrates; questions go to the *Operator*.
 

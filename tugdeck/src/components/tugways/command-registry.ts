@@ -145,7 +145,7 @@ export interface CommandMenuFacts {
     readonly commitReady: boolean;
     /** The bound session carries a user-set name — there is one to clear. */
     readonly hasCustomName: boolean;
-    /** The bound session is working on an arc, so there is none to start. */
+    /** The bound session is working on an arc. No command reads it yet. */
     readonly hasArc: boolean;
   } | null;
   /**
@@ -780,15 +780,6 @@ const SLASH_BRIDGES: readonly SlashBridge[] = [
   ["memory", "Memory…", "session.memory"],
   ["visualize-data", "Visualize Data…", "session.visualizeData"],
   ["explain-code", "Explain Code…", "session.explainCode"],
-  // Starts an arc in this session by sending `/arc` as a turn, so it needs a
-  // session that can take a turn and has no arc already. The name is a menu
-  // door only: there is no typed `/new-arc`, because `/arc` is the command.
-  [
-    "new-arc",
-    "New Arc",
-    "session.newArc",
-    (chain) => sessionSettingsChangeable(chain) && !(chain.menu.session?.hasArc ?? false),
-  ],
   // The shortcuts sheet is card documentation, not session work.
   [
     "help",

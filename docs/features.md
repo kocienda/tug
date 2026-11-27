@@ -217,7 +217,7 @@ A big change with AI goes wrong in a familiar way: the model works on your check
 
 ### Opening an arc
 
-An arc begins as an idea typed into a session. Talk it over with the model until the shape is settled; that converged shape is a **sketch** and lives only in the conversation. When it is settled, `/tugplug:brief` writes it down as a **brief**, a short record of what was found and what was decided. Then `/arc` is the one door, typed or reached by **New Arc**, a button in the arc shade of a session with no arc and an item in the Session menu. It takes the brief, or writes one from the conversation, decides whether the work earns a written plan first, says which shape it chose and why, and hands the arc to the app.
+An arc begins as an idea typed into a session. Talk it over with the model until the shape is settled; that converged shape is a **sketch** and lives only in the conversation. When it is settled, `/tugplug:brief` writes it down as a **brief**, a short record of what was found and what was decided. Then `/arc` is the one door, and it is typed: no button or menu item starts an arc. It takes the brief, or writes one from the conversation, decides whether the work earns a written plan first, says which shape it chose and why, and hands the arc to the app.
 
 There are two **kinds** of arc, and the axis between them is settling time, not size:
 
@@ -273,7 +273,7 @@ The Sketch panel is shown whole, with no cap on its lines. At rest Brief and Arc
 
 The Arc panel's verbs are the ones the Arcs sidebar offers for the same arc, on one row under its steps. The first carries its word and the rest are icons, each named by its tooltip. The first is the arc's next move: Start, Stop while a stage is working, Resume after a stop, or Join once the audit has marked it. **Changes** lowers the shade and opens the Changes shade on the arc's row. **Unbind** releases the arc from this session and leaves the arc as it is. **Replay** replays the arc's commits onto the current main. **Discard** ends the arc without landing it, after a confirmation on the panel.
 
-With no arc, the shade is as tall as a few lines: it says what an arc is, offers **New Arc**, and links here. New Arc runs `/arc` in this session, so talk the change over first; it is dimmed while a turn is running. Under it the shade lists the project's arcs that no session is working, each with **Bind**, which binds this session to that arc and shows its panels.
+With no arc, the shade is as tall as a few lines: it says what an arc is, names the command that starts one, `/arc`, and links here. It has no button that starts an arc or binds one.
 
 ### Arcs from the command line
 

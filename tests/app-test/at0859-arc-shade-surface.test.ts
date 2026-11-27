@@ -283,15 +283,6 @@ describe.skipIf(!SHOULD_RUN)("AT0859: the arc shade over the transcript", () => 
           `document.querySelector(${JSON.stringify(`${SHADE} [data-slot="session-arc-panels"]`)}) !== null`,
           { timeoutMs: 30_000 },
         );
-        // A session holds one arc, so Session ▸ New Arc is dimmed now.
-        const deadline = Date.now() + 8_000;
-        let newArc = await app.menuItemState("session.newArc");
-        while (newArc.found && newArc.enabled !== false && Date.now() < deadline) {
-          await new Promise((r) => setTimeout(r, 100));
-          newArc = await app.menuItemState("session.newArc");
-        }
-        expect(newArc.found, "the Session menu holds New Arc").toBe(true);
-        expect(newArc.found ? newArc.enabled : undefined, "New Arc is dimmed once the session has an arc").toBe(false);
         await app.dispatchControlAction("toggle-arc-shade");
         const full = await settled(app, true);
         note("at0859 with an arc raised", JSON.stringify(full));

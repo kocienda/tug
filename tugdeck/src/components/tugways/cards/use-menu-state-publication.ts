@@ -130,8 +130,8 @@ export function useMenuStatePublication(
             sessionNameStore.getName(binding.tugSessionId) !== null
           );
         })(),
-        // The session is working on an arc, so New Arc has nothing to start.
-        // The same lookup the arc shade and the ARC cell read.
+        // The session is working on an arc: the same lookup the arc shade and
+        // the ARC cell read.
         hasArc: arcForSessionNow(snap.tugSessionId) !== null,
         ...cachedFacts,
       });

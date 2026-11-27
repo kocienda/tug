@@ -408,7 +408,6 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `session.insertFile` | `insert-file` | first responder | registry gate |
 | `session.memory` | `run-slash-command:memory` | key card | registry gate |
 | `session.new` | `run-slash-command:clear` | key card | registry gate |
-| `session.newArc` | `run-slash-command:new-arc` | key card | registry gate |
 | `session.permissionMode.cycle` | `cycle-permission-mode` | key card | registry gate |
 | `session.permissionRules` | `run-slash-command:permissions` | key card | registry gate |
 | `session.rename` | `run-slash-command:rename` | key card | registry gate |
