@@ -10,8 +10,12 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  ARC_ASK_KEEP_STOPPED,
+  ARC_ASK_REPLY,
   ARC_FINISH_SLOT,
   ARC_RESUME_OFFER_TITLE,
+  arcReceiptNote,
+  arcStopOffer,
   arcQuietNote,
   ARC_NOTE_SLOT,
   arcReceiptFindParts,
@@ -51,8 +55,8 @@ const TERMINAL = [
 
 /**
  * A `NeedsDecision` stop: the stage's own question, written as the record's
- * last note and read back beneath the header. It is the row's tail, and it is
- * why that stop needs no answer affordance of its own.
+ * last note and read back beneath the header. Written before choices were,
+ * so it carries none and its dialog offers Reply, Resume and Keep Stopped.
  */
 const ASKED = [
   "arc stopped · foo · in implement — it met a decision that is yours to make, so it stopped rather than asking",
@@ -133,6 +137,7 @@ describe("parsing a stopped arc", () => {
       stage: "review",
       reason: "the review ended without stamping the plan",
       said: null,
+      choices: [],
       terminal: false,
     });
     // The stages it did walk are still the record, and still parsed.
@@ -227,6 +232,74 @@ describe("offering the resume", () => {
     // older "Pick this arc back up" made the reader translate the title into
     // the `Resume` button before pressing it.
     expect(ARC_RESUME_OFFER_TITLE).toBe("Resume this arc");
+  });
+});
+
+/** An ask whose stage named its answers: one `choice · ` line each. */
+const ASKED_WITH_CHOICES = [
+  ASKED,
+  "choice · yes, by locale",
+  "choice · no, one key",
+].join("\n");
+
+/**
+ * The ask's own offer ([B02], [B03], [B07], [B09]), [B10]'s tone and note,
+ * and the plain stop left as it was. The presses are driven against a real
+ * card by the app-tests; this is the shape each receipt reads as.
+ */
+describe("an ask is a question with its answers", () => {
+  it("offers the question with its choices, and no bare Resume", () => {
+    expect(arcStopOffer(parseArcReceipt(ASKED_WITH_CHOICES)!, undefined)).toEqual({
+      kind: "ask",
+      question: "Should the cache key include the locale?",
+      caption: "the implement stage asks",
+      choices: ["yes, by locale", "no, one key"],
+      resume: false,
+    });
+  });
+
+  it("offers a bare Resume on an ask with no choices, as every older ask is", () => {
+    const offer = arcStopOffer(parseArcReceipt(ASKED)!, undefined);
+    expect(offer).toEqual({
+      kind: "ask",
+      question: "Should the cache key include the locale?",
+      caption: "the implement stage asks",
+      choices: [],
+      resume: true,
+    });
+  });
+
+  it("keeps the one Resume on every other stop", () => {
+    expect(arcStopOffer(parseArcReceipt(STOPPED)!, undefined)).toEqual({ kind: "resume" });
+  });
+
+  it("offers nothing once a later row answered the ask", () => {
+    expect(arcStopOffer(parseArcReceipt(ASKED_WITH_CHOICES)!, true)).toBeNull();
+    expect(arcStopOffer(parseArcReceipt(TERMINAL)!, undefined)).toBeNull();
+  });
+
+  it("wears the awaiting tone and reads Asked, never an error", () => {
+    const asked = parseArcReceipt(ASKED)!;
+    expect(arcReceiptPhase(asked, false)).toBe("awaiting");
+    expect(arcReceiptPhase(asked, true)).toBe("idle");
+    expect(arcReceiptNote(asked)).toBe("Asked · implement");
+    expect(arcReceiptNote(parseArcReceipt(STOPPED)!)).toBe(
+      "Stopped · the review ended without stamping the plan",
+    );
+  });
+
+  it("projects the word its header paints and the question its title paints", () => {
+    const parts = arcReceiptFindParts(message(ASKED_WITH_CHOICES))!;
+    expect(parts).toContain("Asked");
+    expect(parts).toContain("Should the cache key include the locale?");
+    expect(parts).not.toContain(
+      "it met a decision that is yours to make, so it stopped rather than asking",
+    );
+  });
+
+  it("names its two standing buttons", () => {
+    expect(ARC_ASK_REPLY).toBe("Reply…");
+    expect(ARC_ASK_KEEP_STOPPED).toBe("Keep Stopped");
   });
 });
 

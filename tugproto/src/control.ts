@@ -34,6 +34,8 @@ export const CONTROL_ACTIONS = [
   // Supervisor: arcs.
   "bind_arc",
   "arc_resume",
+  "arc_answer",
+  "arc_keep_stopped",
   "arc_run",
   "arc_stop",
   "unbind_arc",

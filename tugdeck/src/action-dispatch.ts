@@ -1565,6 +1565,9 @@ function wireActionDispatch(
     ["arc_run", "start"],
     ["arc_resume", "resume"],
     ["arc_stop", "stop"],
+    // An ask receipt's Keep Stopped. Its answer to an ask needs no row here:
+    // `arc_answer` is a resume, and settles on `arc_resume`'s pair above.
+    ["arc_keep_stopped", "keep"],
   ] as const) {
     registerAction(`${action}_ok`, (payload) => {
       const arc = payload.arc;

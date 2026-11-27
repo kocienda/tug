@@ -7189,6 +7189,8 @@ Some context.
                 },
             ],
             notes: Vec::new(),
+            asked_choices: Vec::new(),
+            answer: None,
             stopped: None,
             last_stop: None,
             stopping: None,

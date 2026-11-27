@@ -73,6 +73,7 @@ import {
   rmArcScratchRepo,
   rmScratchSession,
   seedScratchSession,
+  shellUntil,
   tugtool,
   tugtoolPath,
   type ArcScratchRepo,
@@ -88,7 +89,6 @@ const ARC_NAME = "at0633-seam";
 
 const CARD = '[data-card-id="A"]';
 const EDITOR = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
-const SHELL_ROWS = `${CARD} [data-slot="session-transcript-shell-row"]`;
 const SHEET = `${CARD} .session-view-pane[data-view="changes"] [data-slot="tug-sheet"]`;
 const LANE = `${SHEET} [data-slot="session-changes-arc-lane"]`;
 const LANE_ROW = `${LANE} [data-slot="session-changes-arc-row"][data-arc="${ARC_NAME}"]`;
@@ -164,23 +164,6 @@ afterAll(() => {
 });
 
 const settle = (ms = 200): Promise<unknown> => new Promise((r) => setTimeout(r, ms));
-
-/**
- * Run a shell command on the card and wait for the transcript to carry
- * `marker` — the stop's receipt is itself a shell row, so the wait is on the
- * text rather than on a row count (the shape `at0476` settled on).
- */
-async function shellUntil(app: App, command: string, marker: string): Promise<void> {
-  await app.body("A").nativeClickAtElement(EDITOR);
-  await app.nativeType(`/shell ${command}`);
-  await settle(150);
-  await app.nativeKey("Enter", ["cmd"]);
-  await app.body("A").waitForCondition<boolean>(
-    `Array.from(document.querySelectorAll(${JSON.stringify(SHELL_ROWS)}))
-       .some((el) => (el.textContent || "").indexOf(${JSON.stringify(marker)}) !== -1)`,
-    { timeoutMs: 60_000 },
-  );
-}
 
 /** Whether the shade is up right now. */
 function shadeUp(app: App): Promise<boolean> {

@@ -279,14 +279,28 @@ pub fn reaudit_clause(staleness: tugarc_core::log::AuditStaleness) -> String {
     )
 }
 
+/// What a resumed stage is told about the stop it is resuming from: the
+/// stage, the stop's reason, and the user's answer when the stop was answered
+/// rather than resumed bare.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Resume<'a> {
+    pub stage: &'a str,
+    pub reason: &'a str,
+    /// The `arc-answer` the resume rides, if any. It is the one fact about the
+    /// user's decision a rotated session has, since the conversation the
+    /// question was answered in is not its own.
+    pub answer: Option<&'a str>,
+}
+
 /// The stage's opening prompt.
 ///
 /// Six clauses, each dropped when its fact is absent: the ask, where the
 /// stage is ([`where_clause`]), the paths the document cites, what moved in
 /// those files since the document was written, and — for an arc that stopped
-/// and is resuming — where it stopped and why, and what its worktree is
-/// holding uncommitted. A call with only an ask returns exactly that ask,
-/// which is what makes this a safe replacement for a bare one.
+/// and is resuming — where it stopped and why, what the user answered when
+/// they answered it, and what its worktree is holding uncommitted. A call
+/// with only an ask returns exactly that ask, which is what makes this a safe
+/// replacement for a bare one.
 ///
 /// The `where` clause comes second because it is what the stage reads *before*
 /// it reads anything else: the ask says what to do, and the line under it says
@@ -316,7 +330,7 @@ pub fn compose(
     place: Option<&str>,
     paths: &[String],
     commits: &[String],
-    resume: Option<(&str, &str)>,
+    resume: Option<Resume<'_>>,
     dirty: Option<&str>,
 ) -> String {
     let mut out = ask.to_owned();
@@ -332,9 +346,17 @@ pub fn compose(
             commits.join("\n")
         ));
     }
-    if let Some((stage, reason)) = resume {
+    if let Some(Resume {
+        stage,
+        reason,
+        answer,
+    }) = resume
+    {
+        let answered = answer
+            .map(|answer| format!("; the user answered: {answer}"))
+            .unwrap_or_default();
         out.push_str(&format!(
-            "\n\nthis arc was stopped in {stage} — {reason}; it is resuming"
+            "\n\nthis arc was stopped in {stage} — {reason}{answered}; it is resuming"
         ));
     }
     if let Some(dirty) = dirty {
@@ -351,6 +373,15 @@ mod tests {
     use super::*;
 
     const ASK: &str = "/tugplug:arc-review arc/foo.md";
+
+    /// A stop resumed bare, the way every resume read before answers.
+    fn bare<'a>(stage: &'a str, reason: &'a str) -> Option<Resume<'a>> {
+        Some(Resume {
+            stage,
+            reason,
+            answer: None,
+        })
+    }
 
     #[test]
     fn an_ask_with_nothing_to_add_is_exactly_the_ask() {
@@ -375,15 +406,37 @@ mod tests {
         assert!(with_commits.contains("abc1234 move the thing"));
         assert!(!with_commits.contains("citations:"));
 
-        let resuming = compose(ASK, None, &[], &[], Some(("implement", "lint")), None);
+        let resuming = compose(ASK, None, &[], &[], bare("implement", "lint"), None);
         assert!(resuming.ends_with("this arc was stopped in implement — lint; it is resuming"));
+
+        // An answered stop says what was decided, between the reason and the
+        // resume, so a session that never saw the conversation still knows.
+        let answered = compose(
+            ASK,
+            None,
+            &[],
+            &[],
+            Some(Resume {
+                stage: "implement",
+                reason: "needs a decision",
+                answer: Some("per-host"),
+            }),
+            None,
+        );
+        assert!(
+            answered.ends_with(
+                "this arc was stopped in implement — needs a decision; the user answered: \
+                 per-host; it is resuming"
+            ),
+            "{answered}",
+        );
 
         let everything = compose(
             ASK,
             None,
             &paths,
             &commits,
-            Some(("review", "api error")),
+            bare("review", "api error"),
             None,
         );
         assert!(
@@ -405,7 +458,7 @@ mod tests {
             None,
             &[],
             &[],
-            Some(("implement", "stopped by user")),
+            bare("implement", "stopped by user"),
             Some("src/a.rs, src/b.ts"),
         );
         assert!(
@@ -426,7 +479,7 @@ mod tests {
     /// reader has to finish before learning it meant nothing.
     #[test]
     fn a_clean_resume_says_nothing_about_the_tree() {
-        let composed = compose(ASK, None, &[], &[], Some(("implement", "lint")), None);
+        let composed = compose(ASK, None, &[], &[], bare("implement", "lint"), None);
         assert!(!composed.contains("uncommitted"), "{composed}");
         assert!(composed.ends_with("it is resuming"), "{composed}");
     }

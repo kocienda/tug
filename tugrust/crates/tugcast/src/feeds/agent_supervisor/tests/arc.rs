@@ -1251,6 +1251,7 @@ async fn a_stop_on_a_busy_session_interrupts_then_hands_back() {
             stage: tugarc_core::ArcStage::Implement,
             reason: tugarc_core::arc::ArcStopReason::StoppedByUser,
             question: None,
+            choices: &[],
             halt: true,
         },
     )
@@ -1295,6 +1296,7 @@ async fn a_stop_on_an_idle_session_sends_no_interrupt() {
             stage: tugarc_core::ArcStage::Implement,
             reason: tugarc_core::arc::ArcStopReason::StoppedByUser,
             question: None,
+            choices: &[],
             halt: true,
         },
     )
@@ -1327,6 +1329,7 @@ async fn an_ask_never_interrupts() {
             stage: tugarc_core::ArcStage::Implement,
             reason: tugarc_core::arc::ArcStopReason::NeedsDecision,
             question: Some("which of the two?"),
+            choices: &["this one".to_owned(), "that one".to_owned()],
             halt: false,
         },
     )
@@ -1346,6 +1349,11 @@ async fn an_ask_never_interrupts() {
             .any(|note| note.contains("which of the two?")),
         "and the question is on the record before the stop: {:?}",
         record.notes,
+    );
+    assert_eq!(
+        record.asked_choices,
+        vec!["this one", "that one"],
+        "and its choices ride beside it",
     );
 }
 
@@ -1369,6 +1377,7 @@ async fn a_stop_with_no_wheel_answers_err_not_ok() {
                 stage: tugarc_core::ArcStage::Implement,
                 reason: tugarc_core::arc::ArcStopReason::StoppedByUser,
                 question: None,
+                choices: &[],
                 halt: true,
             },
         )
@@ -1525,6 +1534,7 @@ async fn a_stop_after_a_rotation_interrupts_the_card() {
             stage: tugarc_core::ArcStage::Implement,
             reason: tugarc_core::arc::ArcStopReason::StoppedByUser,
             question: None,
+            choices: &[],
             halt: true,
         },
     )
@@ -1570,6 +1580,7 @@ async fn a_stop_after_a_rotation_delivers_its_receipt_to_the_card() {
             stage: tugarc_core::ArcStage::Implement,
             reason: tugarc_core::arc::ArcStopReason::StoppedByUser,
             question: None,
+            choices: &[],
             halt: true,
         },
     )
@@ -1617,6 +1628,7 @@ async fn a_stop_on_a_segment_no_card_wears_is_refused() {
                 stage: tugarc_core::ArcStage::Implement,
                 reason: tugarc_core::arc::ArcStopReason::StoppedByUser,
                 question: None,
+                choices: &[],
                 halt: true,
             },
         )
@@ -1688,6 +1700,7 @@ fn spawn_stop(
                 stage: tugarc_core::ArcStage::Implement,
                 reason: tugarc_core::arc::ArcStopReason::StoppedByUser,
                 question: None,
+                choices: &[],
                 halt,
             },
         )
@@ -1960,6 +1973,7 @@ async fn an_ask_quiesces_without_interrupting() {
             stage: tugarc_core::ArcStage::Implement,
             reason: tugarc_core::arc::ArcStopReason::NeedsDecision,
             question: Some("which of the two?"),
+            choices: &[],
             halt: false,
         },
     )

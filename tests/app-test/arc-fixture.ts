@@ -55,6 +55,7 @@ import { join, resolve } from "node:path";
 
 import type { App } from "./_harness";
 import { cardPage } from "./_harness/card-reach";
+import { restoreSettled } from "./overlay-fixture";
 import { claudeProjectDir } from "./_harness/claude-home";
 
 /** How many times a git-touching verb retries through a held `index.lock`. */
@@ -1250,6 +1251,43 @@ export async function shellAndSettle(
        return foot !== null && foot.textContent.indexOf("exit") !== -1;
      })()`,
     { timeoutMs: 30_000 },
+  );
+}
+
+/**
+ * Run `command` through the card's `$` shell route and wait until a shell row
+ * carries `marker`.
+ *
+ * {@link shellAndSettle}'s sibling for the acts that add transcript rows of
+ * their own — an arc run, a stop, a resume — where a wait on an exact row
+ * count can never come true.
+ *
+ * It waits first for the card's restore to be over and its gate down
+ * ({@link restoreSettled}). These files type their first line straight after
+ * `spawnSessionResume`, and there a wait on the overlay's claim alone is a
+ * race: the gate rises for the replay's reveal, after engine ready, so a read
+ * made in between sees no claim and passes, and the click and the keys land
+ * under the modal — each key a `noResponder(for: keyDown:)` beep, and the
+ * line never typed.
+ */
+export async function shellUntil(
+  app: App,
+  command: string,
+  marker: string,
+  cardId = "A",
+): Promise<void> {
+  const prompt = `[data-card-id="${cardId}"] [data-slot="tug-text-editor"] .cm-content`;
+  const rows = `[data-card-id="${cardId}"] [data-slot="session-transcript-shell-row"]`;
+  const page = await cardPage(app, cardId);
+  await restoreSettled(app, cardId);
+  await page.nativeClickAtElement(prompt);
+  await app.nativeType(`/shell ${command}`);
+  await new Promise((r) => setTimeout(r, 150));
+  await app.nativeKey("Enter", ["cmd"]);
+  await page.waitForCondition<boolean>(
+    `Array.from(document.querySelectorAll(${JSON.stringify(rows)}))
+       .some((el) => (el.textContent || "").indexOf(${JSON.stringify(marker)}) !== -1)`,
+    { timeoutMs: 60_000 },
   );
 }
 

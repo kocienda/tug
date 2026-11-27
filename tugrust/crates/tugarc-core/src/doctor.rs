@@ -1031,6 +1031,8 @@ mod tests {
                 at: "2026-09-26T00:00:00Z".to_owned(),
             }],
             notes: Vec::new(),
+            asked_choices: Vec::new(),
+            answer: None,
             stopped: None,
             last_stop: None,
             stopping: None,

@@ -2630,6 +2630,8 @@ mod tests {
             plan: None,
             stages: Vec::new(),
             notes: Vec::new(),
+            asked_choices: Vec::new(),
+            answer: None,
             stopped: stopped.map(|(stage, why)| (stage, why.to_owned())),
             last_stop: None,
             stopping: None,

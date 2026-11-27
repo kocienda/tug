@@ -39,6 +39,7 @@ const REFUSED_PHRASE: Record<ArcRefusedVerb, string> = {
   start: "start",
   resume: "resume",
   stop: "stop",
+  keep: "leave stopped",
   join: "join",
   changes: "show the changes of",
   diff: "open the diff of",

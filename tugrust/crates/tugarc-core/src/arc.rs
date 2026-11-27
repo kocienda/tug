@@ -489,6 +489,35 @@ pub struct ArcRecord {
     /// Rotations in log order, current generation only.
     pub stages: Vec<ArcStageLine>,
     pub notes: Vec<String>,
+    /// The answers a stage offered beside the question it stopped over, in the
+    /// order it named them — one `arc-choice` line each, written straight
+    /// after the question's `arc-note`.
+    ///
+    /// They belong to the last note and to no other, so every `arc-note`
+    /// clears them: a later note (the user's answer, a pick-up, the next
+    /// question) is a question these choices no longer answer. Empty for a
+    /// question asked with none, and for every record written before choices
+    /// existed.
+    ///
+    /// **Skew.** A reader older than the marker falls through the `_` arm and
+    /// reads the question alone, which is exactly what every receipt said
+    /// before; a newer reader over an older log finds no marker and reads no
+    /// choices. Neither direction invents an answer.
+    pub asked_choices: Vec<String>,
+    /// The user's answer to the arc's last stop — a choice's label or the
+    /// reply they typed — written by the answer act just before the resume it
+    /// rides, so the stage the resume seats is told what was decided.
+    ///
+    /// Set by `arc-answer`, which also lands in [`ArcRecord::notes`] as `the
+    /// user answered: <text>` so the record reads as one story; cleared by the
+    /// next `arc-stop`, because a later stop is a question this answer did
+    /// not answer. `None` for a stop resumed bare, and for every log written
+    /// before the marker.
+    ///
+    /// **Skew.** A reader older than the marker falls through the `_` arm: it
+    /// resumes as it always did, with the stop's reason and no answer — a
+    /// resume told less, never one told something nobody said.
+    pub answer: Option<String>,
     /// The stage the arc stopped in and why. Cleared by the next
     /// rotation, because resuming a stopped arc *is* rotating it again.
     pub stopped: Option<(ArcStage, String)>,
@@ -607,6 +636,8 @@ pub fn read_arc_in(text: &str, arc: &str) -> Option<ArcRecord> {
             plan: None,
             stages: Vec::new(),
             notes: Vec::new(),
+            asked_choices: Vec::new(),
+            answer: None,
             stopped: None,
             last_stop: None,
             stopping: None,
@@ -627,7 +658,20 @@ pub fn read_arc_in(text: &str, arc: &str) -> Option<ArcRecord> {
             // the other did not intend.
             "arc-kind" => record.kind = ArcKind::parse(note.trim()),
             "arc-plan" => record.plan = Some(note.to_owned()),
-            "arc-note" => record.notes.push(note.to_owned()),
+            "arc-note" => {
+                record.notes.push(note.to_owned());
+                record.asked_choices.clear();
+            }
+            "arc-choice" => record.asked_choices.push(note.trim().to_owned()),
+            "arc-answer" => {
+                let answer = note.trim();
+                record.notes.push(format!("{ANSWER_NOTE_PREFIX}{answer}"));
+                record.asked_choices.clear();
+                record.answer = Some(answer.to_owned());
+            }
+            // The question still stands, so its choices do too: a Resume
+            // pressed later from the arc's row answers the same stop.
+            "arc-left-stopped" => record.notes.push(LEFT_STOPPED_NOTE.to_owned()),
             "arc-stage" => {
                 if let Some(stage) = read_stage_line(note, timestamp) {
                     record.stopped = None;
@@ -650,6 +694,7 @@ pub fn read_arc_in(text: &str, arc: &str) -> Option<ArcRecord> {
                 if let Some((stage, reason)) = read_stop_line(note) {
                     record.stopped = Some((stage, reason.clone()));
                     record.last_stop = Some((stage, reason));
+                    record.answer = None;
                     record.stopping = None;
                 }
             }
@@ -858,6 +903,61 @@ pub fn append_arc_note(
     note: &str,
 ) -> Result<(), TugError> {
     append_arc_log(paths, repo_root, arc, "arc-note", note)
+}
+
+/// Append a stage's question and the answers it offers: the question as an
+/// `arc-note`, then one `arc-choice` line per answer, in order.
+///
+/// One function for the pair because the choices mean nothing apart from the
+/// note before them — [`ArcRecord::asked_choices`] is cleared by every note —
+/// so a caller that wrote them separately could put another note between.
+/// The note is written first and the first failure returns, so a record that
+/// carries any choice carries its question.
+pub fn append_arc_ask(
+    paths: &Paths,
+    repo_root: &Path,
+    arc: &str,
+    question: &str,
+    choices: &[String],
+) -> Result<(), TugError> {
+    let mut file = crate::log::open_arc_log(paths, repo_root)?;
+    crate::log::write_arc_log_line(&mut file, arc, "arc-note", question)?;
+    for choice in choices {
+        crate::log::write_arc_log_line(&mut file, arc, "arc-choice", choice)?;
+    }
+    Ok(())
+}
+
+/// How an answer reads among the record's notes: `the user answered: <text>`.
+pub const ANSWER_NOTE_PREFIX: &str = "the user answered: ";
+
+/// How a Keep Stopped reads among the record's notes.
+pub const LEFT_STOPPED_NOTE: &str = "the user left the arc stopped";
+
+/// Append `arc-answer` — the user answered the arc's last stop with `answer`.
+///
+/// Its own marker rather than a bare `arc-note`, because the resume has to
+/// find it as a fact and not by reading prose back: the reader sets
+/// [`ArcRecord::answer`] from it, and the card's observer paints it as the
+/// user's line. Written **before** the resume it belongs to, so the stage the
+/// resume seats is composed over a record that already holds it.
+pub fn append_arc_answer(
+    paths: &Paths,
+    repo_root: &Path,
+    arc: &str,
+    answer: &str,
+) -> Result<(), TugError> {
+    append_arc_log(paths, repo_root, arc, "arc-answer", answer)
+}
+
+/// Append `arc-left-stopped` — the user pressed Keep Stopped.
+///
+/// It changes nothing about the arc: the arc was already stopped, and stays
+/// stopped and resumable. What it does is put a later row on the record — and,
+/// through the observer, on the card — so the stop's question is no longer
+/// standing there asking.
+pub fn append_arc_left_stopped(paths: &Paths, repo_root: &Path, arc: &str) -> Result<(), TugError> {
+    append_arc_log(paths, repo_root, arc, "arc-left-stopped", "")
 }
 
 /// Append `arc-stop` — the arc stopped in `stage` for `reason`.
@@ -1769,6 +1869,112 @@ mod tests {
             "compact failed",
             "the log word is what a stop line carries",
         );
+    }
+
+    #[test]
+    fn an_asks_choices_ride_its_question_and_no_later_note() {
+        let fixture = log_repo("");
+        let root = fixture.root();
+        append_arc_start(&fixture.paths, root, "d", "arc/idea.md").expect("start");
+        append_arc_ask(
+            &fixture.paths,
+            root,
+            "d",
+            "per-host or per-request?",
+            &["per-host".to_owned(), "per-request".to_owned()],
+        )
+        .expect("ask");
+        let arc = read_arc(&fixture.paths, root, "d").expect("arc");
+        assert_eq!(
+            arc.notes.last().map(String::as_str),
+            Some("per-host or per-request?")
+        );
+        assert_eq!(arc.asked_choices, vec!["per-host", "per-request"]);
+
+        // The next note is not the question those choices answer.
+        append_arc_note(&fixture.paths, root, "d", "the user answered: per-host").expect("note");
+        let arc = read_arc(&fixture.paths, root, "d").expect("arc");
+        assert!(arc.asked_choices.is_empty(), "{:?}", arc.asked_choices);
+
+        // A question asked with none carries none, whatever an earlier ask did.
+        append_arc_ask(&fixture.paths, root, "d", "what next?", &[]).expect("bare ask");
+        let arc = read_arc(&fixture.paths, root, "d").expect("arc");
+        assert!(arc.asked_choices.is_empty());
+    }
+
+    #[test]
+    fn an_answer_rides_the_record_until_the_next_stop() {
+        let fixture = log_repo("");
+        let root = fixture.root();
+        append_arc_start(&fixture.paths, root, "d", "arc/idea.md").expect("start");
+        append_arc_ask(&fixture.paths, root, "d", "which?", &["this".to_owned()]).expect("ask");
+        append_arc_stop(
+            &fixture.paths,
+            root,
+            "d",
+            ArcStage::Implement,
+            ArcStopReason::NeedsDecision,
+        )
+        .expect("stop");
+        append_arc_answer(&fixture.paths, root, "d", "this").expect("answer");
+        let arc = read_arc(&fixture.paths, root, "d").expect("arc");
+        assert_eq!(arc.answer.as_deref(), Some("this"));
+        assert_eq!(
+            arc.notes.last().map(String::as_str),
+            Some("the user answered: this")
+        );
+        assert!(
+            arc.asked_choices.is_empty(),
+            "an answered question offers nothing"
+        );
+        assert!(arc.stopped.is_some(), "an answer alone resumes nothing");
+
+        // A later stop is a question this answer did not answer.
+        append_arc_stop(
+            &fixture.paths,
+            root,
+            "d",
+            ArcStage::Implement,
+            ArcStopReason::Lint,
+        )
+        .expect("second stop");
+        assert_eq!(
+            read_arc(&fixture.paths, root, "d").expect("arc").answer,
+            None
+        );
+    }
+
+    #[test]
+    fn keep_stopped_is_a_note_and_nothing_else() {
+        let fixture = log_repo("");
+        let root = fixture.root();
+        append_arc_start(&fixture.paths, root, "d", "arc/idea.md").expect("start");
+        append_arc_ask(&fixture.paths, root, "d", "which?", &["this".to_owned()]).expect("ask");
+        append_arc_stop(
+            &fixture.paths,
+            root,
+            "d",
+            ArcStage::Implement,
+            ArcStopReason::NeedsDecision,
+        )
+        .expect("stop");
+        let before = read_arc(&fixture.paths, root, "d").expect("arc");
+        append_arc_left_stopped(&fixture.paths, root, "d").expect("left stopped");
+        let after = read_arc(&fixture.paths, root, "d").expect("arc");
+        assert_eq!(
+            after.notes.last().map(String::as_str),
+            Some(LEFT_STOPPED_NOTE)
+        );
+        assert_eq!(
+            after.stopped, before.stopped,
+            "still stopped, and still resumable"
+        );
+        assert_eq!(
+            after.asked_choices,
+            vec!["this"],
+            "the question still stands"
+        );
+        assert_eq!(after.answer, None);
     }
 
     #[test]

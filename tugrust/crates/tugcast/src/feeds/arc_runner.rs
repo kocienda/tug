@@ -2412,7 +2412,11 @@ fn opening_prompt(
         .is_some()
         .then_some(reading.record.last_stop.as_ref())
         .flatten()
-        .map(|(stage, reason)| (stage.as_str(), reason.as_str()));
+        .map(|(stage, reason)| wheel::prompt::Resume {
+            stage: stage.as_str(),
+            reason: reason.as_str(),
+            answer: reading.record.answer.as_deref(),
+        });
     Some(wheel::prompt::compose(
         &ask,
         Some(&place),
@@ -3554,7 +3558,11 @@ async fn continue_stage(
         .record
         .last_stop
         .as_ref()
-        .map(|(stage, reason)| (stage.as_str(), reason.as_str()));
+        .map(|(stage, reason)| wheel::prompt::Resume {
+            stage: stage.as_str(),
+            reason: reason.as_str(),
+            answer: reading.record.answer.as_deref(),
+        });
     // A continue is always a resume, so the dirty clause is always owed when
     // there is any dirt to name ([P08]).
     let dirty = dirty_clause(worktree_dirt_for(arc).await);
@@ -3723,6 +3731,11 @@ fn format_arc_receipt(record: &ArcRecord) -> String {
     out
 }
 
+/// The mark an ask's answer carries on a stop receipt: `choice · <label>`,
+/// with `·` U+00B7, the separator every receipt header uses. The card's
+/// `parseArcReceipt` matches the same bytes.
+const ARC_RECEIPT_CHOICE_PREFIX: &str = "choice · ";
+
 /// The receipt a stop leaves in the transcript. A stop is not a completion,
 /// so it does not read as one — but it happened on this card, and
 /// the card is where the user is watching, so it says which stage stopped,
@@ -3760,11 +3773,24 @@ fn format_arc_stop_receipt(record: &ArcRecord, stage: ArcStage, reason: ArcStopR
         }
         _ => String::new(),
     };
+    // An ask's answers, one marked line each after its question, so the card
+    // draws one button per answer from the frozen text alone. Marked rather
+    // than bare because the question is the first *unmarked* line: a reader
+    // older than choices keeps that question and passes over the rest, and a
+    // newer one reads no choices from a receipt written before them.
+    let choices: String = match (reason, record.notes.last()) {
+        (ArcStopReason::NeedsDecision, Some(_)) => record
+            .asked_choices
+            .iter()
+            .map(|choice| format!("\n{ARC_RECEIPT_CHOICE_PREFIX}{choice}"))
+            .collect(),
+        _ => String::new(),
+    };
     format!(
         "arc stopped · {} · in {} — {}{terminal}",
         record.arc,
         stage.as_str(),
-        format_args!("{}{asked}", reason.sentence()),
+        format_args!("{}{asked}{choices}", reason.sentence()),
     )
 }
 
@@ -3852,6 +3878,8 @@ pub(crate) async fn stop_arc_for_session(
             plan: None,
             stages: Vec::new(),
             notes: Vec::new(),
+            asked_choices: Vec::new(),
+            answer: None,
             stopped: None,
             last_stop: None,
             stopping: None,
@@ -7227,6 +7255,8 @@ Some context.
             plan: Some("arc/foo.md".to_owned()),
             stages,
             notes: Vec::new(),
+            asked_choices: Vec::new(),
+            answer: None,
             stopped: None,
             last_stop: None,
             stopping: None,
@@ -7408,6 +7438,62 @@ Some context.
         assert_eq!(
             format_arc_stop_receipt(&record, ArcStage::Implement, ArcStopReason::CardTaken),
             "arc stopped · foo · in implement — you took the card back"
+        );
+    }
+
+    #[test]
+    fn an_ask_receipt_carries_its_question_and_then_its_choices() {
+        let mut record = done_record(vec![stage_line(ArcStage::Implement, None, "claude-a")]);
+        record.notes = vec!["Which cover hides the band?".to_owned()];
+        record.asked_choices = vec!["the neighbour".to_owned(), "a new one".to_owned()];
+        assert_eq!(
+            format_arc_stop_receipt(&record, ArcStage::Implement, ArcStopReason::NeedsDecision),
+            format!(
+                "arc stopped · foo · in implement — {}\n\
+                 Which cover hides the band?\n\
+                 choice · the neighbour\n\
+                 choice · a new one",
+                ArcStopReason::NeedsDecision.sentence(),
+            ),
+        );
+        // A question asked with none is the receipt it always was.
+        record.asked_choices.clear();
+        assert_eq!(
+            format_arc_stop_receipt(&record, ArcStage::Implement, ArcStopReason::NeedsDecision),
+            format!(
+                "arc stopped · foo · in implement — {}\nWhich cover hides the band?",
+                ArcStopReason::NeedsDecision.sentence(),
+            ),
+        );
+        // Choices belong to an ask; no other stop speaks them.
+        record.asked_choices = vec!["stray".to_owned()];
+        let receipt =
+            format_arc_stop_receipt(&record, ArcStage::Implement, ArcStopReason::RecordsDisagree);
+        assert!(!receipt.contains("choice · "), "got {receipt}");
+    }
+
+    /// **The card tells an ask from any other stop by these bytes alone.** A
+    /// restored receipt has only its text, so `parseArcReceipt` keeps copies
+    /// of the ask's reason sentence (`ASK_REASON`) and of the choice mark
+    /// (`CHOICE_PREFIX`). A copy that drifted would draw every ask as a plain
+    /// stop with one Resume and no answers, and no deck test would notice,
+    /// since those tests hold their own copy too — so the mirror is pinned
+    /// from this side, against the deck's source.
+    #[test]
+    fn the_cards_copies_of_the_ask_receipt_bytes_match_the_server() {
+        const DECK: &str = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../tugdeck/src/lib/arc-receipt.ts"
+        ));
+        let reason = format!("\"{}\"", ArcStopReason::NeedsDecision.sentence());
+        assert!(
+            DECK.contains(&reason),
+            "tugdeck's ASK_REASON no longer matches {reason}",
+        );
+        let prefix = format!("CHOICE_PREFIX = \"{ARC_RECEIPT_CHOICE_PREFIX}\"");
+        assert!(
+            DECK.contains(&prefix),
+            "tugdeck's CHOICE_PREFIX no longer matches {prefix}",
         );
     }
 
@@ -8699,6 +8785,7 @@ Some context.
                     stage: ArcStage::Implement,
                     reason: ArcStopReason::StoppedByUser,
                     question: None,
+                    choices: &[],
                     halt: false,
                 },
             )
@@ -9318,6 +9405,73 @@ Some context.
         .expect("a prompt");
         assert!(
             prompt.contains("this arc was stopped in implement — stopped by user; it is resuming"),
+            "{prompt}",
+        );
+    }
+
+    /// **A rotated resume is told what the user answered** ([B06]). The
+    /// session a rotation seats never saw the conversation the question was
+    /// answered in, so the answer on the record is the whole of what it knows
+    /// about the decision — and it is read off the record, which the answer
+    /// act wrote before the resume line.
+    #[test]
+    fn a_rotated_resume_is_told_what_the_user_answered() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join(".tug/arcs/demo")).unwrap();
+        std::fs::write(root.join(".tug/arcs/demo/plan.md"), LINTING_PLAN).unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/plan.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_ask(
+            &Paths::from_env(),
+            root,
+            "demo",
+            "per-host or per-request?",
+            &["per-host".to_owned(), "per-request".to_owned()],
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stop(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Implement,
+            ArcStopReason::NeedsDecision,
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_answer(&Paths::from_env(), root, "demo", "per-host").unwrap();
+        tugarc_core::arc::append_arc_resume(&Paths::from_env(), root, "demo", ArcStage::Implement)
+            .unwrap();
+
+        let reading = read(
+            &Paths::from_env(),
+            root,
+            "demo",
+            &snapshot(true, true, None),
+            TickMemory::default(),
+        )
+        .unwrap();
+        let prompt = opening_prompt(
+            &reading,
+            &Rotation {
+                stage: ArcStage::Implement,
+                steps: Some((1, 2)),
+                note: None,
+            },
+            &bound(root, "demo"),
+            &tugarc_core::ops::worktree_path(root, "demo"),
+            None,
+        )
+        .expect("a prompt");
+        assert!(
+            prompt.contains(
+                "this arc was stopped in implement — needs a decision; the user answered: \
+                 per-host; it is resuming"
+            ),
             "{prompt}",
         );
     }

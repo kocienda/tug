@@ -1087,6 +1087,9 @@ pub(crate) struct StopTerms<'a> {
     /// The question an `arc_ask` stopped over, written as an `arc-note` before
     /// the stop so the receipt the stop composes can speak it.
     pub question: Option<&'a str>,
+    /// The answers the stage offered beside its question, written as
+    /// `arc-choice` lines straight after the question's note.
+    pub choices: &'a [String],
     /// Whether a running turn on the bound session is interrupted first. True
     /// for a user's Stop ([B06]), false for a stage's own `arc ask` ([P03]).
     pub halt: bool,
@@ -2253,6 +2256,10 @@ impl AgentSupervisor {
     /// * `arc_run` — start: open the arc when it has no record, then bind.
     ///   Carries an optional `kind` the opening records ([B08]).
     /// * `arc_resume` — pick a stopped arc back up on this card.
+    /// * `arc_answer` — answer a stopped arc's question, then resume it;
+    ///   carries `answer` and settles on the `arc_resume_ok` / `_err` pair,
+    ///   because the press is a resume.
+    /// * `arc_keep_stopped` — leave a stopped arc stopped, and record it.
     /// * `arc_stop` — stop the arc this card runs, interrupting a running
     ///   turn first ([P03]).
     ///
@@ -2325,9 +2332,14 @@ impl AgentSupervisor {
                 self.handle_session_control(action, payload, client_id)
                     .await
             }
-            A::BindArc | A::ArcResume | A::ArcRun | A::ArcStop | A::UnbindArc | A::ResolveArcs => {
-                self.handle_arc_control(action, payload).await
-            }
+            A::BindArc
+            | A::ArcResume
+            | A::ArcAnswer
+            | A::ArcKeepStopped
+            | A::ArcRun
+            | A::ArcStop
+            | A::UnbindArc
+            | A::ResolveArcs => self.handle_arc_control(action, payload).await,
             A::SearchArcs | A::ResolveSketches | A::SearchSketches => {
                 self.handle_records_control(action, payload).await
             }

@@ -145,6 +145,14 @@ export const overviewDraft = defineSharedStore<OverviewComposerDraftState | null
 export type ArcTransportVerb = "start" | "resume" | "stop";
 
 /**
+ * Every act a press can be: the three transport verbs, and **keep**, the
+ * ask receipt's Keep Stopped, which answers a stop by leaving it standing.
+ * An answer to an ask is not a fourth verb: it is a resume that carries the
+ * user's words, and it holds and settles as the resume it is.
+ */
+export type ArcPressVerb = ArcTransportVerb | "keep";
+
+/**
  * The verbs a refusal can name: every verb an arc row draws. The three
  * transport presses are this store's own frames; the rest — Join, Changes,
  * Diff, Bind, Unbind, Replay, Discard — are performed elsewhere, but a press
@@ -152,7 +160,7 @@ export type ArcTransportVerb = "start" | "resume" | "stop";
  * so a refused button is never only its hover.
  */
 export type ArcRefusedVerb =
-  | ArcTransportVerb
+  | ArcPressVerb
   | "join"
   | "changes"
   | "diff"
@@ -186,7 +194,7 @@ export interface ArcPressState {
 
 /** What a body asks of the shell's store. */
 export type ArcPressPatch =
-  | { op: "press"; arc: string; verb: ArcTransportVerb; actor: ArcPressActor }
+  | { op: "press"; arc: string; verb: ArcPressVerb; actor: ArcPressActor; answer?: string }
   | { op: "refuse"; voice: string; arc: string; verb: ArcRefusedVerb; reason: string }
   | { op: "clear"; sessionId: string; seq: number | null };
 
@@ -222,9 +230,13 @@ function isTransportVerb(value: unknown): value is ArcTransportVerb {
   return value === "start" || value === "resume" || value === "stop";
 }
 
+function isPressVerb(value: unknown): value is ArcPressVerb {
+  return isTransportVerb(value) || value === "keep";
+}
+
 function isRefusedVerb(value: unknown): value is ArcRefusedVerb {
   return (
-    isTransportVerb(value) ||
+    isPressVerb(value) ||
     value === "join" ||
     value === "changes" ||
     value === "diff" ||
@@ -261,7 +273,8 @@ function isArcPressPatch(value: unknown): value is ArcPressPatch {
     case "press":
       return (
         typeof value.arc === "string" &&
-        isTransportVerb(value.verb) &&
+        isPressVerb(value.verb) &&
+        (value.answer === undefined || typeof value.answer === "string") &&
         isRecord(value.actor) &&
         typeof value.actor.tugSessionId === "string" &&
         typeof value.actor.projectDir === "string"

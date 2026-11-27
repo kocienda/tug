@@ -43,7 +43,7 @@ import { randomUUID } from "node:crypto";
 import { realpathSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { launchTugApp, note, type App } from "./_harness";
+import { launchTugApp, note } from "./_harness";
 import { sessionCardShape } from "./_harness/shapes";
 import {
   mkTempTugbank,
@@ -57,6 +57,7 @@ import {
   rmArcScratchRepo,
   rmScratchSession,
   seedScratchSession,
+  shellUntil,
   tugtool,
   tugtoolPath,
   type ArcScratchRepo,
@@ -100,25 +101,6 @@ afterAll(() => {
   rmArcScratchRepo(scratch);
   rmScratchSession(fixtureDir);
 });
-
-/**
- * Run a shell command on the card and wait for the transcript to carry
- * `marker` — the same shape `at0476` uses, and for the same reason: the acts
- * under test add transcript rows of their own, so a wait on an exact row count
- * can never come true.
- */
-async function shellUntil(app: App, command: string, marker: string): Promise<void> {
-  const prompt = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
-  await app.body("A").nativeClickAtElement(prompt);
-  await app.nativeType(`/shell ${command}`);
-  await new Promise((r) => setTimeout(r, 150));
-  await app.nativeKey("Enter", ["cmd"]);
-  await app.body("A").waitForCondition<boolean>(
-    `Array.from(document.querySelectorAll(${JSON.stringify(SHELL_ROWS)}))
-       .some((el) => (el.textContent || "").indexOf(${JSON.stringify(marker)}) !== -1)`,
-    { timeoutMs: 60_000 },
-  );
-}
 
 // Kept local: every file's `arcReport` reads the fields its own arc assertions
 // need, so the name is shared and the function is not.

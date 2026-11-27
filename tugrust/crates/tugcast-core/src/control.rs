@@ -67,6 +67,8 @@ control_actions! {
     // Supervisor: arcs.
     BindArc => "bind_arc",
     ArcResume => "arc_resume",
+    ArcAnswer => "arc_answer",
+    ArcKeepStopped => "arc_keep_stopped",
     ArcRun => "arc_run",
     ArcStop => "arc_stop",
     UnbindArc => "unbind_arc",

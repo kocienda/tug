@@ -1669,6 +1669,11 @@ pub enum ArcCommands {
     /// and the question it stopped over becomes the arc's last note and the
     /// tail of the receipt on the card.
     ///
+    /// When the question has a closed set of answers, name each with
+    /// `--choice`: the card draws one button per choice, and a press is the
+    /// answer and the resume in one gesture. The card always offers a typed
+    /// reply and Keep Stopped beside them.
+    ///
     /// `tugtool arc run <name>` picks the work back up once it is answered,
     /// exactly as it does after any other stop.
     Ask {
@@ -1678,6 +1683,47 @@ pub enum ArcCommands {
         /// whole of what the user has to go on, so it names the choice rather
         /// than the fact that a choice exists.
         question: String,
+        /// One answer the user may give, as the button's label (repeatable,
+        /// in the order the buttons are drawn).
+        #[arg(long = "choice", value_name = "LABEL")]
+        choices: Vec<String>,
+        /// Project directory (default: cwd). Travels as your own spelling —
+        /// the server canonicalizes it ([L29]).
+        #[arg(long)]
+        project: Option<std::path::PathBuf>,
+        /// Calling session (default: $TUG_SESSION_ID), resolved to its
+        /// line's live segment.
+        #[arg(long)]
+        session: Option<String>,
+    },
+    /// Answer a stopped arc's question, then resume it.
+    ///
+    /// The answer — a choice's label or anything you would say — is written
+    /// on the arc's record before the resume, and the stage the resume seats
+    /// is told it: "the user answered: <answer>". It is the same act as
+    /// pressing a choice or sending a reply on the stop's receipt, and the
+    /// way to answer from a terminal.
+    Answer {
+        /// Arc name.
+        name: String,
+        /// The answer, in your own words or as one of the choices offered.
+        answer: String,
+        /// Project directory (default: cwd). Travels as your own spelling —
+        /// the server canonicalizes it ([L29]).
+        #[arg(long)]
+        project: Option<std::path::PathBuf>,
+        /// Calling session (default: $TUG_SESSION_ID), resolved to its
+        /// line's live segment.
+        #[arg(long)]
+        session: Option<String>,
+    },
+    /// Leave a stopped arc stopped, and say so on its record.
+    ///
+    /// Nothing about the arc moves: it stays stopped and resumable. The note
+    /// it writes is what folds the stop's question away on the card.
+    KeepStopped {
+        /// Arc name.
+        name: String,
         /// Project directory (default: cwd). Travels as your own spelling —
         /// the server canonicalizes it ([L29]).
         #[arg(long)]
@@ -2428,6 +2474,55 @@ mod tests {
             }
             _ => panic!("arc stop did not parse"),
         }
+    }
+
+    #[test]
+    fn arc_ask_takes_its_choices_in_order() {
+        let cli = Cli::parse_from([
+            "tugtool",
+            "arc",
+            "ask",
+            "demo",
+            "per-host or per-request?",
+            "--choice",
+            "per-host",
+            "--choice",
+            "per-request",
+        ]);
+        match cli.command {
+            Some(Commands::Arc(ArcCommands::Ask {
+                question, choices, ..
+            })) => {
+                assert_eq!(question, "per-host or per-request?");
+                assert_eq!(choices, vec!["per-host", "per-request"]);
+            }
+            _ => panic!("arc ask did not parse"),
+        }
+
+        let cli = Cli::parse_from(["tugtool", "arc", "ask", "demo", "what next?"]);
+        match cli.command {
+            Some(Commands::Arc(ArcCommands::Ask { choices, .. })) => {
+                assert!(choices.is_empty(), "a question may be asked with none")
+            }
+            _ => panic!("arc ask did not parse"),
+        }
+    }
+
+    #[test]
+    fn arc_answer_and_keep_stopped_parse() {
+        let cli = Cli::parse_from(["tugtool", "arc", "answer", "demo", "per-host"]);
+        match cli.command {
+            Some(Commands::Arc(ArcCommands::Answer { name, answer, .. })) => {
+                assert_eq!(name, "demo");
+                assert_eq!(answer, "per-host");
+            }
+            _ => panic!("arc answer did not parse"),
+        }
+        let cli = Cli::parse_from(["tugtool", "arc", "keep-stopped", "demo"]);
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Arc(ArcCommands::KeepStopped { .. }))
+        ));
     }
 
     #[test]

@@ -225,6 +225,14 @@ export interface TugInlineDialogProps
    * the dialog's title when omitted.
    */
   optionsAriaLabel?: string;
+  /**
+   * Mark the title a transcript Find container (`data-tugx-findable`), for a
+   * dialog whose title is the row's own words rather than a fixed prompt —
+   * an arc's question, which a block's search projection counts.
+   *
+   * @default false
+   */
+  findableTitle?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -298,6 +306,7 @@ export const TugInlineDialog = React.forwardRef<HTMLDivElement, TugInlineDialogP
     selectedOption,
     senderId,
     optionsAriaLabel,
+    findableTitle = false,
     className,
     ...rest
   },
@@ -349,7 +358,12 @@ export const TugInlineDialog = React.forwardRef<HTMLDivElement, TugInlineDialogP
             {leadingActions}
           </div>
         ) : null}
-        <h3 className="tug-inline-dialog-title">{title}</h3>
+        <h3
+          className="tug-inline-dialog-title"
+          data-tugx-findable={findableTitle ? "" : undefined}
+        >
+          {title}
+        </h3>
         {hasActions ? (
           <div
             className="tug-inline-dialog-actions"

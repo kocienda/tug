@@ -135,6 +135,30 @@ describe("a body's press", () => {
     await bus.flush();
     expect(sent.length).toBe(1);
   });
+
+  test("an answer to an ask is the resume's press, carrying the answer to the shell", async () => {
+    // An answer holds and settles as the resume it is ([B06]): one press key,
+    // its own action, the user's words on the frame.
+    card.store.send("alpha", "resume", ACTOR, "yes, by locale");
+    await bus.flush();
+    expect(shell.store.isPending("alpha", "resume")).toBe(true);
+    expect(sent).toEqual([
+      {
+        action: "arc_answer",
+        payload: { tug_session_id: "sess-card", project_dir: "/p", arc: "alpha", answer: "yes, by locale" },
+      },
+    ]);
+  });
+
+  test("Keep Stopped is its own press, so it never greys a Resume", async () => {
+    card.store.send("alpha", "keep", ACTOR);
+    await bus.flush();
+    expect(shell.store.isPending("alpha", "keep")).toBe(true);
+    expect(shell.store.isPending("alpha", "resume")).toBe(false);
+    expect(sent).toEqual([
+      { action: "arc_keep_stopped", payload: { tug_session_id: "sess-card", project_dir: "/p", arc: "alpha" } },
+    ]);
+  });
 });
 
 describe("a refusal", () => {

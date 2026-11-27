@@ -154,9 +154,29 @@ pub fn dispatch(cmd: ArcCommands, json: bool, quiet: bool) -> ExitCode {
         ArcCommands::Ask {
             name,
             question,
+            choices,
             project,
             session,
-        } => run_arc_ask(&name, &question, project, session.as_deref(), json, quiet),
+        } => run_arc_ask(
+            &name,
+            &question,
+            &choices,
+            project,
+            session.as_deref(),
+            json,
+            quiet,
+        ),
+        ArcCommands::Answer {
+            name,
+            answer,
+            project,
+            session,
+        } => run_arc_answer(&name, &answer, project, session.as_deref(), json, quiet),
+        ArcCommands::KeepStopped {
+            name,
+            project,
+            session,
+        } => run_arc_keep_stopped(&name, project, session.as_deref(), json, quiet),
         ArcCommands::Unbind { project, session } => {
             run_unbind(project, session.as_deref(), json, quiet)
         }
@@ -195,6 +215,8 @@ fn command_name(cmd: &ArcCommands) -> &'static str {
         ArcCommands::Bind { .. } => "arc bind",
         ArcCommands::Stop { .. } => "arc stop",
         ArcCommands::Ask { .. } => "arc ask",
+        ArcCommands::Answer { .. } => "arc answer",
+        ArcCommands::KeepStopped { .. } => "arc keep-stopped",
         ArcCommands::Unbind { .. } => "arc unbind",
     }
 }
@@ -2257,6 +2279,7 @@ fn run_arc_stop(
 fn run_arc_ask(
     name: &str,
     question: &str,
+    choices: &[String],
     project: Option<std::path::PathBuf>,
     session: Option<&str>,
     json: bool,
@@ -2270,6 +2293,7 @@ fn run_arc_ask(
         "project_dir": project.to_string_lossy(),
         "arc": name,
         "question": question,
+        "choices": choices,
     }))
     .map_err(|e| refuse(&session, e))?;
     let stage = response
@@ -2282,8 +2306,72 @@ fn run_arc_ask(
     } else if !quiet {
         println!("Stopped the arc on '{name}' in {stage} to ask (session {stopped})");
         println!("  {question}");
+        for choice in choices {
+            println!("    · {}", choice.trim());
+        }
         print_rotation_note(&session, &stopped);
         println!("Resume with tugtool arc run {name} once it is answered");
+    }
+    Ok(())
+}
+
+/// Answer a stopped arc's question and resume it — the receipt's choice and
+/// Reply buttons, from a terminal.
+///
+/// The server writes the answer and then the resume, in that order, behind
+/// every refusal a resume makes, so a refused answer leaves nothing on the
+/// record ([B06]).
+fn run_arc_answer(
+    name: &str,
+    answer: &str,
+    project: Option<std::path::PathBuf>,
+    session: Option<&str>,
+    json: bool,
+    quiet: bool,
+) -> Result<(), AppError> {
+    let session = calling_session_id("arc answer", session)?;
+    let project = binding_project(project)?;
+    let response = post_arc_api(serde_json::json!({
+        "op": "arc_answer",
+        "tug_session_id": session.session_id,
+        "project_dir": project.to_string_lossy(),
+        "arc": name,
+        "answer": answer,
+    }))
+    .map_err(|e| refuse(&session, e))?;
+    let seated = answered_session(&response, &session);
+    if json {
+        print_ok("arc answer", response);
+    } else if !quiet {
+        println!("Answered the arc on '{name}': {}", answer.trim());
+        println!("Session {seated} is bound to it; it resumes when this turn ends.");
+        print_rotation_note(&session, &seated);
+    }
+    Ok(())
+}
+
+/// Leave a stopped arc stopped — the receipt's Keep Stopped, from a terminal.
+fn run_arc_keep_stopped(
+    name: &str,
+    project: Option<std::path::PathBuf>,
+    session: Option<&str>,
+    json: bool,
+    quiet: bool,
+) -> Result<(), AppError> {
+    let session = calling_session_id("arc keep-stopped", session)?;
+    let project = binding_project(project)?;
+    let response = post_arc_api(serde_json::json!({
+        "op": "arc_keep_stopped",
+        "tug_session_id": session.session_id,
+        "project_dir": project.to_string_lossy(),
+        "arc": name,
+    }))
+    .map_err(|e| refuse(&session, e))?;
+    if json {
+        print_ok("arc keep-stopped", response);
+    } else if !quiet {
+        println!("Left the arc on '{name}' stopped");
+        println!("Resume with tugtool arc run {name} when you want it to go on");
     }
     Ok(())
 }

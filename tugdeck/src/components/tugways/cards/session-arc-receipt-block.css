@@ -117,3 +117,16 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+
+/* An ask's reply field: the one-line field and its Send on one row, filling
+   the dialog's inset column. */
+.arc-receipt-ask-reply {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+}
+
+.arc-receipt-ask-reply-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}

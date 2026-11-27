@@ -52,6 +52,12 @@ pub(crate) enum ArcApiOutcome {
         /// stop vocabulary is closed and cannot carry a payload, which is why
         /// the question travels beside the reason rather than inside it.
         question: Option<String>,
+        /// The answers the stage offered beside its question, in order —
+        /// each an `arc-choice` line after the question's note, and each a
+        /// `choice · <label>` line on the receipt, so a restored transcript
+        /// draws the same buttons. Empty for a question asked with none and
+        /// for every stop that is not an ask.
+        choices: Vec<String>,
     },
     /// This instance's ledger has no such session — the CLI should try the
     /// next live instance rather than report a failure.
@@ -67,6 +73,11 @@ pub(crate) enum ArcApiOutcome {
     /// What the wheel is waiting for on the posted seat, or `None`.
     Waiting {
         waiting: Option<serde_json::Value>,
+    },
+    /// A Keep Stopped landed: the arc's stop stands, and the record says the
+    /// user left it so.
+    LeftStopped {
+        arc: String,
     },
     Error(String),
 }
@@ -334,6 +345,79 @@ pub(crate) fn arc_resume(
     tug_session_id: &str,
     arc: &str,
 ) -> ArcApiOutcome {
+    resume_arc(ledger, project_dir, tug_session_id, arc, None)
+}
+
+/// Answer a stopped arc's question and pick it back up: the user's reply — a
+/// choice's label or the text they typed — written as an `arc-answer`, then
+/// the resume [`arc_resume`] performs, in that order ([B06]).
+///
+/// **One path with Resume, not a second one beside it.** Every refusal a
+/// resume makes is made here first, and the answer is written only after the
+/// last of them and immediately before the resume line, so a refused press
+/// leaves no answer to a question that is still standing. A blank answer is
+/// refused for the reason a blank question is: it would be a note that says
+/// nothing, and the resume clause would tell the stage the user said nothing.
+/// An arc that is not stopped has no question to answer and is refused too —
+/// the answer would otherwise ride the next stop's resume, which it did not
+/// answer.
+pub(crate) fn arc_answer(
+    ledger: &SessionLedger,
+    project_dir: &std::path::Path,
+    tug_session_id: &str,
+    arc: &str,
+    answer: &str,
+) -> ArcApiOutcome {
+    let answer = answer.trim();
+    if answer.is_empty() {
+        return ArcApiOutcome::Error(
+            "arc answer needs the answer — a reply that says nothing is not one".to_string(),
+        );
+    }
+    resume_arc(ledger, project_dir, tug_session_id, arc, Some(answer))
+}
+
+/// Leave a stopped arc stopped, and say so on the record ([B05]).
+///
+/// The arc does not move: it is stopped before and stopped after, and Resume
+/// on its row still picks it up. The one thing written is `arc-left-stopped`,
+/// which the card's observer paints as a later row for the arc — the row that
+/// folds the stop's question away. Refused for an arc that is not stopped,
+/// since there is nothing standing to leave.
+pub(crate) fn arc_keep_stopped(
+    ledger: &SessionLedger,
+    project_dir: &std::path::Path,
+    tug_session_id: &str,
+    arc: &str,
+) -> ArcApiOutcome {
+    // Resolved first so the CLI's try-each-instance walk reads an unknown
+    // card as "not mine" rather than as a refusal.
+    if let Err(outcome) = calling_segment(ledger, tug_session_id) {
+        return outcome;
+    }
+    let Some(record) = tugarc_core::arc::read_arc(&Paths::from_env(), project_dir, arc) else {
+        return ArcApiOutcome::Error(format!("{arc} has no arc to keep stopped"));
+    };
+    if record.stopped.is_none() {
+        return ArcApiOutcome::Error(format!("{arc}'s arc is not stopped"));
+    }
+    match tugarc_core::arc::append_arc_left_stopped(&Paths::from_env(), project_dir, arc) {
+        Ok(()) => ArcApiOutcome::LeftStopped {
+            arc: arc.to_string(),
+        },
+        Err(e) => ArcApiOutcome::Error(e.to_string()),
+    }
+}
+
+/// The resume [`arc_resume`] and [`arc_answer`] share, with the answer, when
+/// there is one, written between the last refusal and the resume line.
+fn resume_arc(
+    ledger: &SessionLedger,
+    project_dir: &std::path::Path,
+    tug_session_id: &str,
+    arc: &str,
+    answer: Option<&str>,
+) -> ArcApiOutcome {
     // The line's live segment, kept rather than thrown away: `other_holder`
     // compares against the ids `bound_session_by_arc` is keyed by, which are
     // live segments, and a card posting a frozen id (which the door does)
@@ -345,6 +429,14 @@ pub(crate) fn arc_resume(
     let Some(record) = tugarc_core::arc::read_arc(&Paths::from_env(), project_dir, arc) else {
         return ArcApiOutcome::Error(format!("{arc} has no arc to resume"));
     };
+    // Before every other check, and above all before the re-audit's reopen
+    // below: an answer to an arc that is not stopped answers nothing, and a
+    // done arc's stale audit must not be reopened by a press that is refused.
+    if answer.is_some() && record.stopped.is_none() {
+        return ArcApiOutcome::Error(format!(
+            "{arc}'s arc is not stopped — there is no question to answer"
+        ));
+    }
     // Refused *before* the resume line is written: an arc another card holds
     // must not have its stop cleared by a card that will not be seated on it.
     let arc_id = match tugarc_core::ops::ensure_arc_id(project_dir, arc) {
@@ -397,6 +489,13 @@ pub(crate) fn arc_resume(
                 ));
             }
             Err(e) => return ArcApiOutcome::Error(e.to_string()),
+        }
+    }
+    if let Some(answer) = answer {
+        if let Err(e) =
+            tugarc_core::arc::append_arc_answer(&Paths::from_env(), project_dir, arc, answer)
+        {
+            return ArcApiOutcome::Error(e.to_string());
         }
     }
     if let Some((stage, _)) = record.stopped {
@@ -561,6 +660,7 @@ pub(crate) fn arc_stop(
         project_dir: project_dir.to_string_lossy().into_owned(),
         reason: tugarc_core::arc::ArcStopReason::StoppedByUser,
         question: None,
+        choices: Vec::new(),
     }
 }
 
@@ -576,18 +676,37 @@ pub(crate) fn arc_stop(
 /// A blank question is refused rather than accepted as an empty note. "The
 /// stage stopped and would not say what it was asking" is the one outcome this
 /// verb exists to make impossible.
+///
+/// `choices` are the closed set of answers the stage offers, each trimmed. A
+/// blank one, or one named twice, is refused for the same reason: it would be
+/// a button that says nothing, or two buttons a reader cannot tell apart.
 pub(crate) fn arc_ask(
     ledger: &SessionLedger,
     project_dir: &std::path::Path,
     tug_session_id: &str,
     arc: &str,
     question: &str,
+    choices: &[String],
 ) -> ArcApiOutcome {
     let question = question.trim();
     if question.is_empty() {
         return ArcApiOutcome::Error(
             "arc ask needs the question — a stop nobody can read is not a receipt".to_string(),
         );
+    }
+    let mut offered: Vec<String> = Vec::with_capacity(choices.len());
+    for choice in choices {
+        let choice = choice.trim();
+        if choice.is_empty() {
+            return ArcApiOutcome::Error(
+                "arc ask refuses a blank --choice — a button has to say what it answers"
+                    .to_string(),
+            );
+        }
+        if offered.iter().any(|seen| seen == choice) {
+            return ArcApiOutcome::Error(format!("arc ask was given the choice '{choice}' twice"));
+        }
+        offered.push(choice.to_owned());
     }
     match arc_stop(ledger, project_dir, tug_session_id, arc) {
         ArcApiOutcome::ArcStopped {
@@ -603,6 +722,7 @@ pub(crate) fn arc_ask(
             project_dir,
             reason: tugarc_core::arc::ArcStopReason::NeedsDecision,
             question: Some(question.to_owned()),
+            choices: offered,
         },
         other => other,
     }
@@ -1326,18 +1446,21 @@ mod tests {
             "claude-1",
             "alpha",
             "  per-host or per-request?  ",
+            &[" per-host ".to_owned(), "per-request".to_owned()],
         ) {
             ArcApiOutcome::ArcStopped {
                 arc,
                 stage,
                 reason,
                 question,
+                choices,
                 ..
             } => {
                 assert_eq!(arc, "alpha");
                 assert_eq!(stage, tugarc_core::arc::ArcStage::Review);
                 assert_eq!(reason, tugarc_core::arc::ArcStopReason::NeedsDecision);
                 assert_eq!(question.as_deref(), Some("per-host or per-request?"));
+                assert_eq!(choices, vec!["per-host", "per-request"]);
             }
             ArcApiOutcome::Error(m) => panic!("refused: {m}"),
             _ => panic!("unexpected"),
@@ -1360,11 +1483,21 @@ mod tests {
         let root = dir.path();
         let ledger = on_arc_card(root);
 
-        match arc_ask(&ledger, root, "claude-1", "alpha", "   ") {
+        match arc_ask(&ledger, root, "claude-1", "alpha", "   ", &[]) {
             ArcApiOutcome::Error(message) => {
                 assert!(message.contains("needs the question"), "{message}");
             }
             _ => panic!("a blank question must not stop an arc"),
+        }
+        // Nor does a button that says nothing, or two that say the same.
+        for choices in [
+            vec!["yes".to_owned(), "  ".to_owned()],
+            vec!["yes".to_owned(), " yes".to_owned()],
+        ] {
+            match arc_ask(&ledger, root, "claude-1", "alpha", "which?", &choices) {
+                ArcApiOutcome::Error(message) => assert!(message.contains("choice"), "{message}"),
+                _ => panic!("{choices:?} must not stop an arc"),
+            }
         }
     }
 
@@ -1749,6 +1882,167 @@ mod tests {
         assert_eq!(bound_arc(&ledger).as_deref(), Some("alpha"));
     }
 
+    /// The arc log's markers for `arc`, in the order they were written.
+    fn markers(root: &std::path::Path, arc: &str) -> Vec<String> {
+        let path = tugtool_core::paths::arc_log_path(root);
+        std::fs::read_to_string(path)
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| tugarc_core::log::split_log_line(line))
+            .filter(|(_, name, _, _)| *name == arc)
+            .map(|(_, _, marker, _)| marker.to_owned())
+            .collect()
+    }
+
+    /// Stop `alpha` in implement over a question with two choices, the way a
+    /// stage's `arc ask` leaves it.
+    fn alpha_asked(root: &std::path::Path) {
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "alpha",
+            tugarc_core::arc::ArcStage::Implement,
+            "claude-1",
+            None,
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_ask(
+            &Paths::from_env(),
+            root,
+            "alpha",
+            "per-host or per-request?",
+            &["per-host".to_owned(), "per-request".to_owned()],
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stop(
+            &Paths::from_env(),
+            root,
+            "alpha",
+            tugarc_core::arc::ArcStage::Implement,
+            tugarc_core::arc::ArcStopReason::NeedsDecision,
+        )
+        .unwrap();
+    }
+
+    /// **The answer goes on the record, and then the resume** ([B06]). The
+    /// order is the point: the stage the resume seats is composed over the
+    /// record, so an answer written after the resume line would reach a
+    /// rotation that had already been told nothing.
+    #[test]
+    #[serial_test::serial]
+    fn an_answer_is_written_before_the_resume_it_rides() {
+        let home = tempdir().unwrap();
+        // SAFETY: `#[serial]`; no other thread reads the environment here.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", home.path());
+        }
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let ledger = on_arc_card(root);
+        alpha_asked(root);
+
+        assert!(matches!(
+            arc_answer(&ledger, root, "claude-1", "alpha", "  per-host "),
+            ArcApiOutcome::Bound { .. }
+        ));
+        let written = markers(root, "alpha");
+        let answer = written
+            .iter()
+            .position(|m| m == "arc-answer")
+            .expect("an answer");
+        let resume = written
+            .iter()
+            .position(|m| m == "arc-resume")
+            .expect("a resume");
+        assert!(
+            answer < resume,
+            "the answer precedes the resume: {written:?}"
+        );
+        let record = tugarc_core::arc::read_arc(&Paths::from_env(), root, "alpha").unwrap();
+        assert_eq!(record.answer.as_deref(), Some("per-host"));
+        assert!(record.stopped.is_none(), "and the arc is picked back up");
+        assert_eq!(bound_arc(&ledger).as_deref(), Some("alpha"));
+    }
+
+    /// A refused answer leaves nothing on the record: not to an arc that is
+    /// not stopped (it would ride the next stop's resume, which it did not
+    /// answer), and not one that says nothing.
+    #[test]
+    #[serial_test::serial]
+    fn a_refused_answer_writes_nothing() {
+        let home = tempdir().unwrap();
+        // SAFETY: `#[serial]`; no other thread reads the environment here.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", home.path());
+        }
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let ledger = on_arc_card(root);
+
+        // Not stopped.
+        match arc_answer(&ledger, root, "claude-1", "alpha", "per-host") {
+            ArcApiOutcome::Error(message) => assert!(message.contains("not stopped"), "{message}"),
+            other => panic!("an unstopped arc is refused, not {}", outcome_name(&other)),
+        }
+        // Blank.
+        alpha_asked(root);
+        match arc_answer(&ledger, root, "claude-1", "alpha", "   ") {
+            ArcApiOutcome::Error(message) => {
+                assert!(message.contains("needs the answer"), "{message}")
+            }
+            other => panic!("a blank answer is refused, not {}", outcome_name(&other)),
+        }
+        let written = markers(root, "alpha");
+        assert!(!written.iter().any(|m| m == "arc-answer"), "{written:?}");
+        assert!(!written.iter().any(|m| m == "arc-resume"), "{written:?}");
+    }
+
+    /// **Keep Stopped is a note and nothing else** ([B05]): the arc stays
+    /// stopped and resumable, the record says the user left it so, and a
+    /// later Resume picks it up exactly as before.
+    #[test]
+    #[serial_test::serial]
+    fn keep_stopped_leaves_the_arc_stopped_and_resumable() {
+        let home = tempdir().unwrap();
+        // SAFETY: `#[serial]`; no other thread reads the environment here.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", home.path());
+        }
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let ledger = on_arc_card(root);
+        alpha_asked(root);
+
+        assert!(matches!(
+            arc_keep_stopped(&ledger, root, "claude-1", "alpha"),
+            ArcApiOutcome::LeftStopped { .. }
+        ));
+        let record = tugarc_core::arc::read_arc(&Paths::from_env(), root, "alpha").unwrap();
+        assert!(record.stopped.is_some(), "still stopped");
+        assert_eq!(
+            record.notes.last().map(String::as_str),
+            Some(tugarc_core::arc::LEFT_STOPPED_NOTE),
+        );
+        assert_eq!(resume_lines(root), 0, "and nothing resumed it");
+
+        assert!(matches!(
+            arc_resume(&ledger, root, "claude-1", "alpha"),
+            ArcApiOutcome::Bound { .. }
+        ));
+        assert!(
+            tugarc_core::arc::read_arc(&Paths::from_env(), root, "alpha")
+                .unwrap()
+                .stopped
+                .is_none(),
+            "a later Resume still picks it up",
+        );
+        // And an arc with nothing standing has nothing to leave.
+        match arc_keep_stopped(&ledger, root, "claude-1", "alpha") {
+            ArcApiOutcome::Error(message) => assert!(message.contains("not stopped"), "{message}"),
+            other => panic!("an unstopped arc is refused, not {}", outcome_name(&other)),
+        }
+    }
+
     /// The Re-audit press takes the door `tugtool arc run` takes: a done arc
     /// whose audit can no longer vouch for its tree is reopened at the audit
     /// and the card seated on it, and a done arc with no stale audit to
@@ -2024,6 +2318,7 @@ mod tests {
             "claude-1",
             "alpha",
             "Which cover hides the band?",
+            &[],
         ) {
             ArcApiOutcome::ArcStopped {
                 arc,

@@ -248,6 +248,33 @@ describe("arcNoteParts — the runner's own lines", () => {
   });
 });
 
+describe("arcNoteParts — the user's reply to an ask", () => {
+  test("an answer reads as the user's words", () => {
+    expect(arcNoteParts("arc answer demo", "demo: you answered · yes — by locale")).toEqual({
+      name: "demo",
+      label: "You answered",
+      subject: "yes — by locale",
+      glyph: "Reply",
+    });
+  });
+
+  test("keep stopped reads as the arc left where it stood", () => {
+    expect(arcNoteParts("arc keep-stopped demo", "demo: left stopped")).toEqual({
+      name: "demo",
+      label: "Left stopped",
+      subject: null,
+      glyph: "CirclePause",
+    });
+  });
+
+  test("both are arc notes, and both answer the stop they follow", () => {
+    for (const verb of ["answer", "keep-stopped"]) {
+      expect(matchesArcNote(`arc ${verb} demo`)).toBe(true);
+      expect(arcAnsweredBy(`arc ${verb} demo`)).toBe("demo");
+    }
+  });
+});
+
 describe("arcNoteParts — the retired head", () => {
   test("a ledger row written as `dash` reads exactly as its `arc` twin", () => {
     expect(arcNoteParts("dash step demo start", "demo: step 1/15 started — Rename the crate")).toEqual(

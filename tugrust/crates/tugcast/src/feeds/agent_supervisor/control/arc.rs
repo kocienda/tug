@@ -1,6 +1,7 @@
-//! The arc family of CONTROL actions: `bind_arc`, `arc_resume`, `arc_run`,
-//! `arc_stop`, and `unbind_arc` — a card's mating to an arc and the
-//! transport presses that start, resume, and stop it — and `resolve_arcs`,
+//! The arc family of CONTROL actions: `bind_arc`, `arc_resume`,
+//! `arc_answer`, `arc_keep_stopped`, `arc_run`, `arc_stop`, and `unbind_arc`
+//! — a card's mating to an arc, the transport presses that start, resume, and
+//! stop it, and the answers to an arc's question — and `resolve_arcs`,
 //! the read that says which arc names a project's log holds, and which of
 //! them can still be read back.
 
@@ -46,6 +47,22 @@ pub(in crate::feeds::agent_supervisor) fn parse_bind_arc_payload(
         project_dir,
         arc,
     })
+}
+
+/// An `arc_answer` request: `bind_arc`'s three fields and the user's answer —
+/// a choice's label, or the reply they typed.
+pub(in crate::feeds::agent_supervisor) fn parse_arc_answer_payload(
+    payload: &[u8],
+) -> Result<(BindArcPayload, String), ControlError> {
+    let arc = parse_bind_arc_payload(payload)?;
+    let value: serde_json::Value =
+        serde_json::from_slice(payload).map_err(|_| ControlError::Malformed)?;
+    let answer = value
+        .get("answer")
+        .and_then(|v| v.as_str())
+        .ok_or(ControlError::Malformed)?
+        .to_string();
+    Ok((arc, answer))
 }
 
 /// A `resolve_arcs` request: the project whose arc log to read, and the arc
@@ -160,6 +177,22 @@ impl AgentSupervisor {
             ControlAction::ArcResume => match parse_bind_arc_payload(payload) {
                 Ok(parsed) => {
                     self.do_arc_resume(&parsed).await;
+                    Ok(())
+                }
+                Err(e) => return ControlOutcome::Error(e),
+            },
+            // A resume with the answer written first ([B06]), so it answers
+            // on the resume's own pair and the deck settles the press as one.
+            ControlAction::ArcAnswer => match parse_arc_answer_payload(payload) {
+                Ok((parsed, answer)) => {
+                    self.do_arc_resume_with(&parsed, Some(answer)).await;
+                    Ok(())
+                }
+                Err(e) => return ControlOutcome::Error(e),
+            },
+            ControlAction::ArcKeepStopped => match parse_bind_arc_payload(payload) {
+                Ok(parsed) => {
+                    self.do_arc_keep_stopped(&parsed).await;
                     Ok(())
                 }
                 Err(e) => return ControlOutcome::Error(e),
@@ -409,6 +442,14 @@ impl AgentSupervisor {
     /// pending. A refusal sends `arc_resume_err` only: nothing was mated, so
     /// there is no mating to announce.
     async fn do_arc_resume(&self, request: &BindArcPayload) {
+        self.do_arc_resume_with(request, None).await;
+    }
+
+    /// [`Self::do_arc_resume`] with an answer written before the resume when
+    /// the press was a choice or a sent reply — the `arc_answer` action.
+    /// One handler for both, so an answered resume can never be answered on
+    /// a different pair than a bare one.
+    async fn do_arc_resume_with(&self, request: &BindArcPayload, answer: Option<String>) {
         let Some(ledger) = self.session_ledger.clone() else {
             Self::send_arc_resume_err(
                 &self.control_tx,
@@ -425,8 +466,9 @@ impl AgentSupervisor {
         ));
         let session = request.tug_session_id.clone();
         let arc = request.arc.clone();
-        let outcome = tokio::task::spawn_blocking(move || {
-            crate::arc_api::arc_resume(&ledger, &project, &session, &arc)
+        let outcome = tokio::task::spawn_blocking(move || match answer {
+            Some(answer) => crate::arc_api::arc_answer(&ledger, &project, &session, &arc, &answer),
+            None => crate::arc_api::arc_resume(&ledger, &project, &session, &arc),
         })
         .await;
 
@@ -470,6 +512,60 @@ impl AgentSupervisor {
                     &request.tug_session_id,
                     &request.arc,
                     &format!("resume task failed: {join_err}"),
+                );
+            }
+        }
+    }
+
+    /// Handle an `arc_keep_stopped` CONTROL request: the Keep Stopped press on
+    /// a stop receipt's question ([B05]).
+    ///
+    /// Nothing about the arc moves, so nothing is mated and nothing is
+    /// broadcast beyond the answer to the press. The row that folds the
+    /// question away is the `arc-left-stopped` line itself, which the arc
+    /// notes observer paints on every card bound to the arc — the record, not
+    /// this handler, is what the card reads.
+    async fn do_arc_keep_stopped(&self, request: &BindArcPayload) {
+        let reply = |action: &str, reason: Option<&str>| {
+            let mut body = serde_json::json!({
+                "action": action,
+                "tug_session_id": request.tug_session_id,
+                "arc": request.arc,
+            });
+            if let Some(reason) = reason {
+                body["reason"] = serde_json::json!(reason);
+            }
+            send_control(&self.control_tx, body);
+        };
+        let Some(ledger) = self.session_ledger.clone() else {
+            reply("arc_keep_stopped_err", Some("no_ledger"));
+            return;
+        };
+        let project = crate::path_resolver::resolve_to_claude_form(std::path::Path::new(
+            &request.project_dir,
+        ));
+        let session = request.tug_session_id.clone();
+        let arc = request.arc.clone();
+        let outcome = tokio::task::spawn_blocking(move || {
+            crate::arc_api::arc_keep_stopped(&ledger, &project, &session, &arc)
+        })
+        .await;
+        match outcome {
+            Ok(crate::arc_api::ArcApiOutcome::LeftStopped { .. }) => {
+                self.registry.changeset_all_bump().notify_one();
+                reply("arc_keep_stopped_ok", None);
+            }
+            Ok(crate::arc_api::ArcApiOutcome::UnknownSession) => {
+                reply("arc_keep_stopped_err", Some("unknown_session"));
+            }
+            Ok(crate::arc_api::ArcApiOutcome::Error(detail)) => {
+                reply("arc_keep_stopped_err", Some(&detail));
+            }
+            Ok(_) => {}
+            Err(join_err) => {
+                reply(
+                    "arc_keep_stopped_err",
+                    Some(&format!("keep-stopped task failed: {join_err}")),
                 );
             }
         }
@@ -588,9 +684,13 @@ impl AgentSupervisor {
             return abandon("no_wheel");
         };
         if let Some(question) = terms.question {
-            if let Err(e) =
-                tugarc_core::arc::append_arc_note(&Paths::from_env(), project, arc, question)
-            {
+            if let Err(e) = tugarc_core::arc::append_arc_ask(
+                &Paths::from_env(),
+                project,
+                arc,
+                question,
+                terms.choices,
+            ) {
                 warn!(
                     arc = %arc,
                     error = %e,
@@ -872,6 +972,7 @@ impl AgentSupervisor {
                 project_dir,
                 reason,
                 question,
+                choices,
             }) => {
                 // Resolved before the stop, from the same walk `stop_arc_now`
                 // makes: the card this press is to be answered on.
@@ -888,6 +989,7 @@ impl AgentSupervisor {
                             stage,
                             reason,
                             question: question.as_deref(),
+                            choices: &choices,
                             halt: true,
                         },
                     )

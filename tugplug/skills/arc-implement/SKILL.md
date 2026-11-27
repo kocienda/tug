@@ -54,7 +54,7 @@ The prompt that seated you carries one: `where: worktree <abs path> · session <
 tugtool arc ask <name> "<what you found, in one sentence>"
 ```
 
-That writes the sentence as the arc's last note and stops the arc as `needs a decision`, with a Resume on the receipt the user sees in seconds. It is the one gesture by which a stage's refusal becomes a stop rather than a stall, and it is the doctrine's rule that a stop recording a person's decision is never reversed by the machine.
+That writes the sentence as the arc's last note and stops the arc as `needs a decision`, with the question drawn as a dialog on the receipt the user sees in seconds. When the question has a closed set of answers, pass each with `--choice "<label>"`, so each is a button that answers and resumes in one press; the answer reaches the resumed stage in its prompt. Never ask for approval to continue through the declared steps — the selection already answered that. It is the one gesture by which a stage's refusal becomes a stop rather than a stall, and it is the doctrine's rule that a stop recording a person's decision is never reversed by the machine.
 
 **With no `where` line above, that is the sentence to stop on.** This skill is a stage of an arc rather than a standalone command, and `/arc` is the one door that starts one: it sharpens an idea into a brief and decides the arc's shape there, opening a plain arc straight at this stage and a planned one at devise. There is no path from here that ends anywhere else, because the discipline this stage runs under — one step per turn — is only safe when something is pacing it. Without a wheel, a turn that ends at a step boundary abandons the arc: the ledger reads `in progress`, every face says somebody is working it, and nobody is.
 
@@ -87,7 +87,7 @@ That writes the sentence as the arc's last note and stops the arc as `needs a de
      tugtool arc ask <name> "<the decision the task list assumes and the brief does not make, in one sentence>"
      ```
 
-     That writes the question as the arc's last note and stops the arc as `needs a decision`, with a Resume on the receipt. The user answers in their own conversation, and the arc picks up here. A brief that overreached is answered in one exchange rather than built on.
+     That writes the question as the arc's last note and stops the arc as `needs a decision`, with the question drawn as a dialog on the receipt; add a `--choice "<label>"` per answer when the decision is between named designs. The user answers there, and the arc picks up here with the answer in its prompt. A brief that overreached is answered in one exchange rather than built on.
 
    This is the plain arc's equivalent of the review stage, and the bar is the same never-ask list: a *design* decision the documents do not settle, never a step you would have ordered differently, never a detail the code or the conventional default answers, never "are you sure". On a task list whose steps all follow from the brief — the ordinary case — this read costs the reading of documents you had to read anyway, and you say nothing about having done it.
 

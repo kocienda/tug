@@ -35,13 +35,18 @@ export interface ParsedArcReceipt {
   /** The plan that came out; absent when the arc stopped before one existed. */
   plan: string | null;
   /**
-   * A stop's stage, its sentence, whatever the stage said for itself, and
-   * whether the arc it stopped is over.
+   * A stop's stage, its sentence, whatever the stage said for itself, the
+   * answers it offered, and whether the arc it stopped is over.
    *
    * `said` is the `arc ask` question a `NeedsDecision` stop carries — the
    * stage's own words, written as the record's last note and read back
-   * beneath the header. It is the row's tail, and it is why that stop needs
-   * no answer affordance of its own ([B03]).
+   * beneath the header: the first unmarked line after it.
+   *
+   * `choices` are the answers the stage named with `--choice`, one
+   * `choice · <label>` line each after the question, in order. A receipt
+   * written before choices existed, or an ask with none, reads as `[]` — so
+   * an old row and a new one parse to the same shape, and the block decides
+   * what an empty set offers.
    *
    * `terminal` is read off the frozen sentence `there is nothing to resume`,
    * which the server writes for a discard and a join and for nothing else.
@@ -54,6 +59,7 @@ export interface ParsedArcReceipt {
     stage: string;
     reason: string;
     said: string | null;
+    choices: string[];
     terminal: boolean;
   } | null;
   /**
@@ -115,6 +121,26 @@ export const TERMINAL_LINE = "there is nothing to resume";
  * change.
  */
 const LEGACY_RESUME_RE = /^resume with tugtool arc run \S+$/;
+/**
+ * The mark an ask's answer carries: `choice · <label>`, `·` U+00B7 — the same
+ * bytes `format_arc_stop_receipt` writes. Marked so that the question stays
+ * the first *unmarked* line, which is how a parser older than choices still
+ * reads a new row as its question alone.
+ */
+export const CHOICE_PREFIX = "choice · ";
+
+/**
+ * The sentence a `needs a decision` stop writes as its reason — the server's
+ * `ArcStopReason::NeedsDecision` description, copied, because the receipt's
+ * own text is all a restored row has to tell an ask from any other stop.
+ */
+export const ASK_REASON =
+  "it met a decision that is yours to make, so it stopped rather than asking";
+
+/** Whether a parsed receipt is a stage's ask: a stop for a decision. */
+export function isArcAsk(parsed: Pick<ParsedArcReceipt, "outcome" | "stop">): boolean {
+  return parsed.outcome === "stopped" && parsed.stop?.reason === ASK_REASON;
+}
 
 export function parseArcReceipt(output: string): ParsedArcReceipt | null {
   const lines = output.split("\n");
@@ -145,6 +171,7 @@ export function parseArcReceipt(output: string): ParsedArcReceipt | null {
             stage: stopped[2] ?? "",
             reason: stopped[3] ?? "",
             said: null,
+            choices: [],
             terminal: false,
           }
         : null,
@@ -181,6 +208,11 @@ export function parseArcReceipt(output: string): ParsedArcReceipt | null {
       continue;
     }
     if (parsed.stop !== null && LEGACY_RESUME_RE.test(line)) continue;
+    if (parsed.stop !== null && line.startsWith(CHOICE_PREFIX)) {
+      const choice = line.slice(CHOICE_PREFIX.length).trim();
+      if (choice.length > 0) parsed.stop.choices.push(choice);
+      continue;
+    }
     // Whatever else the stop wrote after its header is the stage's own words,
     // which carry no marker — the two marked lines above and the terminal
     // sentence are all eligible to be something else first.

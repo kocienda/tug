@@ -39,7 +39,7 @@ The prompt that seated you carries one: `where: worktree <abs path> · session <
 tugtool arc ask <name> "<what you found, in one sentence>"
 ```
 
-That writes the sentence as the arc's last note and stops the arc as `needs a decision`, with a Resume on the receipt the user sees in seconds.
+That writes the sentence as the arc's last note and stops the arc as `needs a decision`, with the question drawn as a dialog on the receipt the user sees in seconds. When it has a closed set of answers, pass each with `--choice "<label>"`, so each is a button; never ask for approval to finish the audit.
 
 **With no `where` line above, that is the sentence to stop on.** This skill is a stage of an arc rather than a standalone command, and it is the last stage of **every** arc: `/arc` is the one door, and the shape it settles on decides only where the arc *starts* — a plain arc at implement, a planned one at devise. Each reaches here when its final declared step closes. There is no path from here that ends anywhere else — the mark this stage writes is read by a runner, and with no runner reading it the mark declares an arc finished that nothing was running.
 

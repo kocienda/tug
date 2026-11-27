@@ -744,6 +744,15 @@ struct ArcApiRequest {
     /// receipt, so it is the whole of what the user has to go on.
     #[serde(default)]
     question: Option<String>,
+    /// For `arc_ask`: the closed set of answers the stage offers, in order.
+    /// Absent reads as none, which is what every `tugtool` before choices
+    /// sent, so an older one still asks.
+    #[serde(default)]
+    choices: Vec<String>,
+    /// For `arc_answer`: the user's reply to the arc's question — a choice's
+    /// label or the text they typed.
+    #[serde(default)]
+    answer: Option<String>,
 }
 
 // (A review-start route is gone: a review is an ordinary turn the user starts,
@@ -832,6 +841,14 @@ async fn arc_handler(
             axum::Json(serde_json::json!({ "status": "ok", "waiting": waiting })),
         )
             .into_response(),
+        crate::arc_api::ArcApiOutcome::LeftStopped { arc } => {
+            registry.changeset_all_bump().notify_one();
+            (
+                StatusCode::OK,
+                axum::Json(serde_json::json!({ "status": "ok", "arc": arc, "left_stopped": true })),
+            )
+                .into_response()
+        }
         crate::arc_api::ArcApiOutcome::Bound {
             session_id,
             arc_id,
@@ -924,6 +941,7 @@ async fn arc_handler(
             project_dir,
             reason,
             question,
+            choices,
         } => {
             // The whole of the stop — the question's note, the interrupt, the
             // hand-back, the receipt, the record — is the supervisor's one
@@ -954,6 +972,7 @@ async fn arc_handler(
                 let (session_id, project_dir, arc) =
                     (session_id.clone(), project_dir.clone(), arc.clone());
                 let question = question.clone();
+                let choices = choices.clone();
                 let halt = reason == tugarc_core::arc::ArcStopReason::StoppedByUser;
                 tokio::spawn(async move {
                     let outcome = supervisor
@@ -965,6 +984,7 @@ async fn arc_handler(
                                 stage,
                                 reason,
                                 question: question.as_deref(),
+                                choices: &choices,
                                 halt,
                             },
                         )
@@ -986,6 +1006,7 @@ async fn arc_handler(
                     "stage": stage.as_str(),
                     "reason": reason.as_str(),
                     "question": question,
+                    "choices": choices,
                 })),
             )
                 .into_response()
@@ -1121,6 +1142,35 @@ fn apply_arc_request(
             };
             crate::arc_api::arc_resume(ledger, &project, session, arc)
         }
+        // Answer a stopped arc's question, then resume it — the answer act
+        // ([B06]). It binds and returns exactly as `arc_resume` does, because
+        // it *is* that resume with the answer written first.
+        "arc_answer" => {
+            let (Some(session), Some(project), Some(arc), Some(answer)) = (
+                req.tug_session_id.as_deref(),
+                resolved_project(),
+                req.arc.as_deref(),
+                req.answer.as_deref(),
+            ) else {
+                return ArcApiOutcome::Error(
+                    "arc_answer needs tug_session_id, project_dir, arc, and answer".to_string(),
+                );
+            };
+            crate::arc_api::arc_answer(ledger, &project, session, arc, answer)
+        }
+        // Leave a stopped arc stopped, and say so on the record ([B05]).
+        "arc_keep_stopped" => {
+            let (Some(session), Some(project), Some(arc)) = (
+                req.tug_session_id.as_deref(),
+                resolved_project(),
+                req.arc.as_deref(),
+            ) else {
+                return ArcApiOutcome::Error(
+                    "arc_keep_stopped needs tug_session_id, project_dir, and arc".to_string(),
+                );
+            };
+            crate::arc_api::arc_keep_stopped(ledger, &project, session, arc)
+        }
         "unbind" => {
             let Some(session) = req.tug_session_id.as_deref() else {
                 return ArcApiOutcome::Error("unbind needs tug_session_id".to_string());
@@ -1157,7 +1207,7 @@ fn apply_arc_request(
                     "arc_ask needs tug_session_id, project_dir, arc, and question".to_string(),
                 );
             };
-            crate::arc_api::arc_ask(ledger, &project, session, arc, question)
+            crate::arc_api::arc_ask(ledger, &project, session, arc, question, &req.choices)
         }
         "arc_gone" => {
             let (Some(project), Some(arc_id)) = (resolved_project(), req.arc_id.as_deref()) else {

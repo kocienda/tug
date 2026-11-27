@@ -76,6 +76,7 @@ import {
   type ArcPressPatch,
   type ArcPressRefusal,
   type ArcPressState,
+  type ArcPressVerb,
   type ArcRefusedVerb,
   type ArcTransportVerb,
 } from "../bus/declarations/relays";
@@ -89,16 +90,24 @@ export type {
   ArcPressPatch,
   ArcPressRefusal,
   ArcPressState,
+  ArcPressVerb,
   ArcRefusedVerb,
   ArcTransportVerb,
 };
 
-/** The CONTROL action each transport verb sends. */
-export const ACTION_FOR: Record<ArcTransportVerb, ControlAction> = {
+/**
+ * The CONTROL action each press sends. A resume that carries an answer sends
+ * {@link ANSWER_ACTION} instead, and is answered on the resume's own pair.
+ */
+export const ACTION_FOR: Record<ArcPressVerb, ControlAction> = {
   start: "arc_run",
   resume: "arc_resume",
   stop: "arc_stop",
+  keep: "arc_keep_stopped",
 };
+
+/** The CONTROL action a resume carrying the user's answer to an ask sends. */
+export const ANSWER_ACTION: ControlAction = "arc_answer";
 
 /**
  * How long a press waits for an answer before it releases itself.
@@ -149,7 +158,7 @@ export class ArcPressStore extends Subscribable {
   private _publish: ((state: ArcPressState) => void) | null = null;
 
   /** Whether a `verb` press on `arc` is still waiting for its answer. */
-  isPending = (arc: string, verb: ArcTransportVerb): boolean => {
+  isPending = (arc: string, verb: ArcPressVerb): boolean => {
     const key = pressKey(arc, verb);
     if (this._replica !== null) return this._replica.getSnapshot().pending.includes(key);
     return this._pending.has(key);
@@ -167,10 +176,19 @@ export class ArcPressStore extends Subscribable {
    * In a body the press is the shell's to make ({@link ArcPressStore}'s header
    * says why): it is proposed whole, and the replica shows it at once.
    */
-  send = (arc: string, verb: ArcTransportVerb, actor: ArcPressActor): boolean => {
+  send = (
+    arc: string,
+    verb: ArcPressVerb,
+    actor: ArcPressActor,
+    answer?: string,
+  ): boolean => {
     if (this.isPending(arc, verb)) return false;
     if (this._replica !== null) {
-      this._replica.propose({ op: "press", arc, verb, actor });
+      this._replica.propose(
+        answer === undefined
+          ? { op: "press", arc, verb, actor }
+          : { op: "press", arc, verb, actor, answer },
+      );
       return true;
     }
     const connection = this._sink();
@@ -179,10 +197,14 @@ export class ArcPressStore extends Subscribable {
       return false;
     }
     this.press(arc, verb, actor.tugSessionId);
-    connection.sendControlFrame(ACTION_FOR[verb], {
+    // An answer is a resume that carries the user's words ([B06]): its own
+    // action, the resume's press and the resume's answer pair.
+    const answering = verb === "resume" && answer !== undefined;
+    connection.sendControlFrame(answering ? ANSWER_ACTION : ACTION_FOR[verb], {
       tug_session_id: actor.tugSessionId,
       project_dir: actor.projectDir,
       arc,
+      ...(answering ? { answer } : {}),
     });
     return true;
   };
@@ -200,7 +222,7 @@ export class ArcPressStore extends Subscribable {
    */
   press = (
     arc: string,
-    verb: ArcTransportVerb,
+    verb: ArcPressVerb,
     sessionId: string | null,
   ): void => {
     const key = pressKey(arc, verb);
@@ -224,7 +246,7 @@ export class ArcPressStore extends Subscribable {
    * control the user cannot retry. The answers are the shell's, so a body
    * settles nothing.
    */
-  settle = (arc: string, verb: ArcTransportVerb): void => {
+  settle = (arc: string, verb: ArcPressVerb): void => {
     if (this._replica !== null) return;
     const key = pressKey(arc, verb);
     this._forget(key);
@@ -377,7 +399,7 @@ export function shareArcPresses(
     shared.onProposal((patch) => {
       switch (patch.op) {
         case "press":
-          store.send(patch.arc, patch.verb, patch.actor);
+          store.send(patch.arc, patch.verb, patch.actor, patch.answer);
           return;
         case "refuse":
           store.refuse(patch.voice, patch.arc, patch.verb, patch.reason);

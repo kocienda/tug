@@ -43,7 +43,7 @@
  */
 
 export const ARC_NOTE_COMMAND =
-  /^(arc|dash) (create|step|mark|commit|resume|joined|discarded|compact|jobs|model)\s+\S+/;
+  /^(arc|dash) (create|step|mark|commit|resume|joined|discarded|compact|jobs|model|answer|keep-stopped)\s+\S+/;
 
 /** Whether a shell-ledger command is an arc gesture's synthetic quiet line. */
 export function matchesArcNote(command: string): boolean {
@@ -51,10 +51,11 @@ export function matchesArcNote(command: string): boolean {
 }
 
 /**
- * The Wheel's lines that answer a stop: a pick-up, a join and a discard.
- * Only the `arc` head — nothing ever wrote these verbs under `dash`.
+ * The lines that answer a stop: a pick-up, a join, a discard, the user's
+ * answer to an ask, and the user leaving the arc stopped. Only the `arc`
+ * head — nothing ever wrote these verbs under `dash`.
  */
-const STOP_ANSWER_COMMAND = /^arc (?:resume|joined|discarded) (\S+)/;
+const STOP_ANSWER_COMMAND = /^arc (?:resume|joined|discarded|answer|keep-stopped) (\S+)/;
 
 /**
  * The arc a quiet line says went on past a stop, or `null` when the command
@@ -97,7 +98,9 @@ export type ArcNoteGlyph =
   | "RotateCw"
   | "FoldVertical"
   | "Layers"
-  | "Cpu";
+  | "Cpu"
+  | "Reply"
+  | "CirclePause";
 
 /**
  * The parts one arc-note row renders: three weights left to right, plus the
@@ -138,6 +141,8 @@ type ArcGesture =
   | "compacted"
   | "past-jobs"
   | "model"
+  | "answered"
+  | "left-stopped"
   | "round";
 
 const GLYPHS: Record<ArcGesture, ArcNoteGlyph> = {
@@ -159,6 +164,11 @@ const GLYPHS: Record<ArcGesture, ArcNoteGlyph> = {
   compacted: "FoldVertical",
   "past-jobs": "Layers",
   model: "Cpu",
+  // The user's own reply to an ask, and the user leaving the arc where it
+  // stood: a reply and a pause, never the wheel, because neither is the
+  // Wheel's act.
+  answered: "Reply",
+  "left-stopped": "CirclePause",
   round: "GitCommitHorizontal",
 };
 
@@ -196,6 +206,10 @@ function readCommand(command: string): { gesture: ArcGesture; name: string } | n
       return { gesture: "past-jobs", name };
     case "model":
       return { gesture: "model", name };
+    case "answer":
+      return { gesture: "answered", name };
+    case "keep-stopped":
+      return { gesture: "left-stopped", name };
     case "commit":
       return { gesture: "round", name };
     case "mark":
@@ -338,6 +352,16 @@ export function arcNoteParts(command: string, sentence: string): ArcNoteParts {
       const through = /^run declared (.+)$/.exec(head)?.[1];
       return through ? { name, label: "Run declared", subject: through, glyph } : unread;
     }
+    case "answered": {
+      // `<arc>: you answered · <the answer>`: the answer is the subject, read
+      // from `rest` so an answer carrying ` — ` is kept whole.
+      const answer = /^you answered · (.+)$/.exec(rest)?.[1] ?? null;
+      return answer !== null ? { name, label: "You answered", subject: answer, glyph } : unread;
+    }
+    case "left-stopped":
+      return rest === "left stopped"
+        ? { name, label: "Left stopped", subject: null, glyph }
+        : unread;
     case "round": {
       const sha = /^round ([0-9a-f]+)$/.exec(head)?.[1];
       return sha ? { name, label: `Round ${sha}`, subject: tail, glyph } : unread;

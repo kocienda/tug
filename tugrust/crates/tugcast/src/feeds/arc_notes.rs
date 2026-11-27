@@ -464,6 +464,11 @@ fn closed_step(marker: &str, note: &str) -> Option<u32> {
 /// landing receipt, an `arc-*` marker is the arc's own record and ends in
 /// the arc receipt, and `replayed` / `verified` are their own verbs with their
 /// own read-outs. A tenth line about the same event is noise, not visibility.
+///
+/// Two `arc-*` markers are the exception, because no other surface says them:
+/// `arc-answer` and `arc-left-stopped` are the user's own replies to an ask,
+/// and the row they paint is what answers the stop receipt's question on the
+/// card — the later row for the arc that folds it away.
 pub fn note_for_line(arc: &str, marker: &str, note: &str) -> Option<String> {
     // A teardown is not a step gesture, and its marker is a sha — so this test
     // comes first, or a join would read as a round.
@@ -495,6 +500,11 @@ pub fn note_for_line(arc: &str, marker: &str, note: &str) -> Option<String> {
             })
         }
         "built" | "audited" => Some(format!("{arc}: marked {marker}")),
+        "arc-answer" => {
+            let answer = note.trim();
+            (!answer.is_empty()).then(|| format!("{arc}: you answered · {answer}"))
+        }
+        "arc-left-stopped" => Some(format!("{arc}: left stopped")),
         // A round: the marker *is* the short sha and the note is the verbatim
         // instruction. `-` is `arc commit` finding nothing to commit, which
         // moved no record and says nothing.
@@ -528,6 +538,8 @@ fn command_for_line(arc: &str, marker: &str) -> String {
         "step-reset" => format!("arc step {arc} reset"),
         "step-reopen" => format!("arc step {arc} reopen"),
         "built" | "audited" => format!("arc mark {arc} {marker}"),
+        "arc-answer" => format!("arc answer {arc}"),
+        "arc-left-stopped" => format!("arc keep-stopped {arc}"),
         _ => format!("arc commit {arc}"),
     }
 }
@@ -591,6 +603,25 @@ mod tests {
             note_for_line("demo", "999353ca1", "Step 1: The first step").as_deref(),
             Some("demo: round 999353ca1 — Step 1: The first step")
         );
+    }
+
+    #[test]
+    fn the_users_reply_to_an_ask_is_painted_as_their_line() {
+        assert_eq!(
+            note_for_line("demo", "arc-answer", "per-host").as_deref(),
+            Some("demo: you answered · per-host")
+        );
+        assert_eq!(command_for_line("demo", "arc-answer"), "arc answer demo");
+        assert_eq!(
+            note_for_line("demo", "arc-left-stopped", "").as_deref(),
+            Some("demo: left stopped")
+        );
+        assert_eq!(
+            command_for_line("demo", "arc-left-stopped"),
+            "arc keep-stopped demo"
+        );
+        // An answer with no words is a record defect, not a line to paint.
+        assert_eq!(note_for_line("demo", "arc-answer", "  "), None);
     }
 
     #[test]
