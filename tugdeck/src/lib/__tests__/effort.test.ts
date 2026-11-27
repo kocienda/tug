@@ -21,6 +21,7 @@ import {
   orderEffortLevels,
   parsePersistedEffort,
   resolveEffortDisplay,
+  resolveEffortRestoreAction,
   resolveEffortSupport,
   resolveSeedEffort,
 } from "@/lib/effort";
@@ -216,5 +217,63 @@ describe("resolveSeedEffort", () => {
 
   test("is null when neither is set (leave the session untouched)", () => {
     expect(resolveSeedEffort(null, null)).toBeNull();
+  });
+});
+
+describe("resolveEffortRestoreAction", () => {
+  const ready = {
+    seedEffort: "medium",
+    models: CAPABILITY_MODELS,
+    model: "default",
+    liveEffort: null,
+    canSubmit: true,
+    catalogFallback: null,
+  };
+
+  test("sends a seed that differs from the effective live level", () => {
+    expect(resolveEffortRestoreAction(ready)).toEqual({ kind: "send", effort: "medium" });
+  });
+
+  test("waits while a turn is running, because applying it respawns claude", () => {
+    // The Protocol error Tito reported: a card mounted over a running turn
+    // sent its seed, and the respawn ended the turn.
+    expect(resolveEffortRestoreAction({ ...ready, canSubmit: false })).toEqual({
+      kind: "wait",
+    });
+  });
+
+  test("the wait is not a latch: the same seed sends once the turn is over", () => {
+    const during = resolveEffortRestoreAction({ ...ready, canSubmit: false });
+    const after = resolveEffortRestoreAction({ ...ready, canSubmit: true });
+    expect(during.kind).toBe("wait");
+    expect(after).toEqual({ kind: "send", effort: "medium" });
+  });
+
+  test("a seed already in force settles without a send, mid-turn or not", () => {
+    expect(
+      resolveEffortRestoreAction({ ...ready, liveEffort: "medium", canSubmit: false }),
+    ).toEqual({ kind: "settled" });
+    // No override in force means the default level is.
+    expect(
+      resolveEffortRestoreAction({ ...ready, seedEffort: DEFAULT_EFFORT_LEVEL }),
+    ).toEqual({ kind: "settled" });
+  });
+
+  test("a level the active model does not take settles without a send", () => {
+    expect(
+      resolveEffortRestoreAction({ ...ready, seedEffort: "xhigh", model: "sonnet" }),
+    ).toEqual({ kind: "settled" });
+    expect(resolveEffortRestoreAction({ ...ready, model: "haiku" })).toEqual({
+      kind: "settled",
+    });
+  });
+
+  test("waits until a seed and the model's support are both known", () => {
+    expect(resolveEffortRestoreAction({ ...ready, seedEffort: null })).toEqual({
+      kind: "wait",
+    });
+    expect(resolveEffortRestoreAction({ ...ready, models: [], model: null })).toEqual({
+      kind: "wait",
+    });
   });
 });

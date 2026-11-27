@@ -494,6 +494,16 @@ export class SessionManager {
    */
   private currentEffort: string | null = null;
   /**
+   * True while {@link currentEffort} holds a level the live claude was not
+   * spawned with, because the change arrived over an open turn. Applying an
+   * effort is a respawn, and a respawn over an open turn ends it; so the
+   * level is recorded and the respawn is owed, paid by
+   * {@link applyDeferredEffort} when the turn closes. Cleared by
+   * {@link killAndCleanup}: every spawn carries the recorded level, so any
+   * teardown settles the debt.
+   */
+  private effortRespawnPending: boolean = false;
+  /**
    * The model selector the user has chosen (`sonnet`, `fable`, …), or `null`
    * for the account default (which needs no `--model` flag).
    *
@@ -1140,6 +1150,9 @@ export class SessionManager {
     // Mark shutdown so the early-exit watcher ignores the exit code
     // from our kill rather than surfacing a phantom resume_failed.
     this.isShuttingDown = true;
+    // Whatever spawns next carries `currentEffort`, so an effort respawn
+    // still owed from a mid-turn change is paid by this teardown.
+    this.effortRespawnPending = false;
     // A deliberate teardown cancels every timer armed for this process — the
     // cancel-escalation, the result watchdog, the resume handshake gate, and
     // the activity-flush heartbeat (a respawn re-arms it when its stdout
@@ -2359,6 +2372,9 @@ export class SessionManager {
         // decision there belongs to the crash/early-exit paths, not
         // the retraction.
         this.rewind.maybeScheduleRetraction(turn);
+        // An effort change that arrived during the turn was held back so
+        // it would not end it; the turn is closed, so apply it now.
+        this.applyDeferredEffort();
       }
     } else {
       this.handleInterTurnEvent(event);
@@ -4571,6 +4587,15 @@ export class SessionManager {
    *
    * A no-op of the respawn when there is no live session id yet (nothing to
    * resume): the level is still recorded, so it takes effect on the next spawn.
+   *
+   * **Never over an open turn.** The respawn kills the live claude, and the
+   * drain reads that kill's EOF as a turn that died: `error "Claude process
+   * stream ended unexpectedly"`, the deck's "Protocol error" banner, over a
+   * turn nobody interrupted. The deck declines the user's own gesture
+   * mid-turn, but a frame can still arrive over one (a card that mounts
+   * during a turn re-sends its remembered level), so the guard belongs
+   * here, where the kill is. Mid-turn the level is recorded and the respawn
+   * waits for the turn to close ({@link applyDeferredEffort}).
    */
   /**
    * Run one respawn under {@link respawnGate}. Respawns queue behind one
@@ -4605,7 +4630,43 @@ export class SessionManager {
     // pick it up via `buildClaudeArgs`.
     if (this.sessionId === null || this.sessionId === "") return;
 
+    if (this.activeTurn !== null) {
+      this.effortRespawnPending = true;
+      logSessionLifecycle("tugcode.effort_change_deferred", {
+        session_id: this.sessionId,
+        effort,
+      });
+      return;
+    }
     await this.respawnInPlace();
+  }
+
+  /**
+   * Pay an effort respawn that {@link effortChange} deferred, once nothing is
+   * running and nothing is waiting to run. Called from the drain as a turn
+   * closes, so the respawn is started and not awaited: its teardown waits for
+   * that same drain to end.
+   *
+   * A follow-on message already written to claude's stdin
+   * ({@link pendingTurnInputs}) is a turn claude is about to open, and a
+   * respawn would drop it; the debt then rides to the close of that turn.
+   */
+  private applyDeferredEffort(): void {
+    if (!this.effortRespawnPending) return;
+    if (this.activeTurn !== null || this.pendingTurnInputs.length > 0) return;
+    void this.respawn(async () => {
+      // Re-read under the gate: another respawn may have run first and
+      // carried the level, or a turn may have opened while this one queued.
+      if (!this.effortRespawnPending) return;
+      if (this.activeTurn !== null || this.pendingTurnInputs.length > 0) return;
+      await this.respawnInPlace();
+    }).catch((err) => {
+      logSessionLifecycle("tugcode.effort_change_deferred", {
+        session_id: this.sessionId,
+        outcome: "failed",
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
   }
 
   /**

@@ -230,3 +230,54 @@ export function resolveSeedEffort(
 ): string | null {
   return persisted ?? globalDefault;
 }
+
+/**
+ * What the mount-restore does with its seed level, given what the card knows.
+ *
+ * - `wait` — not decidable yet, or not safe yet. The effect runs again when
+ *   its inputs change and nothing is latched.
+ * - `settled` — nothing to send, now or later on this mount.
+ * - `send` — align the session to `effort`.
+ *
+ * **A running turn is a `wait`, never a `send`.** Effort has no live control
+ * verb, so applying it respawns claude, and a respawn over an open turn ends
+ * that turn: the user sees "Protocol error — Claude process stream ended
+ * unexpectedly" over work they never interrupted. A card mounts mid-turn
+ * whenever its page reloads or its body is rebuilt under a live session, which
+ * a development build does far more often than a release one, so the restore
+ * waits for the turn to end and sends then. The user's own gesture is declined
+ * mid-turn for the same reason ([R07]); the restore has no better claim.
+ */
+export type EffortRestoreAction =
+  | { kind: "wait" }
+  | { kind: "settled" }
+  | { kind: "send"; effort: string };
+
+export function resolveEffortRestoreAction(input: {
+  seedEffort: string | null;
+  models: CapabilityModel[];
+  model: string | null;
+  liveEffort: string | null;
+  canSubmit: boolean;
+  catalogFallback: CapabilityModel[] | null;
+}): EffortRestoreAction {
+  const { seedEffort, models, model, liveEffort, canSubmit, catalogFallback } = input;
+  if (seedEffort === null) return { kind: "wait" };
+  // Readiness: either live capabilities (a new-mode session is up) OR a
+  // resolved model id (a resumed session's `system_metadata` has replayed).
+  // Before EITHER lands we can't tell support and shouldn't race the spawn.
+  if (models.length === 0 && model === null) return { kind: "wait" };
+  const support = resolveEffortSupport(models, model, catalogFallback);
+  if (!support.supported || !(support.levels as string[]).includes(seedEffort)) {
+    // Seed level doesn't apply to this model — leave it, don't respawn.
+    return { kind: "settled" };
+  }
+  // Compare against the EFFECTIVE level (the chip's `effort ?? default`), so a
+  // card whose seed level equals the session default (e.g. seed `high` on a
+  // fresh session already running at the `high` default) does NOT trigger a
+  // needless respawn ([R07]).
+  const effectiveLive = liveEffort ?? DEFAULT_EFFORT_LEVEL;
+  if (seedEffort === effectiveLive) return { kind: "settled" };
+  if (!canSubmit) return { kind: "wait" };
+  return { kind: "send", effort: seedEffort };
+}

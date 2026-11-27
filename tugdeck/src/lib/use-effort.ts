@@ -40,12 +40,11 @@ import { getTugbankClient } from "@/lib/tugbank-singleton";
 import { useTugbankValue } from "@/lib/use-tugbank-value";
 import { readModelCatalog } from "@/lib/model-catalog";
 import {
-  DEFAULT_EFFORT_LEVEL,
   EFFORT_DEFAULT_DOMAIN,
   EFFORT_DEFAULT_KEY,
   EFFORT_DOMAIN,
   parsePersistedEffort,
-  resolveEffortSupport,
+  resolveEffortRestoreAction,
   resolveSeedEffort,
 } from "@/lib/effort";
 
@@ -124,7 +123,9 @@ export function useEffort({
       // Decline a user-initiated change while a turn is in flight so the effort
       // respawn never tears down the running turn ([R07]) — the session
       // lifecycle publishes `canSubmit` and this control acts only when it is
-      // set. The mount-restore seed passes `fromRestore` to bypass the gate.
+      // set. The mount-restore seed passes `fromRestore` because it has already
+      // answered the same question: `resolveEffortRestoreAction` holds a seed
+      // back for as long as a turn runs.
       if (!opts?.fromRestore && !codeSessionStore.getSnapshot().canSubmit) {
         return;
       }
@@ -142,37 +143,33 @@ export function useEffort({
   // active model supports it and it differs from the *effective* live level.
   // Fires at most once per mount (`sentRef`). A resumed session has no
   // capabilities, so this never fires for it (no respawn). A manual change
-  // pre-arms `sentRef`.
+  // pre-arms `sentRef`. A card that mounts over a running turn waits for the
+  // turn to end: `canSubmit` is read through the store so the effect runs
+  // again when it flips, and the decision itself is `resolveEffortRestoreAction`.
   const seedEffort = resolveSeedEffort(persistedEffort, defaultEffort);
   const liveEffort = snapshot.effort;
   const { models, model } = snapshot;
+  const canSubmit = useSyncExternalStore(
+    codeSessionStore.subscribe,
+    () => codeSessionStore.getSnapshot().canSubmit,
+  );
   useEffect(() => {
     if (sentRef.current) return;
-    if (seedEffort === null) return;
-    // Readiness: either live capabilities (a new-mode session is up) OR a
-    // resolved model id (a resumed session's `system_metadata` has replayed).
-    // Before EITHER lands we can't tell support and shouldn't race the spawn.
-    if (models.length === 0 && model === null) return;
-    const support = resolveEffortSupport(models, model, readModelCatalog());
-    if (
-      !support.supported ||
-      !(support.levels as string[]).includes(seedEffort)
-    ) {
-      // Seed level doesn't apply to this model — leave it, don't respawn.
-      sentRef.current = true;
-      return;
-    }
-    // Compare against the EFFECTIVE level (the chip's `effort ?? default`), so a
-    // card whose seed level equals the session default (e.g. seed `high` on a
-    // fresh session already running at the `high` default) does NOT trigger a
-    // needless respawn ([R07]).
-    const effectiveLive = liveEffort ?? DEFAULT_EFFORT_LEVEL;
-    if (seedEffort !== effectiveLive) {
-      setEffort(seedEffort, { fromRestore: true });
+    const action = resolveEffortRestoreAction({
+      seedEffort,
+      models,
+      model,
+      liveEffort,
+      canSubmit,
+      catalogFallback: readModelCatalog(),
+    });
+    if (action.kind === "wait") return;
+    if (action.kind === "send") {
+      setEffort(action.effort, { fromRestore: true });
     } else {
       sentRef.current = true;
     }
-  }, [seedEffort, models, model, liveEffort, setEffort]);
+  }, [seedEffort, models, model, liveEffort, canSubmit, setEffort]);
 
   return { setEffort };
 }
