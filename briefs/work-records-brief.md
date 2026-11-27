@@ -42,7 +42,7 @@ This brief is the first of three. It settles the model, the verbs and the record
 
 **[F09] tugcast is the facts table's only writer.** The table is in the per-instance `sessions.db`, and every recorder found is inside tugcast. The cycle and sketch verbs run in `tugtool` processes, which do not link tugcast. So a verb cannot record a fact directly. **(inference from the recorders found; confirm by reading how `sessions.db` is opened for write)**
 
-**[F10] Two writers could lose each other's change to a cycle record.** Every cycle verb read the record, changed it and wrote it whole with an atomic rename and no lock. This conversation added a lock on a sibling file, `cycle.json.lock`, held for each read, change and write, with a test that races eight writers and fails without it. It is uncommitted on main at the time of writing. **(verified)**
+**[F10] Two writers could lose each other's change to a cycle record.** Every cycle verb read the record, changed it and wrote it whole with an atomic rename and no lock. This conversation added a lock on a sibling file, `cycle.json.lock`, held for each read, change and write, with a test that races eight writers and fails without it. It landed as `871bd54dc`. **(verified)**
 
 **[F11] The order of a listed run reads correctly as waits.** The Cycle Progression spike (`tugdeck/src/spikes/spike-cycle-progression.tsx`) feeds the shipped cycle shade a record in which each listed arc waits on the one before. The shade's own Ready, Waiting and Next lines then say where the run stands, with no new field for order. **(verified in the spike's fixture; not yet seen against a real record)**
 
@@ -78,13 +78,9 @@ This brief is the first of three. It settles the model, the verbs and the record
 
 **[B14] Records already on disk are brought forward, not abandoned.** A cycle entry that names a brief by path gets a brief record the first time the core reads it. The install base is the user's own machines, so the migration is one-way and keeps no reader for the old shape.
 
-**[B15] The contract is written down in two places.** What a model, a skill or a tool may say and expect ships in the plugin, so it holds in any project. The doctrine and its reasons go in `tuglaws/cycles.md` and `tuglaws/work-grammar.md`.
+**[B15] A brief's record survives a rename two ways.** The brief carries its id in the document, as one comment line at the top that the brief skill writes, and the record is found from that line first. When the line is missing or was edited away, the record is found again through git's rename detection from the last path it knew. Either one alone can fail: a hand edit can drop the line, and a rename with heavy edits can defeat detection. The user asked for both. A sketch keeps its id outside its text as before, since a sketch is not a file in the project and cannot be renamed there.
 
----
-
-## Open Questions {#open-questions}
-
-- **How a brief's record follows a rename the user makes by hand.** A brief is a tracked file in the user's project, and `git mv` goes through no Tug verb. The record can be found again by git's rename detection at find time, or the brief can carry its id in the document. The sketch doctrine keeps ids out of the text. What would settle it: whether a brief has been renamed in practice, and whether an id line in a document the user reads is acceptable.
+**[B16] The contract is written down in two places.** What a model, a skill or a tool may say and expect ships in the plugin, so it holds in any project. The doctrine and its reasons go in `tuglaws/cycles.md` and `tuglaws/work-grammar.md`.
 
 ---
 
@@ -103,11 +99,11 @@ This brief is the first of three. It settles the model, the verbs and the record
 
 **An arc.** The work starts in `tugrust/crates/tugarc-core` and moves outward:
 
-- The brief record and its store, with find-by-path and versions from commits.
+- The brief record and its store, with the id line, find by id line then by path then by rename, and versions from commits.
 - Sources on the sketch record, read from an existing `Source:` line where there is one.
 - The entry's arc name, label, stated-by and listed mark, and the wire types in `tugdeck/src/lib/changeset-types.ts` that carry them.
 - The intent verbs, the door's one verb first, and the skills rewritten to use them.
 - The work log, tugcast's follower and the new fact kinds.
 - The lock applied to every record, and the migration for records on disk.
 
-The lock for cycle records and its test are already in the working tree and belong to this arc's first step if they have not been committed by then.
+The lock for cycle records and its test have landed (`871bd54dc`); this arc extends the same lock to the records it adds.

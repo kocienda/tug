@@ -66,7 +66,9 @@ This brief is the third of three. It is written from `briefs/work-records-brief.
 
 **[B12] It has its own switch and its own model setting.** Both are tugbank settings read on every wake, as the Observer's are. Off means no model turn; the mechanical rules of the other two briefs keep working.
 
-**[B13] An ended cycle is left alone.** A closed cycle wakes nothing. A model turn writing on work the user has finished is not help.
+**[B13] The keeper's log carries no cost.** It says what changed and on what evidence. Tokens and run counts are not shown and not kept on the cycle; the user ruled them out.
+
+**[B14] An ended cycle is left alone.** A closed cycle wakes nothing. A model turn writing on work the user has finished is not help.
 
 ---
 
@@ -74,7 +76,6 @@ This brief is the third of three. It is written from `briefs/work-records-brief.
 
 - **How the keeper finds the turns that settled a piece of work.** The candidates are the sessions that wrote the brief, the sessions those cite, and the semantic index over transcripts. The index is an aid and may not answer. What would settle it: running the retrieval against liven's steward session and seeing whether the sources the Cycle Progression spike drew for sketch A are the ones found.
 - **What a correction looks like.** "That arc does not belong on this cycle", said in a session, has to reach the keeper as evidence it will not overrule next time. Whether that is a fact kind of its own or a mark on the record is not settled.
-- **Whether a run's cost is shown.** Each run is at most two retrieval turns and one deciding turn. Liven's day would have been about fifteen runs. The Observer's posts record their tokens; whether the keeper's log does the same is the user's call.
 
 ---
 

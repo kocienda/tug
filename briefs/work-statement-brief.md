@@ -42,7 +42,7 @@ This brief is the second of three and is written from `briefs/work-records-brief
 
 ## Decisions {#decisions}
 
-**[B01] The statement is a fence.** A fenced block in an answer carries a small spec: the arcs in the order they are meant to run, each with its name, its brief's path, and a short label of its own. It may also give a wait that is not simply the arc before. The fence is the contract. It joins the family in [F04], with its own name, its contract in the plugin, and a check the model runs before writing it.
+**[B01] The statement is a fence named `tugarcs`.** A fenced block of that language in an answer carries a small spec: the arcs in the order they are meant to run, each with its name, its brief's path, and a short label of its own. It may also give a wait that is not simply the arc before. The fence is the contract. It joins the family in [F04], with its own name, its contract in the plugin, and a check the model runs before writing it.
 
 **[B02] Bare command lines in prose are read as a fallback.** Lines of `/arc <name> @<path>` in an answer are read as the same statement, in the order written, with the label taken from the arc's name. A session that never learned the fence still has its list absorbed. The single hand-off line the brief skill prints ([F05]) is a statement of one.
 
@@ -57,12 +57,6 @@ This brief is the second of three and is written from `briefs/work-records-brief
 **[B07] A statement in a private session is drawn and not recorded.** The fence still renders. No fact is written and nothing is queued, the same refusal the ledger already makes.
 
 **[B08] The fence is checked before it is written.** A compile step answers the model the way the diagram compiler does: clean, drawn with warnings, or not drawable. A statement naming a brief that is not on disk, or a name that is not a valid arc name, is a warning the model sees before the answer exists.
-
----
-
-## Open Questions {#open-questions}
-
-- **What the fence is called.** The family is `tugchart`, `tugdiagram`, `tugrun`. `tugarcs` reads as what it holds. It is the user's to name.
 
 ---
 
