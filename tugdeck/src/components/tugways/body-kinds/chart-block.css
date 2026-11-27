@@ -231,7 +231,8 @@ body {
   color: var(--tugx-chart-note-color);
 }
 
-.tugx-chart-view-toggle[aria-pressed="true"] {
+.tugx-chart-view-toggle[aria-pressed="true"],
+.tugx-chart-bullseye[data-on] {
   background-color: var(--tug7-surface-control-primary-ghost-action-hover);
   border-color: var(--tug7-element-control-border-ghost-action-hover);
 }
@@ -259,6 +260,28 @@ body {
 }
 .tugx-chart[data-tugx-chart-kind="diagram"] > .tugx-chart-body > .tugx-chart-svg {
   min-width: calc(var(--tg-diagram-natural-w, 0px) * 0.75);
+}
+
+/* A bullseyed diagram (`figure-bullseye-overlay.tsx`) is as wide as its
+ * figure, or as the keyed table's floor beneath a narrow one, and never wider
+ * than the panel it stands in: past that it scales down to fit, with no floor
+ * and no sideways scroll. `renderChartInto` writes the natural width on the
+ * host as well as the body, for the host's own width. */
+.tugx-chart[data-tugx-chart-presented] {
+  margin: 0;
+  width: max(
+    calc(var(--tg-diagram-natural-w, 0px) + 2 * var(--tugx-chart-body-padding) + 2px),
+    560px
+  );
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.tugx-chart[data-tugx-chart-presented][data-tugx-chart-kind="diagram"] > .tugx-chart-body {
+  overflow-x: visible;
+}
+.tugx-chart[data-tugx-chart-presented][data-tugx-chart-kind="diagram"] > .tugx-chart-body > .tugx-chart-svg {
+  min-width: 0;
+  margin-inline: auto;
 }
 
 /* ---- Thumbnail -----------------------------------------------------------

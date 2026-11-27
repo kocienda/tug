@@ -88,6 +88,12 @@ export const SURFACE_CENSUS: readonly SurfaceCensusEntry[] = [
     why: "The deck-global Open Quickly dialog. Its open state is the shell's (`overlay.openQuickly`) and so is the project it searches (`deck.frontmostProject`); it searches on the overlay's own connection, and its choice and its close go back (`overlay.openFile`, `overlay.closeOpenQuickly`).",
   },
   {
+    module: "components/chrome/figure-bullseye-overlay.tsx",
+    page: "overlay",
+    how: "relayed",
+    why: "A diagram bullseyed from a card, drawn over the whole deck at its natural width. The figure is the shell's (`overlay.figureBullseye`), asked by the page the target was pressed in (`overlay.showFigureBullseye`); the overlay draws it again from its spec, and its close goes back (`overlay.closeFigureBullseye`).",
+  },
+  {
     module: "components/chrome/workspace-name-dialog.tsx",
     page: "overlay",
     how: "relayed",

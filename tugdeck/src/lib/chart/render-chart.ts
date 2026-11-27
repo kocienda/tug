@@ -134,8 +134,11 @@ import {
   buildBlockHeader,
   buildCopyButton,
   buildFoldButton,
+  buildIcon,
   SHARE_ICON,
+  TARGET_ICON,
 } from "@/lib/markdown/enhance-block-chrome";
+import { closeFigureBullseye, requestFigureBullseye } from "@/lib/figure-bullseye-store";
 import { isShareAvailable } from "@/lib/os-share";
 import { SPACE_LAYER_CLASS, SPACE_SHOWN_ATTRIBUTE } from "@/lib/pane-frame-selectors";
 
@@ -155,6 +158,8 @@ export const CHART_PENDING_ATTR = "data-tugx-chart-pending";
 export const CHART_THUMBNAIL_ATTR = "data-tugx-chart-thumbnail";
 /** Present on a figure drawn as a picture. */
 export const CHART_PICTURE_ATTR = "data-tugx-chart-picture";
+/** Present on a diagram drawn bullseyed: alone, over the deck, at its natural width. */
+export const CHART_PRESENTED_ATTR = "data-tugx-chart-presented";
 /**
  * `diagram` on a figure drawn from a diagram spec, whose keyed table stands
  * beneath it rather than behind the Table toggle.
@@ -210,6 +215,12 @@ export interface RenderChartOptions {
    * titled, still, with no header; a diagram with its keyed table.
    */
   picture?: boolean;
+  /**
+   * Draw a diagram bullseyed: the figure shown alone over the deck
+   * (`figure-bullseye-store.ts`), at its natural width and never scrolled
+   * sideways. Its target takes it down rather than raising it.
+   */
+  presented?: boolean;
   /**
    * The surface's annotation context. Given, a rendered figure is annotated
    * with it — a chart's refs resolved and stamped, a diagram's locations
@@ -734,6 +745,7 @@ async function drawChartInto(el: HTMLElement, source: string, options: RenderCha
   const layers: ChartLayers = options.layers ?? "chart";
   const thumbnail = options.thumbnail ?? false;
   const picture = !thumbnail && (options.picture ?? false);
+  const presented = !thumbnail && !picture && (options.presented ?? false);
   const token = {};
   renders.set(el, token);
   const current = (): boolean => renders.get(el) === token;
@@ -749,6 +761,7 @@ async function drawChartInto(el: HTMLElement, source: string, options: RenderCha
   el.removeAttribute(DIAGRAM_CHECKED_ATTR);
   el.toggleAttribute(CHART_THUMBNAIL_ATTR, thumbnail);
   el.toggleAttribute(CHART_PICTURE_ATTR, picture);
+  el.toggleAttribute(CHART_PRESENTED_ATTR, presented);
   el.setAttribute(CHART_STATE_ATTR, "pending");
   el.removeAttribute(COLLAPSED_ATTR);
   const diagram = isDiagramSource(source, layers);
@@ -868,6 +881,10 @@ async function drawChartInto(el: HTMLElement, source: string, options: RenderCha
     );
   }
   const withTable = hasTable(round.table);
+  // A diagram's target bullseyes it: drawn again, alone, over the deck at its
+  // natural width. Last in the cluster, so it stands at the header's right
+  // end. The share page has no deck to show it over.
+  if (diagram && !sharePage) actions.push(buildBullseyeButton(figure, presented));
   const refs = round.table.refs;
   if (withTable && !diagram) {
     const toggle = buildViewToggle(el, hash);
@@ -890,6 +907,7 @@ async function drawChartInto(el: HTMLElement, source: string, options: RenderCha
   // A diagram takes its natural width whatever the card's, so the CSS needs
   // that width to hold the figure at a size its text can be read at ([L06]).
   if (diagram) body.style.setProperty(DIAGRAM_NATURAL_WIDTH_PROPERTY, `${round.width}px`);
+  if (diagram && presented) el.style.setProperty(DIAGRAM_NATURAL_WIDTH_PROPERTY, `${round.width}px`);
   if (withTable) attachChartHover(body, round.table);
   // One answer for the whole figure: whether the recipe that drew it can be
   // asked for a mark's members from this surface.
@@ -922,6 +940,27 @@ async function drawChartInto(el: HTMLElement, source: string, options: RenderCha
     restoreRefSet(el);
   }
   annotateFigure(el, options.annotation, diagram);
+}
+
+/**
+ * The diagram header's target. In a card it bullseyes the figure; on the
+ * bullseyed figure itself it is pressed (`data-on`, `aria-pressed`) and takes
+ * the figure down, as a pane's target does for the pane ([D131]).
+ */
+function buildBullseyeButton(figure: { source: string; layers: ChartLayers }, presented: boolean): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "tugx-md-chrome-btn tugx-chart-bullseye";
+  button.setAttribute("aria-label", presented ? "Take this diagram out of bullseye" : "Show this diagram at full size");
+  button.setAttribute("aria-pressed", presented ? "true" : "false");
+  if (presented) button.setAttribute("data-on", "");
+  button.appendChild(buildIcon(TARGET_ICON, "tugx-chart-bullseye-icon", "default"));
+  button.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (presented) closeFigureBullseye();
+    else requestFigureBullseye(figure);
+  });
+  return button;
 }
 
 /**

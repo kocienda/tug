@@ -34,7 +34,7 @@ import { installScrollPhaseBridge } from "./lib/scroll-phase-bridge";
 import { cardServicesStore } from "./lib/card-services-store";
 import { attachLiveTurnsDeck } from "./lib/live-turns-store";
 import { installBodyShell } from "./lib/body-shell";
-import { installOverlayShell, requestOverlay } from "./lib/overlay-shell";
+import { installFigureBullseyeShell, installOverlayShell, requestOverlay } from "./lib/overlay-shell";
 import { installPage, page } from "./bus/page";
 import { createPageBus, installPageBus, pageBus } from "./bus/page-bus";
 import { connectionTransport } from "./bus/transport";
@@ -765,6 +765,9 @@ async function loadTestSurface(
   // The overlay's half of the shell: what the overlay shows, crossing from
   // here, and what it asks, answered here ([B07]).
   installOverlayShell(deck);
+  // A diagram bullseyed from any card is shown by the shell, in the overlay
+  // where there is one and in this page where there is not.
+  installFigureBullseyeShell();
   // Then the shell says hello to every body, and again on every open: a
   // body that outlived a shell reload hears it and answers, and is sent
   // every store it reads.

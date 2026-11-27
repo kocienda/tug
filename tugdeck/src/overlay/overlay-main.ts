@@ -34,7 +34,9 @@ import wasmUrl from "../../crates/tugmark-wasm/pkg/tugmark_wasm_bg.wasm?url";
 import { cycleFocusMode, dispatchAction, registerAction, registerEvalAction, registerSetupActions } from "../action-dispatch";
 import {
   overlayAppModal,
+  overlayCloseFigureBullseye,
   overlayCloseOpenQuickly,
+  overlayFigureBullseye,
   overlayLiveTurns,
   overlayNetworkPath,
   overlayOpenConfigure,
@@ -73,6 +75,7 @@ import { networkPathStore } from "../lib/network-path-store";
 import { relayFrontmostProjectBinding } from "../lib/frontmost-project";
 import { adoptOpenQuicklyOpen, setOpenQuicklyCloseSink, setOpenQuicklyFileSink } from "../lib/open-quickly-store";
 import { adoptWorkspaceNameRequest } from "../lib/workspace-name-request";
+import { adoptFigureBullseye, setFigureBullseyeCloseSink } from "../lib/figure-bullseye-store";
 import { OVERLAY_CARD_ID } from "../lib/overlay-card";
 import { pageZoomStore } from "../lib/page-zoom-store";
 import { restoreGateStore } from "../lib/restore-gate-store";
@@ -151,6 +154,10 @@ follow(overlayOpenQuickly, ({ open, seq }) => adoptOpenQuicklyOpen(open, seq));
 follow(deckFrontmostProject, ({ binding }) => relayFrontmostProjectBinding(binding));
 setOpenQuicklyCloseSink((seq) => overlayCloseOpenQuickly.dispatch({ seq }));
 setOpenQuicklyFileSink((path, line) => overlayOpenFile.dispatch({ path, line: line ?? null }));
+// A diagram bullseyed from a card is drawn here, over every card: the figure
+// is the shell's, and its close goes back.
+follow(overlayFigureBullseye, (state) => adoptFigureBullseye(state));
+setFigureBullseyeCloseSink((seq) => overlayCloseFigureBullseye.dispatch({ seq }));
 // The naming modal is drawn here and asked by the shell: its question is the
 // shell's, and its answer goes back through this page's gate deck.
 follow(overlayWorkspaceName, (request) => adoptWorkspaceNameRequest(request));

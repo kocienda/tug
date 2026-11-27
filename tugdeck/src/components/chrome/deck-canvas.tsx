@@ -59,6 +59,7 @@ import {
 import { CardHost } from "./card-host";
 import { CanvasOverlayRoot } from "./canvas-overlay-root";
 import { OpenQuicklyOverlay } from "./open-quickly-overlay";
+import { FigureBullseyeOverlay } from "./figure-bullseye-overlay";
 import { CardPlacementBeacon } from "./card-placement-beacon";
 import { DeckCommitBeacon } from "./deck-commit-beacon";
 import { TugSlot } from "@/components/tugways/tug-slot";
@@ -5361,6 +5362,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         * above — in this page only where the host keeps no overlay page;
         * where it does, both are drawn there, above every card ([B08]). */}
       {hostKeepsOverlay() ? null : <OpenQuicklyOverlay />}
+      {hostKeepsOverlay() ? null : <FigureBullseyeOverlay />}
       {hostKeepsOverlay() ? null : <ZoomReadout />}
       </div>
     </ResponderScope>

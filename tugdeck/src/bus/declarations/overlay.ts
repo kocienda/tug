@@ -252,6 +252,38 @@ export const overlayCloseOpenQuickly = defineAction({
   codec: obj({ seq: num }),
 });
 
+/**
+ * A diagram bullseyed from a card (`lib/figure-bullseye-store.ts`): its spec
+ * and its door, asked of the shell by the page the target was pressed in.
+ */
+export const overlayShowFigureBullseye = defineAction({
+  id: "overlay.showFigureBullseye",
+  owner: "shell",
+  codec: obj({ source: str, layers: literal("chart", "diagram", "any") }),
+});
+
+/**
+ * The figure the deck shows at full size, or none, and the number of the
+ * latest show: the shell's truth, drawn in the overlay.
+ */
+export const overlayFigureBullseye = defineSharedStore({
+  key: "overlay.figureBullseye",
+  owner: "shell",
+  scope: overlayOnly,
+  codec: obj({
+    figure: nullable(obj({ source: str, layers: literal("chart", "diagram", "any") })),
+    seq: num,
+  }),
+  initial: { figure: null, seq: 0 },
+});
+
+/** The bullseyed figure taken down in the overlay, naming the show it closed. */
+export const overlayCloseFigureBullseye = defineAction({
+  id: "overlay.closeFigureBullseye",
+  owner: "shell",
+  codec: obj({ seq: num }),
+});
+
 /** Open Quickly's choice: open `path` in a card, at `line` when the query named one. */
 export const overlayOpenFile = defineAction({
   id: "overlay.openFile",

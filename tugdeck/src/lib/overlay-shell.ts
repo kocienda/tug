@@ -25,7 +25,9 @@ import {
   overlayAlert,
   overlayAppModal,
   overlayBulletin,
+  overlayCloseFigureBullseye,
   overlayCloseOpenQuickly,
+  overlayFigureBullseye,
   overlayLiveTurns,
   overlayNetworkPath,
   overlayOpenConfigure,
@@ -33,6 +35,7 @@ import {
   overlayOpenFirstSession,
   overlayOpenQuickly,
   overlayRestoreGate,
+  overlayShowFigureBullseye,
   overlayUpdateAction,
   overlayUpdateState,
   overlayWorkspaceName,
@@ -46,6 +49,7 @@ import { setBulletinRelay } from "./bulletin-relay";
 import { getAppLifecycle } from "./app-lifecycle";
 import { hostCapabilitiesStore } from "./body-handoff";
 import { setConfigureTugOnDemandSink } from "./configure-tug-request-store";
+import { closeFigureBullseye, getFigureBullseye, showFigureBullseye, subscribeFigureBullseye } from "./figure-bullseye-store";
 import { liveTurnsStore } from "./live-turns-store";
 import { networkPathStore } from "./network-path-store";
 import { openFileInCard } from "./open-file-in-card";
@@ -213,6 +217,35 @@ export function installOverlayShell(deck: CardDeck): () => void {
     }),
   );
 
+  return () => {
+    for (const release of releases.splice(0)) release();
+  };
+}
+
+/**
+ * The shell's half of a bullseyed figure (`figure-bullseye-store.ts`): a
+ * show asked from any page is made here, and where the host keeps an overlay
+ * the figure is relayed there and its close comes back. Installed whether or
+ * not there is an overlay, since a show asked in the shell's own page lands
+ * here too, and the shell then draws the figure itself. Returns the release
+ * ([L27]).
+ */
+export function installFigureBullseyeShell(): () => void {
+  const releases: Array<() => void> = [];
+  releases.push(overlayShowFigureBullseye.handle((figure) => showFigureBullseye(figure)));
+  if (hostKeepsOverlay()) {
+    const publish = (): void => {
+      const { figure, seq } = getFigureBullseye();
+      overlayFigureBullseye.set({ figure: figure === null ? null : { ...figure }, seq });
+    };
+    releases.push(subscribeFigureBullseye(publish));
+    publish();
+    releases.push(
+      overlayCloseFigureBullseye.handle(({ seq }, from) => {
+        if (from.cardId === OVERLAY_CARD_ID) closeFigureBullseye(seq);
+      }),
+    );
+  }
   return () => {
     for (const release of releases.splice(0)) release();
   };

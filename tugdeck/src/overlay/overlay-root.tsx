@@ -3,7 +3,8 @@
  *
  * It holds the margin caps over every card, the deck's bulletin stack, the
  * app-modals and the update notice (`AppGates`), the singleton
- * alert the shell's alerts are shown in, Open Quickly and the zoom readout,
+ * alert the shell's alerts are shown in, Open Quickly, a bullseyed diagram
+ * and the zoom readout,
  * and the canvas overlay root they all portal into. Nothing in it reads a
  * card's geometry: the one surface that names a card at all reads
  * `overlay.surfaces`, which holds a card only at rest ([B07],
@@ -16,6 +17,7 @@ import React, { useLayoutEffect } from "react";
 import { iconNamed } from "@/components/tugways/tug-named-icon";
 import { overlayAlert, overlayBulletin, overlayBulletinInsets } from "../bus/declarations/overlay";
 import { CanvasOverlayRoot } from "../components/chrome/canvas-overlay-root";
+import { FigureBullseyeOverlay } from "../components/chrome/figure-bullseye-overlay";
 import { OpenQuicklyOverlay } from "../components/chrome/open-quickly-overlay";
 import { ZoomReadout } from "../components/chrome/zoom-readout";
 import { OverlayMarginCaps } from "./overlay-margin-caps";
@@ -99,6 +101,7 @@ export function renderOverlayRoot(props: { gateDeck: GateDeck }): React.ReactEle
       React.createElement(BulletinAnswerer, {}),
       React.createElement(CanvasOverlayRoot, {}),
       React.createElement(OpenQuicklyOverlay, {}),
+      React.createElement(FigureBullseyeOverlay, {}),
       React.createElement(ZoomReadout, {}),
     ),
   );

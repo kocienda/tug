@@ -1501,7 +1501,11 @@ mod tests {
         );
 
         // The first arc lands, and the same brief is run as a second arc.
-        log_append(&paths, &repo, "2026-11-01T01:00:00Z  first  abc1234  joined");
+        log_append(
+            &paths,
+            &repo,
+            "2026-11-01T01:00:00Z  first  abc1234  joined",
+        );
         log_append(
             &paths,
             &repo,

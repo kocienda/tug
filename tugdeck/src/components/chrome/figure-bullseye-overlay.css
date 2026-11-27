@@ -1,0 +1,42 @@
+/**
+ * figure-bullseye-overlay.css — a bullseyed diagram, alone over the deck.
+ *
+ * The scrim dims the deck and centres the panel; the panel is as wide as the
+ * diagram's natural width (or the keyed table's floor), and never wider than
+ * the window less its margin, past which the figure scales down rather than
+ * scrolling sideways. A figure taller than the window scrolls down inside
+ * the panel. The presented figure's own rules are in `chart-block.css`.
+ */
+
+/* ---- Component-tier aliases — resolve to base tier in one hop [L17] ---- */
+
+body {
+  --tugx-figure-bullseye-scrim: var(--tug7-surface-overlay-primary-normal-dim-rest);
+  --tugx-figure-bullseye-bg: var(--tug7-surface-global-primary-normal-overlay-rest);
+  --tugx-figure-bullseye-shadow: var(--tug7-element-global-shadow-normal-overlay-rest);
+  --tugx-figure-bullseye-margin: 2rem;
+}
+
+/* @tug-renders-on: --tugx-figure-bullseye-scrim */
+.tug-figure-bullseye-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--tug-z-overlay-dialog);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--tugx-figure-bullseye-margin);
+  box-sizing: border-box;
+  background-color: var(--tugx-figure-bullseye-scrim);
+}
+
+/* @tug-renders-on: --tugx-figure-bullseye-bg */
+.tug-figure-bullseye-panel {
+  max-width: 100%;
+  max-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background-color: var(--tugx-figure-bullseye-bg);
+  border-radius: var(--tugx-block-radius);
+  box-shadow: var(--tugx-figure-bullseye-shadow);
+}
