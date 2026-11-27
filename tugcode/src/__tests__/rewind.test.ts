@@ -94,6 +94,8 @@ function fakeHost(opts: {
     killAndCleanup: async () => {
       host.calls.push("kill");
     },
+    turnPending: () => false,
+    underRespawnGate: (work) => work(),
     respawnIntoRewindFork: async (newId) => {
       host.calls.push(`fork:${newId}`);
     },

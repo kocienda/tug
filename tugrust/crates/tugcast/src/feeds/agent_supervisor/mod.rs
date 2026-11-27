@@ -905,6 +905,10 @@ struct OwnedControlPayload {
     /// payload omits it (older client, or a card with no configured default) —
     /// the string is passed through opaquely; tugcode validates it.
     permission_mode: Option<String>,
+    /// The card's seed reasoning-effort level, resolved by tugdeck at spawn
+    /// time and forwarded to tugcode as `--effort`. `None` when the payload
+    /// omits it; the string is passed through opaquely, like the mode.
+    effort: Option<String>,
     /// Provisional mnemonic tag tugdeck minted for a fresh spawn. `None` on
     /// close/reset payloads and on older clients. Stored on the `LedgerEntry`
     /// and claimed authoritatively by `record_spawn`; never forwarded to the
@@ -953,6 +957,11 @@ fn parse_control_payload_owned(payload: &[u8]) -> Result<OwnedControlPayload, Co
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
+    let effort = value
+        .get("effort")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
     let line_id = value
         .get("line_id")
         .and_then(|v| v.as_str())
@@ -969,6 +978,7 @@ fn parse_control_payload_owned(payload: &[u8]) -> Result<OwnedControlPayload, Co
         project_dir,
         session_mode,
         permission_mode,
+        effort,
         tag,
         line_id,
         relocate_from,
@@ -1724,6 +1734,14 @@ fn parse_permission_mode_selector(payload: &[u8]) -> Option<String> {
     let value: serde_json::Value = serde_json::from_slice(payload).ok()?;
     let mode = value.get("mode")?.as_str()?.trim();
     (!mode.is_empty()).then(|| mode.to_owned())
+}
+
+/// The `effort` field of an `effort_change` CODE_INPUT frame. A blank level
+/// reads as absent.
+fn parse_effort_selector(payload: &[u8]) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_slice(payload).ok()?;
+    let effort = value.get("effort")?.as_str()?.trim();
+    (!effort.is_empty()).then(|| effort.to_owned())
 }
 
 /// The two spellings of the one door, as a prompt's first token.
@@ -3834,6 +3852,18 @@ impl AgentSupervisor {
             if let Some(mode) = parse_permission_mode_selector(&frame.payload) {
                 let mut entry = entry_arc.lock().await;
                 entry.permission_mode = Some(mode);
+            }
+        }
+
+        // ── effort_change stamp ─────────────────────────────────────────────
+        //
+        // The same move for effort: the frame reaches tugcode, which applies
+        // the level, and the entry follows it, because `entry.effort` is what
+        // every respawn hands the next child as `--effort`.
+        if let Some("effort_change") = inspected.as_ref().and_then(|i| i.msg_type()) {
+            if let Some(effort) = parse_effort_selector(&frame.payload) {
+                let mut entry = entry_arc.lock().await;
+                entry.effort = Some(effort);
             }
         }
 
@@ -5948,6 +5978,7 @@ pub(crate) fn test_minimal_supervisor_with_recorder_reading(
             _permission_mode: Option<&str>,
             _relocate_from: Option<&crate::feeds::agent_bridge::RelocateOrigin>,
             _granted_dirs: &[String],
+            _effort: Option<&str>,
             _crash_respawn: bool,
         ) -> super::agent_bridge::SpawnFuture {
             Box::pin(async {
@@ -6758,6 +6789,42 @@ mod tests {
     }
 
     #[test]
+    /// The card's seed effort rides the spawn frame; a blank or absent one is
+    /// no level at all.
+    fn parse_spawn_payload_extracts_effort() {
+        let payload = br#"{"card_id":"c1","tug_session_id":"s1","project_dir":"/p","session_mode":"new","effort":"medium"}"#;
+        let parsed = parse_control_payload_owned(payload).expect("parse");
+        assert_eq!(parsed.effort.as_deref(), Some("medium"));
+
+        let blank = br#"{"card_id":"c1","tug_session_id":"s1","project_dir":"/p","session_mode":"new","effort":""}"#;
+        assert_eq!(
+            parse_control_payload_owned(blank).expect("parse").effort,
+            None
+        );
+
+        let absent =
+            br#"{"card_id":"c1","tug_session_id":"s1","project_dir":"/p","session_mode":"new"}"#;
+        assert_eq!(
+            parse_control_payload_owned(absent).expect("parse").effort,
+            None
+        );
+    }
+
+    #[test]
+    /// A live `effort_change` frame names the level the entry moves to.
+    fn parse_effort_selector_reads_the_level() {
+        assert_eq!(
+            parse_effort_selector(br#"{"type":"effort_change","effort":"low"}"#).as_deref(),
+            Some("low")
+        );
+        assert_eq!(
+            parse_effort_selector(br#"{"type":"effort_change","effort":" "}"#),
+            None
+        );
+        assert_eq!(parse_effort_selector(br#"{"type":"effort_change"}"#), None);
+    }
+
+    #[test]
     fn a_listed_row_carries_the_turn_latch_beside_the_row() {
         let row = |id: &str| crate::session_ledger::SessionRow {
             session_id: id.to_owned(),
@@ -6949,6 +7016,7 @@ mod tests {
             _permission_mode: Option<&str>,
             _relocate_from: Option<&crate::feeds::agent_bridge::RelocateOrigin>,
             _granted_dirs: &[String],
+            _effort: Option<&str>,
             _crash_respawn: bool,
         ) -> SpawnFuture {
             Box::pin(async { pending::<std::io::Result<SessionChild>>().await })
@@ -7553,6 +7621,7 @@ mod tests {
             None,
             None,
             &[],
+            None,
         );
         assert!(
             args.iter().any(|a| a == "/workspace-B-from-per-call"),
@@ -14139,6 +14208,7 @@ mod bridge_panic_tests {
             _permission_mode: Option<&str>,
             _relocate_from: Option<&crate::feeds::agent_bridge::RelocateOrigin>,
             _granted_dirs: &[String],
+            _effort: Option<&str>,
             _crash_respawn: bool,
         ) -> SpawnFuture {
             Box::pin(async {
@@ -14440,6 +14510,7 @@ mod replay_bracket_close_tests {
             _permission_mode: Option<&str>,
             _relocate_from: Option<&crate::feeds::agent_bridge::RelocateOrigin>,
             _granted_dirs: &[String],
+            _effort: Option<&str>,
             _crash_respawn: bool,
         ) -> SpawnFuture {
             Box::pin(async {
@@ -14535,6 +14606,7 @@ mod replay_bracket_close_tests {
             permission_mode: Option<&str>,
             _relocate_from: Option<&crate::feeds::agent_bridge::RelocateOrigin>,
             _granted_dirs: &[String],
+            _effort: Option<&str>,
             _crash_respawn: bool,
         ) -> SpawnFuture {
             let _ = self.modes.send(permission_mode.map(str::to_string));

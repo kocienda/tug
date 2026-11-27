@@ -142,6 +142,7 @@ impl AgentSupervisor {
                     project_dir_str,
                     parsed.session_mode,
                     parsed.permission_mode,
+                    parsed.effort,
                     parsed.tag,
                     parsed.line_id,
                     parsed.relocate_from.map(TugSessionId::new),

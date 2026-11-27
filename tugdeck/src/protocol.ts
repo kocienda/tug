@@ -694,6 +694,14 @@ export type SpawnSessionMode = "new" | "resume";
  * directory change: tugcast forks that session's conversation into
  * `projectDir` and closes it once the new one is acknowledged. Omitted for
  * every other spawn.
+ *
+ * `effort` is the card's seed reasoning-effort level, resolved the way
+ * `permissionMode` is: the card's own remembered level, else the deck-wide
+ * default. Forwarded as `effort` so tugcast passes `--effort` to tugcode and
+ * the first claude is born at it. Applied after spawn, a level costs a
+ * respawn, and on a new card that respawn landed over its first prompt. A
+ * level changed after spawn still goes by the `effort_change` frame. Omitted
+ * when the card has no level.
  */
 export function encodeSpawnSession(
   cardId: string,
@@ -704,6 +712,7 @@ export function encodeSpawnSession(
   tag?: string,
   lineId?: string,
   relocateFrom?: string,
+  effort?: string,
 ): Frame {
   const payload: Record<string, string> = {
     card_id: cardId,
@@ -722,6 +731,9 @@ export function encodeSpawnSession(
   }
   if (relocateFrom !== undefined) {
     payload.relocate_from = relocateFrom;
+  }
+  if (effort !== undefined) {
+    payload.effort = effort;
   }
   return controlFrame("spawn_session", payload);
 }

@@ -140,7 +140,7 @@ describe("SessionManager — system/init re-init detector via handleClaudeLine",
     (manager as any).handleClaudeLine(initLine());
     expect((manager as any).sessionInitSeen).toBe(true);
 
-    await (manager as any).killAndCleanup();
+    await (manager as any).killAndCleanup("new");
     expect((manager as any).sessionInitSeen).toBe(false);
 
     (manager as any).handleClaudeLine(initLine());

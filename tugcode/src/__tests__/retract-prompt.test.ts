@@ -80,7 +80,7 @@ function buildRetractJsonl(): {
   };
 }
 
-function retractManager(jsonl: string | null) {
+function retractManager(jsonl: string | null, onRead?: () => void) {
   const writes: { path: string; content: string }[] = [];
   const spawns: { id: string | null; mode: string }[] = [];
   let killCalls = 0;
@@ -91,7 +91,7 @@ function retractManager(jsonl: string | null) {
     "live-claude-id",
     {
       jsonlReader: async (): Promise<JsonlReadResult> =>
-        jsonl === null
+        (onRead?.(), jsonl === null)
           ? { kind: "missing", message: "no jsonl" }
           : { kind: "ok", jsonl },
       jsonlWriter: async (path: string, content: string) => {
@@ -261,6 +261,43 @@ describe("retraction degrade guards", () => {
     expect(writes.length).toBe(0);
     expect(spawns.length).toBe(0);
     expect(killCalls()).toBe(0);
+  });
+
+  test("a turn that opens while the JSONL is read is not killed, and raises no banner", async () => {
+    const { jsonl, betaUuid } = buildRetractJsonl();
+    let manager: SessionManager | null = null;
+    let gateHeldDuringRead = false;
+    // The read is the await the race lives in: the user's next prompt opens a
+    // turn between the retraction's first idleness check and its kill.
+    const built = retractManager(jsonl, () => {
+      gateHeldDuringRead = (manager as any).respawnGate !== null;
+      (manager as any).activeTurn = new ActiveTurn(1, [
+        { type: "text", text: "the next prompt" },
+      ]);
+    });
+    manager = built.manager;
+    const turn = new ActiveTurn(0, [{ type: "text", text: "Remember BETA" }]);
+    turn.interrupted = true;
+    turn.retractRequested = true;
+    turn.promptUuid = betaUuid;
+    (manager as any).activeTurn = turn;
+
+    const emitted = await captureIpcOutput(async () => {
+      (manager as any).handleClaudeLine(
+        JSON.stringify({ type: "result", subtype: "success", result: "" }),
+      );
+      await settleRetraction(manager!);
+    });
+
+    // The retraction held the gate a user message waits on before it opens a
+    // turn, so in production that prompt would have waited; this one forced
+    // its way in, and the re-check before the kill still caught it.
+    expect(gateHeldDuringRead).toBe(true);
+    expect(built.killCalls()).toBe(0);
+    expect(built.writes.length).toBe(0);
+    expect(built.spawns.length).toBe(0);
+    expect(emitted.filter((e) => e?.type === "error")).toEqual([]);
+    expect((manager as any).respawnGate).toBeNull();
   });
 
   test("retracting the session's FIRST prompt → skipped (would leave an unresumable session)", async () => {

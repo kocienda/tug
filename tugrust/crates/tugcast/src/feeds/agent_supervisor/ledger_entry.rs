@@ -92,6 +92,12 @@ pub struct LedgerEntry {
     /// flip modes mid-life. `None` when tugdeck sent no mode — tugcode keeps
     /// its own default.
     pub permission_mode: Option<String>,
+    /// The reasoning-effort level this session is at, forwarded to tugcode as
+    /// `--effort` on every spawn so claude is born at it. Stamped from the
+    /// first `spawn_session` (the card's seed level) on the same fresh/Idle
+    /// path as `permission_mode`, and moved by a live `effort_change` frame so
+    /// a respawn carries the level in force. `None` when the card has none.
+    pub effort: Option<String>,
     /// The conversation this session forks from when a card changed its
     /// project directory ([P03], [P07]). Stamped on the fresh insert or while
     /// `Idle`, and read by the bridge on every spawn so a respawn or relaunch
@@ -522,6 +528,7 @@ impl LedgerEntry {
             project_dir,
             session_mode,
             permission_mode: None,
+            effort: None,
             relocate_from: None,
             granted_dirs: None,
             tag: None,

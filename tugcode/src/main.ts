@@ -13,6 +13,7 @@ import { IPC_VERSION, isProtocolInit, isUserMessage } from "./types.ts";
 import { dispatchInbound } from "./inbound-dispatch.ts";
 import { SessionManager, resolvePluginDir } from "./session.ts";
 import { isPermissionMode, type PermissionMode } from "./permissions.ts";
+import { parseEffortArg } from "./spawn-config.ts";
 import {
   loadTranscript,
   StubReplayEngine,
@@ -91,6 +92,12 @@ let resumeSessionId: string | undefined;
 // `permission_mode` frame racing the first turn. Validated against the known
 // modes below; an unknown / absent value leaves the manager at its baseline.
 let permissionMode: PermissionMode | undefined;
+// `--effort <level>` is the card's seed reasoning effort, resolved by tugdeck
+// at spawn time and forwarded by tugcast. Seeds the SessionManager's effort
+// before the first spawn, so claude is born at it: applied after spawn, the
+// level costs a respawn, and on a new card that respawn landed over its first
+// prompt.
+let effort: string | undefined;
 // `--relocate-from <claude id>` and `--relocate-from-dir <dir>` name the
 // conversation a directory change forks from: tugcast passes both when a card
 // moved into this session's directory, and SessionManager forks
@@ -218,6 +225,9 @@ for (let i = 0; i < args.length; i++) {
     // Ignore an unknown value (future / corrupt client) rather than seed the
     // session with a bogus mode; the manager keeps its "default" baseline.
     if (isPermissionMode(raw)) permissionMode = raw;
+    i++;
+  } else if (args[i] === "--effort" && i + 1 < args.length) {
+    effort = parseEffortArg(args[i + 1]);
     i++;
   } else if (args[i].startsWith("--stub-transcript=")) {
     stubTranscriptPath = args[i].slice("--stub-transcript=".length);
@@ -460,6 +470,7 @@ async function main() {
         {
           contextBreakdownEmitter,
           initialPermissionMode: permissionMode,
+          initialEffort: effort,
           relocation,
           crashRespawn,
           grantedDirectories,

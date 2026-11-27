@@ -39,9 +39,14 @@
 //! `spawn_session` path, and a subprocess read through a pipe there can
 //! wait on an unrelated child for as long as that child lives (see
 //! `tugcore::child_fds`).
+//!
+//! A mismatch is logged once per pid and session for the life of the
+//! process. The registry is read on every `list_sessions` and spawn, so
+//! one reused pid would otherwise log the same line on every read.
 
 #![allow(dead_code)]
 
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -189,6 +194,27 @@ fn proc_start_matches(entry_proc_start: Option<&str>, pid: i32) -> bool {
     normalize_whitespace(recorded) == actual
 }
 
+/// The (pid, session) pairs whose mismatch has already been logged. Past
+/// `MISMATCH_LOG_CAP` pairs the set starts over, so a long-lived tugcast
+/// meeting many reused pids holds a bounded set and at worst logs a pair
+/// a second time.
+static MISMATCH_LOGGED: Mutex<Option<std::collections::HashSet<(i32, String)>>> = Mutex::new(None);
+const MISMATCH_LOG_CAP: usize = 1024;
+
+/// True the first time a mismatch for this pid and session is met.
+fn first_mismatch(pid: i32, session_id: &str) -> bool {
+    let mut guard = MISMATCH_LOGGED.lock();
+    let seen = guard.get_or_insert_with(Default::default);
+    if seen.contains(&(pid, session_id.to_owned())) {
+        return false;
+    }
+    if seen.len() >= MISMATCH_LOG_CAP {
+        seen.clear();
+    }
+    seen.insert((pid, session_id.to_owned()));
+    true
+}
+
 /// Read the registry at `root` and return the sessions held by live
 /// processes, keyed by session id. Missing root → empty map. Every
 /// skip path is fail-open and logged; this function never errors.
@@ -227,11 +253,13 @@ pub fn read_live_sessions(root: &Path) -> HashMap<String, TerminalLiveEntry> {
             continue;
         }
         if !proc_start_matches(raw.proc_start.as_deref(), raw.pid) {
-            tracing::info!(
-                pid = raw.pid,
-                session_id = %raw.session_id,
-                "terminal registry: procStart mismatch (pid reuse), entry skipped",
-            );
+            if first_mismatch(raw.pid, &raw.session_id) {
+                tracing::info!(
+                    pid = raw.pid,
+                    session_id = %raw.session_id,
+                    "terminal registry: procStart mismatch (pid reuse), entry skipped",
+                );
+            }
             continue;
         }
         let candidate = TerminalLiveEntry {
@@ -337,6 +365,49 @@ mod tests {
         write_entry(dir.path(), "3", &json);
         let live = read_live_sessions(dir.path());
         assert!(live.is_empty());
+    }
+
+    /// A writer the test subscriber logs into, shared with the test.
+    #[derive(Clone, Default)]
+    struct Captured(std::sync::Arc<Mutex<Vec<u8>>>);
+
+    impl std::io::Write for Captured {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_mismatch_is_logged_once_however_often_it_is_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let json = format!(
+            r#"{{"pid":{},"sessionId":"sess-logged-once","procStart":"Thu Jan  1 00:00:00 1970"}}"#,
+            own_pid(),
+        );
+        write_entry(dir.path(), "4", &json);
+
+        let captured = Captured::default();
+        let writer = captured.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(move || writer.clone())
+            .with_ansi(false)
+            .finish();
+        tracing::subscriber::with_default(subscriber, || {
+            for _ in 0..5 {
+                assert!(read_live_sessions(dir.path()).is_empty());
+            }
+        });
+
+        let text = String::from_utf8(captured.0.lock().clone()).unwrap();
+        let lines = text
+            .lines()
+            .filter(|l| l.contains("procStart mismatch") && l.contains("sess-logged-once"))
+            .count();
+        assert_eq!(lines, 1, "logged:\n{text}");
     }
 
     #[test]

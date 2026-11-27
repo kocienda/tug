@@ -49,6 +49,13 @@ import {
   parsePersistedPermissionMode,
   resolveSeedPermissionMode,
 } from "./permission-mode";
+import {
+  EFFORT_DEFAULT_DOMAIN,
+  EFFORT_DEFAULT_KEY,
+  EFFORT_DOMAIN,
+  parsePersistedEffort,
+  resolveSeedEffort,
+} from "./effort";
 
 /**
  * Resolve the permission mode a freshly-spawned session should start in,
@@ -75,6 +82,24 @@ function resolveSpawnPermissionMode(cardId: string): string | undefined {
     client.get(PERMISSION_MODE_DEFAULT_DOMAIN, PERMISSION_MODE_DEFAULT_KEY),
   );
   return resolveSeedPermissionMode(persisted, globalDefault);
+}
+
+/**
+ * Resolve the reasoning effort a freshly-spawned session should start at,
+ * read synchronously from the tugbank cache at spawn time exactly as the
+ * card's mount-restore reads its seed: the card's own remembered level, else
+ * the deck-wide default. `undefined` when neither is set or the tugbank client
+ * isn't ready — the spawn then carries no level and the restore aligns the
+ * session after it is up, as it did before effort rode the spawn.
+ */
+function resolveSpawnEffort(cardId: string): string | undefined {
+  const client = getTugbankClient();
+  if (client === null) return undefined;
+  const persisted = parsePersistedEffort(client.get(EFFORT_DOMAIN, cardId));
+  const globalDefault = parsePersistedEffort(
+    client.get(EFFORT_DEFAULT_DOMAIN, EFFORT_DEFAULT_KEY),
+  );
+  return resolveSeedEffort(persisted, globalDefault) ?? undefined;
 }
 
 /**
@@ -173,6 +198,7 @@ export function sendSpawnSession(
   relocateFrom?: string,
 ): void {
   const permissionMode = resolveSpawnPermissionMode(cardId);
+  const effort = resolveSpawnEffort(cardId);
   const frame = encodeSpawnSession(
     cardId,
     tugSessionId,
@@ -182,6 +208,7 @@ export function sendSpawnSession(
     tag,
     lineId,
     relocateFrom,
+    effort,
   );
   logSessionLifecycle("spawn.frame_send", {
     card_id: cardId,
@@ -192,6 +219,7 @@ export function sendSpawnSession(
     tag: tag ?? "",
     line_id: lineId ?? "",
     relocate_from: relocateFrom ?? "",
+    effort: effort ?? "",
     reason,
   });
   notePendingReload(cardId, reason);

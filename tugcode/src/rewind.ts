@@ -22,6 +22,7 @@ import { realpath } from "node:fs/promises";
 import { writeLine } from "./ipc.ts";
 import { sendControlRequest, generateRequestId } from "./control.ts";
 import { logSessionLifecycle } from "./session-lifecycle-log.ts";
+import type { TeardownReason } from "./teardown.ts";
 import type { ClaudeHome } from "./claude-home.ts";
 import { isSessionHeldByOtherProcess } from "./terminal-liveness.ts";
 import {
@@ -49,8 +50,22 @@ export interface RewindHost {
   /** The live claude child, or `null` when none is running. */
   claudeProcess(): ClaudeSubprocess | null;
   activeTurn(): ActiveTurn | null;
-  /** Take the claude subprocess down before any disk write. */
-  killAndCleanup(): Promise<void>;
+  /**
+   * Take the claude subprocess down before any disk write. A rewind and a
+   * retraction both refuse while claude is busy, so either reaching the
+   * teardown over an open turn is a guard's hole, which the teardown logs.
+   */
+  killAndCleanup(reason: Extract<TeardownReason, "rewind" | "retraction">): Promise<void>;
+  /**
+   * Whether a follow-on message has already been written to claude's stdin:
+   * a turn claude is about to open, which a kill would drop.
+   */
+  turnPending(): boolean;
+  /**
+   * Run `work` under the session's respawn gate, the one a user message
+   * waits on before it opens a turn, so no turn can open while it holds.
+   */
+  underRespawnGate<T>(work: () => Promise<T>): Promise<T>;
   /**
    * Point the session at the fork `newId` for this and every later spawn,
    * spawn `--resume` on it, and resolve once it has proven it loaded.
@@ -299,6 +314,7 @@ export class Rewind {
     const convResult = await this.applyConversationRewind(
       msg.promptUuid,
       msg.fork ?? true,
+      "rewind",
     );
     this.emitRewindResult(msg.promptUuid, msg.scope, convResult);
   }
@@ -360,6 +376,7 @@ export class Rewind {
   private async applyConversationRewind(
     promptUuid: string,
     fork: boolean,
+    reason: "rewind" | "retraction",
   ): Promise<{
     canRewind: boolean;
     error?: string;
@@ -437,7 +454,16 @@ export class Rewind {
     }
 
     // Subprocess DOWN before any disk write — no race against claude.
-    await this.host.killAndCleanup();
+    // Re-read idleness here, with nothing awaited between the check and the
+    // kill: every guard above may have awaited, and a turn that opened in
+    // that window is not this rewind's to end.
+    if (!this.isClaudeIdle() || this.host.turnPending()) {
+      return {
+        canRewind: false,
+        error: "Claude is busy; rewind requires an idle session.",
+      };
+    }
+    await this.host.killAndCleanup(reason);
 
     if (fork) {
       // Copy the truncated history under a fresh id; the original `livePath`
@@ -546,7 +572,12 @@ export class Rewind {
    * Degrades to a plain interrupt (poison stays, honestly replayable)
    * rather than risking the session on every guard:
    *   - a follow-on turn opened at the close boundary (queued steering
-   *     send) — retraction must never kill a live turn;
+   *     send), or while the JSONL was read — retraction must never kill a
+   *     live turn. The whole retraction runs under the session's respawn
+   *     gate, which a user message waits on before it opens a turn, and
+   *     idleness is re-read immediately before the kill
+   *     ({@link applyConversationRewind}), so no turn opens between the last
+   *     check and the kill;
    *   - the prompt record never landed on disk (`not_found`);
    *   - the prompt is the session's first submission
    *     (`no_retained_turns` — truncation would leave an unresumable
@@ -557,6 +588,10 @@ export class Rewind {
    *     guarded inside {@link applyConversationRewind}.
    */
   private async applyPromptRetraction(promptUuid: string): Promise<void> {
+    return this.host.underRespawnGate(() => this.retractUnderGate(promptUuid));
+  }
+
+  private async retractUnderGate(promptUuid: string): Promise<void> {
     if (!this.isClaudeIdle()) {
       console.log("Retraction skipped: a follow-on turn is already running");
       return;
@@ -571,7 +606,7 @@ export class Rewind {
       console.log(`Retraction skipped: ${truncation.kind}`);
       return;
     }
-    const result = await this.applyConversationRewind(promptUuid, false);
+    const result = await this.applyConversationRewind(promptUuid, false, "retraction");
     if (!result.canRewind) {
       console.log(`Retraction skipped: ${result.error ?? "rewind refused"}`);
       return;

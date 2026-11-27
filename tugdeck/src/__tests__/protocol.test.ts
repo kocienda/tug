@@ -320,6 +320,28 @@ describe("session CONTROL frame builders", () => {
     expect(payload.permission_mode).toBe("plan");
   });
 
+  test("encodeSpawnSession forwards the card's seed effort when provided", () => {
+    const frame = encodeSpawnSession(
+      "card-1",
+      "sess-1",
+      "/work/alpha",
+      "new",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "medium",
+    );
+    const payload = parsePayload(frame);
+    expect(payload.effort).toBe("medium");
+  });
+
+  test("encodeSpawnSession omits effort when the card has none", () => {
+    const frame = encodeSpawnSession("card-1", "sess-1", "/work/alpha", "new", "plan");
+    const payload = parsePayload(frame);
+    expect("effort" in payload).toBe(false);
+  });
+
   test("encodeSpawnSession omits permission_mode when not provided", () => {
     const frame = encodeSpawnSession("card-1", "sess-1", "/work/alpha");
     const payload = parsePayload(frame);

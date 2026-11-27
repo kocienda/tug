@@ -1536,7 +1536,11 @@ mod tests {
         let record = cycles(&paths, &repo).remove(0);
         let mut numbers: Vec<u32> = record.entries.iter().map(|e| e.n).collect();
         numbers.sort_unstable();
-        assert_eq!(numbers, (1..=8).collect::<Vec<u32>>(), "no writer's entry was lost");
+        assert_eq!(
+            numbers,
+            (1..=8).collect::<Vec<u32>>(),
+            "no writer's entry was lost"
+        );
     }
 
     #[test]

@@ -48,6 +48,7 @@ import { IPC_VERSION } from "./types.ts";
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, resolve as resolvePath } from "node:path";
 import { logSessionLifecycle } from "./session-lifecycle-log.ts";
+import { mustNotEndATurn, type TeardownReason } from "./teardown.ts";
 import {
   type ReplayTelemetry,
   extractTaskNotificationWake,
@@ -876,6 +877,13 @@ export class SessionManager {
        */
       initialPermissionMode?: PermissionMode;
       /**
+       * The card's seed reasoning effort, forwarded by tugcast as `--effort`
+       * ([main.ts]). Recorded as {@link currentEffort} before the first spawn,
+       * so `buildClaudeArgs` passes `--effort` from claude's first instant and
+       * the handshake's `session_capabilities` reports it. Omit → no override.
+       */
+      initialEffort?: string;
+      /**
        * The conversation this session forks from when a card changes its
        * project directory — forwarded by tugcast as `--relocate-from` /
        * `--relocate-from-dir` ([main.ts]). Omit for every other session.
@@ -911,6 +919,7 @@ export class SessionManager {
     // as `--permission-mode`) so the first spawn carries it; absent → the
     // manager's own `"default"` baseline.
     this.permissionManager = new PermissionManager(options?.initialPermissionMode);
+    this.currentEffort = options?.initialEffort ?? null;
     // Coerce `undefined` / empty string to `null` so the fallback
     // logic in `initialize()` has a single test (`!= null`) rather
     // than two (`!== undefined && !== ""`).
@@ -973,7 +982,9 @@ export class SessionManager {
       writeJsonl: (path, content) => this.jsonlWriter(path, content),
       claudeProcess: () => this.claudeProcess,
       activeTurn: () => this.activeTurn,
-      killAndCleanup: () => this.killAndCleanup(),
+      killAndCleanup: (reason) => this.killAndCleanup(reason),
+      turnPending: () => this.pendingTurnInputs.length > 0,
+      underRespawnGate: (work) => this.respawn(work),
       respawnIntoRewindFork: (newId) => this.respawnIntoRewindFork(newId),
       respawnRewoundInPlace: (liveId) => this.respawnRewoundInPlace(liveId),
     });
@@ -1140,13 +1151,41 @@ export class SessionManager {
    * and resolves its completion) runs before a respawn resets
    * `claudeStdoutEofObserved`; without the await the two race and a fresh
    * spawn can inherit a stale "EOF observed" flag.
+   *
+   * **The teardown decides the open turn, not its caller.** `reason` is
+   * required: an open turn with no result is marked a recovery cancel here, at
+   * kill time, so the drain's EOF closes it as `turn_cancelled` and never as
+   * the `error` the deck draws as the Protocol error banner — that banner means
+   * Claude died and tugcode did not ask it to. First writer wins on the cause,
+   * so a user's cancel that had to be pressed harder stays theirs. A reason of
+   * the must-not-end-a-turn kind ({@link mustNotEndATurn}) meeting an open turn
+   * is a hole in its caller's guard: it is logged as a bug and still cancelled
+   * cleanly, since a banner would punish the user for our defect. Every
+   * teardown writes one `tugcode.teardown` line naming its reason, so the next
+   * unexplained kill names who asked for it.
    */
-  private async killAndCleanup(opts?: {
-    escalate?: boolean;
-    graceMs?: number;
-  }): Promise<void> {
+  private async killAndCleanup(
+    reason: TeardownReason,
+    opts?: {
+      escalate?: boolean;
+      graceMs?: number;
+    },
+  ): Promise<void> {
     const escalate = opts?.escalate === true;
     const graceMs = opts?.graceMs ?? CLAUDE_EOF_GRACE_MS;
+    const turn = this.activeTurn;
+    const turnOpen = turn !== null && !turn.gotResult;
+    const bug = turnOpen && mustNotEndATurn(reason);
+    if (turnOpen) {
+      turn.interrupted = true;
+      turn.interruptCause ??= "recovery";
+    }
+    logSessionLifecycle("tugcode.teardown", {
+      session_id: this.sessionId,
+      reason,
+      turn_open: turnOpen,
+      ...(bug ? { bug: "a must-not-end-a-turn teardown met an open turn" } : {}),
+    });
     // Mark shutdown so the early-exit watcher ignores the exit code
     // from our kill rather than surfacing a phantom resume_failed.
     this.isShuttingDown = true;
@@ -1198,9 +1237,9 @@ export class SessionManager {
    * ({@link handleInterrupt}) and the result-liveness watchdog
    * ({@link armResultWatchdog}).
    *
-   * The turn (if any) is flagged `interrupted` first so the drain's EOF path
-   * closes it as `turn_cancelled` (a clean cancel receipt), not `error`. The
-   * kill is the escalate signal ladder; the respawn is a plain resume against
+   * The turn (if any) is closed by the teardown as `turn_cancelled` (a clean
+   * cancel receipt), not `error`. The kill is the escalate signal ladder; the
+   * respawn is a plain resume against
    * the current claude id, so everything claude persisted to its JSONL is
    * retained — this is a recovery, never a retraction/truncation. Resume mode
    * is forced even for a `new`-mode session: its on-disk JSONL already exists
@@ -1218,21 +1257,8 @@ export class SessionManager {
         session_id: this.sessionId,
         reason,
       });
-      // Close the in-flight turn as a cancel, not an error, when the drain
-      // observes the kill's EOF.
-      if (this.activeTurn !== null) {
-        this.activeTurn.interrupted = true;
-        // Claimed only if nothing has: reaching here from the interrupt
-        // ladder means the user cancelled and tugcode merely had to press
-        // harder, and the cause stays theirs.
-        this.activeTurn.interruptCause ??= "recovery";
-      }
 
-      await this.killAndCleanup({ escalate: true });
-
-      // killAndCleanup latched `isShuttingDown` for the teardown; clear it so
-      // the fresh spawn's watcher is armed normally.
-      this.isShuttingDown = false;
+      await this.killAndCleanup("force_terminate", { escalate: true });
 
       const claudeId = this.respawnResume();
 
@@ -1312,10 +1338,7 @@ export class SessionManager {
       // claude is the one the turn belongs to.
       if (!this.claudeStdoutEofObserved) return true;
       try {
-        await this.killAndCleanup();
-        // killAndCleanup latched `isShuttingDown` for the teardown; clear it
-        // so the fresh spawn's early-exit watcher is armed normally.
-        this.isShuttingDown = false;
+        await this.killAndCleanup("reattach");
         const claudeId = this.respawnResume();
         logSessionLifecycle("tugcode.reattach_after_eof", {
           session_id: this.sessionId,
@@ -1406,15 +1429,8 @@ export class SessionManager {
         tasks_stopped: tasksStopped,
         triggers_cleared: triggersCleared,
       });
-      // Close the in-flight turn as a cancel, not an error, when the drain
-      // observes the teardown's EOF.
-      if (this.activeTurn !== null) {
-        this.activeTurn.interrupted = true;
-        this.activeTurn.interruptCause ??= "recovery";
-      }
 
-      await this.killAndCleanup({ escalate: false });
-      this.isShuttingDown = false;
+      await this.killAndCleanup("stop_all", { escalate: false });
 
       const claudeId = this.respawnResume();
       const child = this.claudeProcess;
@@ -2145,6 +2161,12 @@ export class SessionManager {
     // claude that came up is proof the spawn path works, so the attempt
     // spent on the last episode must not be held against the next.
     this.eofReattachAttempted = false;
+    // A fresh claude is not shutting down. `killAndCleanup` latches the flag
+    // for the teardown of the process before it, and this is the one place
+    // every spawn passes through, so it is cleared here and nowhere else —
+    // a real crash of this process must log `self_inflicted=false` and reach
+    // the early-exit watcher, whichever path spawned it.
+    this.isShuttingDown = false;
     this.claude.startStdoutDrain(claudeProcess);
     // The activity flush runs for the session, not for a turn: work that
     // lands between turns is counted and flushed like work inside one.
@@ -4389,7 +4411,7 @@ export class SessionManager {
       // shortened first and put back if the respawn fails.
       this.additionalDirectories = list;
       try {
-        await this.respawn(() => this.respawnInPlace());
+        await this.respawn(() => this.respawnInPlace("directory"));
       } catch (err) {
         this.additionalDirectories = prior;
         const reason = err instanceof Error ? err.message : String(err);
@@ -4501,9 +4523,6 @@ export class SessionManager {
   private async provePostRewindSpawnReady(
     child: ClaudeSubprocess,
   ): Promise<void> {
-    // `killAndCleanup` latched the teardown flag; the fresh spawn is not
-    // shutting down (same clearing as `forceTerminateAndRespawn`).
-    this.isShuttingDown = false;
     this.dispatchInitializeHandshake(child);
     await this.awaitSpawnReady(child, REWIND_READY_TIMEOUT_MS);
   }
@@ -4574,6 +4593,27 @@ export class SessionManager {
   }
 
   /**
+   * Run one respawn under {@link respawnGate}. Respawns queue behind one
+   * another, and user messages queue behind all of them.
+   */
+  private async respawn<T>(work: () => Promise<T>): Promise<T> {
+    while (this.respawnGate !== null) {
+      await this.respawnGate;
+    }
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.respawnGate = gate;
+    try {
+      return await work();
+    } finally {
+      if (this.respawnGate === gate) this.respawnGate = null;
+      release();
+    }
+  }
+
+  /**
    * Handle reasoning-effort change ([#step-4], [R07]).
    *
    * claude 2.1.158 has NO live control subtype for effort — it is set only via
@@ -4597,33 +4637,17 @@ export class SessionManager {
    * here, where the kill is. Mid-turn the level is recorded and the respawn
    * waits for the turn to close ({@link applyDeferredEffort}).
    */
-  /**
-   * Run one respawn under {@link respawnGate}. Respawns queue behind one
-   * another, and user messages queue behind all of them.
-   */
-  private async respawn<T>(work: () => Promise<T>): Promise<T> {
-    while (this.respawnGate !== null) {
-      await this.respawnGate;
-    }
-    let release: () => void = () => {};
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    this.respawnGate = gate;
-    try {
-      return await work();
-    } finally {
-      if (this.respawnGate === gate) this.respawnGate = null;
-      release();
-    }
-  }
-
   async handleEffortChange(effort: string): Promise<void> {
     return this.respawn(() => this.effortChange(effort));
   }
 
   private async effortChange(effort: string): Promise<void> {
     console.log(`Setting reasoning effort: ${effort}`);
+    // The live claude already runs at this level — it was spawned with it,
+    // and no respawn to another level is owed. A respawn would only restart
+    // the process for nothing; the deck's restore sends its seed level
+    // before a resumed session's capabilities can say it is in force.
+    if (effort === this.currentEffort && !this.effortRespawnPending) return;
     this.currentEffort = effort;
 
     // No conversation to resume yet — record the level and let the next spawn
@@ -4638,7 +4662,7 @@ export class SessionManager {
       });
       return;
     }
-    await this.respawnInPlace();
+    await this.respawnInPlace("effort");
   }
 
   /**
@@ -4659,7 +4683,7 @@ export class SessionManager {
       // carried the level, or a turn may have opened while this one queued.
       if (!this.effortRespawnPending) return;
       if (this.activeTurn !== null || this.pendingTurnInputs.length > 0) return;
-      await this.respawnInPlace();
+      await this.respawnInPlace("effort");
     }).catch((err) => {
       logSessionLifecycle("tugcode.effort_change_deferred", {
         session_id: this.sessionId,
@@ -4674,12 +4698,32 @@ export class SessionManager {
    * live settings — the respawn a setting with no live control request
    * needs (an effort, a folder claude was spawned with). Run under
    * {@link respawn}.
+   *
+   * It is a full spawn, the same as {@link respawnResume}: the stderr reader
+   * (so a stale id is classified by its cause and the pipe never fills), the
+   * early-exit watcher, and the `initialize` handshake. The handshake is what
+   * moves the process phase out of `spawning`, and its ack is what writes a
+   * `session_capabilities` naming the effort now in force — the record the
+   * deck compares its own level against, so a level already applied is not
+   * sent again.
+   *
+   * A `--resume` respawn is a resume from here on, as {@link respawnResume}
+   * records it: the conversation is on disk, and `claudeReceivedInput` is a
+   * fact about the process that just died.
    */
-  private async respawnInPlace(): Promise<void> {
-    await this.killAndCleanup();
+  private async respawnInPlace(reason: "effort" | "directory"): Promise<void> {
+    await this.killAndCleanup(reason);
     const mode = this.liveRespawnMode();
-    this.claudeProcess = this.spawnClaude(this.liveRespawnId(mode), mode);
+    const id = this.liveRespawnId(mode);
+    if (mode === "resume") {
+      this.sessionMode = "resume";
+      this.claudeReceivedInput = false;
+    }
+    this.claudeProcess = this.spawnClaude(id, mode);
     this.startStdoutDrain(this.claudeProcess);
+    this.claude.startStderrReader();
+    this.installEarlyExitWatcher();
+    this.sendInitializeHandshake();
     // The drain forwards claude's `system:init` to tugcast asynchronously, as
     // in `handleSessionFork` / `handleSessionContinue`; no synchronous await.
   }
@@ -4728,7 +4772,7 @@ export class SessionManager {
   }
 
   private async sessionFork(): Promise<void> {
-    await this.killAndCleanup();
+    await this.killAndCleanup("fork");
 
     // `--continue --fork-session` mints the fork's id inside claude, so the
     // announcement waits for the first `system/init` to learn it ([P05]).
@@ -4776,7 +4820,7 @@ export class SessionManager {
   }
 
   private async sessionContinue(): Promise<void> {
-    await this.killAndCleanup();
+    await this.killAndCleanup("continue");
 
     // Same as the fork: claude picks the id, so the announcement is written
     // when its first `system/init` names it ([P05]).
@@ -4829,21 +4873,9 @@ export class SessionManager {
 
   private async newSession(stage?: SessionStageSpec): Promise<void> {
     const parentSessionId = this.resolveClaudeId();
-    // Close any in-flight turn on the retiring claude as a cancel, not an
-    // error, exactly as `forceTerminateAndRespawn` does — the drain observes
-    // this kill's EOF and, without the flag, emits
-    // `error "Claude process stream ended unexpectedly"`, which the deck
-    // renders as the "Protocol error" banner. Retiring a claude is a
-    // deliberate act (a rotation, or a `/new` from the deck); a turn it ends
-    // was not lost, and the frame family for "something else ended this" is
-    // the cancel with `is_recovery`, which the deck already renders with no
-    // banner at all.
-    if (this.activeTurn !== null) {
-      this.activeTurn.interrupted = true;
-      // First writer wins: a user cancel already in flight keeps its cause.
-      this.activeTurn.interruptCause ??= "recovery";
-    }
-    await this.killAndCleanup();
+    // Retiring a claude is a deliberate act (a rotation, or a `/new` from the
+    // deck): the teardown ends a turn still running as a recovery cancel.
+    await this.killAndCleanup(stage ? "rotation" : "new");
 
     // Absent is what *clears* it: the arc variable belongs to an arc, not to a
     // card, so a rotation naming none spawns claude without it.
@@ -4945,7 +4977,7 @@ export class SessionManager {
    */
   async shutdown(opts?: { graceMs?: number }): Promise<void> {
     this.replay.closeSessionsDb();
-    await this.killAndCleanup({ graceMs: opts?.graceMs });
+    await this.killAndCleanup("shutdown", { graceMs: opts?.graceMs });
   }
 
   /**

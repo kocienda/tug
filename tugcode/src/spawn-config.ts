@@ -305,6 +305,17 @@ export const CLAUDE_SPAWN_SETTINGS = JSON.stringify({
 });
 
 /**
+ * The level a `--effort <level>` argument names, or `undefined` for a blank
+ * one. tugcast forwards the card's seed effort this way so the first claude is
+ * spawned at it. Not narrowed to a known level: tugcode passes `--effort`
+ * through to claude as it does for an `effort_change`, and claude decides.
+ */
+export function parseEffortArg(raw: string | undefined): string | undefined {
+  const level = raw?.trim() ?? "";
+  return level.length > 0 ? level : undefined;
+}
+
+/**
  * Build the CLI argument array for spawning the claude process.
  * Exported for unit tests.
  */

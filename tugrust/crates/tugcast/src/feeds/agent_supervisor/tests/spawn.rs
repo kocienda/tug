@@ -1346,6 +1346,7 @@ impl ChildSpawner for GrantRecordingSpawner {
         _permission_mode: Option<&str>,
         _relocate_from: Option<&crate::feeds::agent_bridge::RelocateOrigin>,
         granted_dirs: &[String],
+        _effort: Option<&str>,
         _crash_respawn: bool,
     ) -> SpawnFuture {
         let _ = self.granted.send(granted_dirs.to_vec());

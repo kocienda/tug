@@ -277,6 +277,12 @@ pub trait ChildSpawner: Send + Sync + 'static {
     /// directory, in grant order, forwarded as one `--granted-dir` each so
     /// tugcode spawns claude with them. Empty for a session granted none.
     ///
+    /// `effort` is the reasoning-effort level tugdeck resolved for the card at
+    /// spawn time, kept on the ledger entry and moved by a live `effort_change`
+    /// frame. Forwarded to tugcode as `--effort <level>` so the first claude
+    /// starts at it rather than at the default and being respawned to apply
+    /// it. `None` when the card has no level (no per-card level, no default).
+    ///
     /// `crash_respawn` is true on every spawn after the loop's first: the
     /// child before this one died. Forwarded as `--crash-respawn`, so tugcode
     /// re-creates a session claude never wrote to disk instead of resuming
@@ -292,6 +298,7 @@ pub trait ChildSpawner: Send + Sync + 'static {
         permission_mode: Option<&str>,
         relocate_from: Option<&RelocateOrigin>,
         granted_dirs: &[String],
+        effort: Option<&str>,
         crash_respawn: bool,
     ) -> SpawnFuture;
 }
@@ -336,7 +343,8 @@ impl TugcodeSpawner {
 /// and additionally `["--resume-session", <claude_session_id>]` when
 /// `resume_claude_session_id` is `Some` (only emitted for resume spawns
 /// whose claude session id has diverged from `session_id`), and one
-/// `["--granted-dir", <path>]` per folder in `granted_dirs`.
+/// `["--granted-dir", <path>]` per folder in `granted_dirs`, and
+/// `["--effort", <level>]` when `effort` is `Some`.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_tugcode_command(
     tugcode_path: &Path,
@@ -347,6 +355,7 @@ pub(crate) fn build_tugcode_command(
     permission_mode: Option<&str>,
     relocate_from: Option<&RelocateOrigin>,
     granted_dirs: &[String],
+    effort: Option<&str>,
 ) -> (String, Vec<String>) {
     let (program, mut args): (String, Vec<String>) =
         if tugcode_path.extension().and_then(|s| s.to_str()) == Some("ts") {
@@ -401,6 +410,14 @@ pub(crate) fn build_tugcode_command(
         args.push("--granted-dir".to_string());
         args.push(dir.clone());
     }
+    // The card's reasoning effort, so the first claude is spawned at it. A
+    // level applied after spawn costs a respawn, and on a new card that
+    // respawn landed over its first prompt. Absent, the argv is the one it was
+    // before effort rode the spawn.
+    if let Some(level) = effort {
+        args.push("--effort".to_string());
+        args.push(level.to_string());
+    }
     (program, args)
 }
 
@@ -414,10 +431,12 @@ impl ChildSpawner for TugcodeSpawner {
         permission_mode: Option<&str>,
         relocate_from: Option<&RelocateOrigin>,
         granted_dirs: &[String],
+        effort: Option<&str>,
         crash_respawn: bool,
     ) -> SpawnFuture {
         let tugcode_path = self.tugcode_path.clone();
         let granted_dirs = granted_dirs.to_vec();
+        let effort = effort.map(|s| s.to_string());
         let project_dir = project_dir.to_path_buf();
         let session_id = session_id.to_string();
         let resume_claude_session_id = resume_claude_session_id.map(|s| s.to_string());
@@ -433,6 +452,7 @@ impl ChildSpawner for TugcodeSpawner {
                 permission_mode.as_deref(),
                 relocate_from.as_ref(),
                 &granted_dirs,
+                effort.as_deref(),
             );
             if crash_respawn {
                 args.push("--crash-respawn".to_string());
@@ -873,6 +893,14 @@ pub async fn run_session_bridge(
             entry.relocate_from.clone()
         };
 
+        // The effort the session is at, read fresh per iteration like the
+        // permission mode: a live `effort_change` frame moves the entry while
+        // the child is up, so a crash respawn carries the level in force.
+        let effort = {
+            let entry = ledger_entry.lock().await;
+            entry.effort.clone()
+        };
+
         // The folders the session was granted, read once from the ledger row
         // it resumes and kept on the entry after that, where a grant made
         // while it runs moves them; a crash respawn then carries what the
@@ -914,6 +942,7 @@ pub async fn run_session_bridge(
                 permission_mode.as_deref(),
                 relocate_from.as_ref(),
                 &granted_dirs,
+                effort.as_deref(),
                 crash_respawn,
             ) => result,
             _ = cancel.cancelled() => return,
@@ -6928,6 +6957,7 @@ mod tests {
             None,
             None,
             &[],
+            None,
         );
         assert_eq!(program, "/opt/tugtool/tugcode");
         assert_eq!(
@@ -6954,6 +6984,7 @@ mod tests {
             None,
             None,
             &[],
+            None,
         );
         assert_eq!(program, "bun");
         assert_eq!(
@@ -6986,6 +7017,7 @@ mod tests {
             None,
             None,
             &[],
+            None,
         );
         let (_p2, args2) = build_tugcode_command(
             &spawner.tugcode_path,
@@ -6996,6 +7028,7 @@ mod tests {
             None,
             None,
             &[],
+            None,
         );
         assert!(args1.iter().any(|a| a == "/work/a"));
         assert!(args1.iter().any(|a| a == "sess-a"));
@@ -7016,6 +7049,7 @@ mod tests {
             None,
             None,
             &[],
+            None,
         );
         let i = args
             .iter()
@@ -7041,6 +7075,7 @@ mod tests {
             None,
             None,
             &[],
+            None,
         );
         let i = args
             .iter()
@@ -7070,6 +7105,7 @@ mod tests {
             None,
             None,
             &[],
+            None,
         );
         assert!(
             !args.iter().any(|a| a == "--resume-session"),
@@ -7092,6 +7128,7 @@ mod tests {
             Some("plan"),
             None,
             &[],
+            None,
         );
         let i = args
             .iter()
@@ -7117,6 +7154,7 @@ mod tests {
             None,
             Some(&origin),
             &[],
+            None,
         );
         let mode = args
             .iter()
@@ -7143,6 +7181,7 @@ mod tests {
             None,
             None,
             &[],
+            None,
         );
         assert_eq!(
             plain,
@@ -7169,6 +7208,7 @@ mod tests {
             None,
             None,
             &dirs,
+            None,
         );
         let granted: Vec<&str> = args
             .iter()
@@ -7264,10 +7304,52 @@ mod tests {
             None,
             None,
             &[],
+            None,
         );
         assert!(
             !args.iter().any(|a| a == "--permission-mode"),
             "--permission-mode must be absent when mode is None"
+        );
+    }
+
+    #[test]
+    /// The card's effort rides the spawn, so the first claude is born at it
+    /// rather than respawned into it over the card's first prompt.
+    fn test_build_tugcode_command_emits_effort_when_some() {
+        let (_, args) = build_tugcode_command(
+            Path::new("/opt/tugtool/tugcode"),
+            Path::new("/work/e"),
+            "sess-e",
+            SessionMode::New,
+            None,
+            None,
+            None,
+            &[],
+            Some("medium"),
+        );
+        let i = args
+            .iter()
+            .position(|a| a == "--effort")
+            .expect("--effort must be present when effort is Some");
+        assert_eq!(args[i + 1], "medium");
+    }
+
+    #[test]
+    fn test_build_tugcode_command_omits_effort_when_none() {
+        let (_, args) = build_tugcode_command(
+            Path::new("/opt/tugtool/tugcode"),
+            Path::new("/work/e"),
+            "sess-e",
+            SessionMode::New,
+            None,
+            None,
+            None,
+            &[],
+            None,
+        );
+        assert!(
+            !args.iter().any(|a| a == "--effort"),
+            "--effort must be absent when effort is None"
         );
     }
 
@@ -7459,6 +7541,7 @@ mod tests {
             _permission_mode: Option<&str>,
             _relocate_from: Option<&RelocateOrigin>,
             _granted_dirs: &[String],
+            _effort: Option<&str>,
             _crash_respawn: bool,
         ) -> SpawnFuture {
             let mut command = tokio::process::Command::new("/bin/sh");
@@ -7580,6 +7663,7 @@ mod tests {
                 None,
                 None,
                 &[],
+                None,
                 false,
             )
             .await
@@ -7644,6 +7728,7 @@ mod tests {
                 None,
                 None,
                 &[],
+                None,
                 false,
             )
             .await
@@ -7692,6 +7777,7 @@ mod tests {
                     None,
                     None,
                     &[],
+                    None,
                     crash_respawn,
                 )
                 .await

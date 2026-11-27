@@ -392,6 +392,7 @@ impl AgentSupervisor {
         project_dir_str: String,
         session_mode: SessionMode,
         permission_mode: Option<String>,
+        effort: Option<String>,
         tag: Option<String>,
         line_id: Option<String>,
         relocate_from: Option<TugSessionId>,
@@ -728,6 +729,10 @@ impl AgentSupervisor {
             // session is in rather than the one it was born in.
             if inserted || entry.spawn_state == SpawnState::Idle {
                 entry.permission_mode = permission_mode;
+                // The card's seed effort, the level its first claude is born
+                // at, stamped on the same fresh/Idle path and for the same
+                // reason: a live `effort_change` frame is the later word.
+                entry.effort = effort;
                 // The directory change's origin, stamped on the same path: the
                 // bridge reads it on every spawn while the fork is unwritten.
                 entry.relocate_from = relocation;

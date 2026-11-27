@@ -836,6 +836,7 @@ impl ChildSpawner for RecordingSpawner {
         permission_mode: Option<&str>,
         _relocate_from: Option<&crate::feeds::agent_bridge::RelocateOrigin>,
         _granted_dirs: &[String],
+        _effort: Option<&str>,
         _crash_respawn: bool,
     ) -> SpawnFuture {
         let _ = self.modes.send(permission_mode.map(str::to_string));
