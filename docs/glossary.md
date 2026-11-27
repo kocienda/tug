@@ -8,7 +8,7 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Arc log.** The append-only record of an arc: every *round*, every *step* declaration, every *mark*, every *stop*. Everything a surface says about an arc that git cannot see is read from here. `tugtool arc record <name>` reads it back.
 
-**Arc shade.** The *shade* the arc reading in the *status row* raises, also on Option-Command-R. With an *arc* bound it holds three numbered panels, each with a progress dot: Sketch across the whole top, saying what is wanted and the shape of the work, and Brief and Arc beneath it, the last carrying the arc's steps and verbs. A press on Brief or Arc expands it. With no arc it is short, and says what an arc is and how to start one.
+**Arc shade.** The *shade* the arc reading in the *status row* raises, also on Option-Command-R. With an *arc* bound it holds three numbered panels, each with a progress dot: Sketch across the whole top, saying what is wanted and the shape of the work, and Brief and Arc beneath it, the last carrying the arc's steps and verbs. A press on Brief or Arc expands it. With no arc it says `None`.
 
 **Arcs (sidebar).** The *sidebar card* that lists every arc in every open project with its lifecycle strip and step progress, and the verbs to run, stop, join, replay or discard it.
 

@@ -25,7 +25,7 @@
  * to act on.
  *
  * Composes `SessionArcPanels`, `ArcBriefDetail`, `ArcBriefHeadings`,
- * `ArcPopoverContent`, `SessionArcShadeHint` and `SessionCycleShade` as they
+ * `ArcPopoverContent`, `TugEmptyLine` and `SessionCycleShade` as they
  * are and adds no styling of its own.
  *
  * The verbs and the confirm Discard arms are hosted here. The confirm hangs
@@ -55,7 +55,7 @@ import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { ArcBriefDetail, ArcBriefHeadings } from "./session-arc-brief";
 import { SessionArcPanels } from "./session-arc-panels";
 import { NOT_RECORDED, recordPanel } from "./session-arc-record-panel";
-import { SessionArcShadeHint } from "./session-arc-shade-hint";
+import { TugEmptyLine } from "@/components/tugways/tug-empty-line";
 import { ArcPopoverContent, useArcPopoverVerbs } from "./session-card-telemetry-popovers";
 import { SessionCycleShade } from "./session-cycle-shade";
 import { cycleShadeForm } from "./session-cycle-shade-model";
@@ -168,7 +168,7 @@ export function SessionArcShadeContent({
           hereBrief={hereBrief}
         />
       ) : fact === null || arcVerbs.verbs === null ? (
-        <SessionArcShadeHint />
+        <TugEmptyLine data-slot="session-arc-shade-none">None</TugEmptyLine>
       ) : (
         <SessionArcPanels
           raised={raised}

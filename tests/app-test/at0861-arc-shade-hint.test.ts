@@ -1,24 +1,19 @@
 /**
  * at0861-arc-shade-hint.test.ts — the arc shade for a session
- * with no arc: what it says, and where its help link goes.
+ * with no arc: it says `None`, centered, and nothing else.
  *
  * What is read:
  *
  *   1. A press on the ARC cell of a session with no arc raises the shade,
  *      and the shade holds no panels.
- *   2. The shade says the one word the cell reads, says what an arc is,
- *      names the command that starts one, with no button for it, and carries a link
- *      written as a help link to the guide's section on arcs.
- *   3. Following the link opens the feature guide in a help card, scrolled to
- *      its Arcs heading.
- *   4. The project has an arc no session is working, and the hint neither
- *      lists it nor offers Bind: the shade holds no control that starts an
- *      arc or binds one.
+ *   2. The shade says `None` in the shared empty line, centered, with no
+ *      link and no button.
+ *   3. The project has an arc no session is working, and the shade neither
+ *      lists it nor offers Bind: it holds no control that starts an arc or
+ *      binds one.
  *
- * @covers tugdeck/src/components/tugways/cards/session-arc-shade-hint.tsx
- * @covers tugdeck/src/components/tugways/cards/session-arc-shade-hint.css
  * @covers tugdeck/src/components/tugways/cards/session-arc-shade-content.tsx
- * @covers docs/features.md
+ * @covers tugdeck/src/components/tugways/tug-empty-line.tsx
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -26,7 +21,6 @@ import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { launchTugApp, note } from "./_harness";
-import { kindBody } from "./_harness/card-reach";
 import { sessionCardShape } from "./_harness/shapes";
 import { restoreSettled } from "./overlay-fixture";
 import {
@@ -50,8 +44,7 @@ const SID = "a7c0d1ea-0000-4000-8000-000000000861";
 
 const CARD = '[data-card-id="A"]';
 const SHADE = `${CARD} [data-slot="session-arc-shade"]`;
-const HINT = `${SHADE} [data-slot="session-arc-shade-hint"]`;
-const HELP_LINK = `${HINT} [data-slot="session-arc-shade-hint-help"]`;
+const NONE = `${SHADE} [data-slot="session-arc-shade-none"]`;
 const ARC_CELL = `${CARD} [data-slot="tug-status-cell"][data-priority="arc"]`;
 
 /** An arc in the project that no session is working. */
@@ -81,7 +74,7 @@ afterAll(() => {
 
 describe.skipIf(!SHOULD_RUN)("AT0861: the arc shade with no arc", () => {
   test(
-    "the short shade says how to start an arc, and its link opens the guide at Arcs",
+    "the shade says None, centered, and holds no control",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
@@ -99,7 +92,7 @@ describe.skipIf(!SHOULD_RUN)("AT0861: the arc shade with no arc", () => {
         await app.awaitEngineReady("A", { timeoutMs: 30_000 });
         await restoreSettled(app, "A");
         await app.body("A").waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(HINT)}) !== null`,
+          `document.querySelector(${JSON.stringify(NONE)}) !== null`,
           { timeoutMs: 20_000 },
         );
 
@@ -109,66 +102,35 @@ describe.skipIf(!SHOULD_RUN)("AT0861: the arc shade with no arc", () => {
           `document.querySelector(${JSON.stringify(SHADE)})?.getAttribute("data-raised") === "true"`,
           { timeoutMs: 10_000 },
         );
-        const hint = await app.body("A").evalJS<{
+        const shade = await app.body("A").evalJS<{
           panels: boolean;
           none: string;
-          text: string;
-          code: string[];
-          newArc: boolean;
-          link: string;
-          href: string | null;
-          unbound: string[];
+          justify: string;
+          links: number;
           buttons: string[];
+          unbound: number;
         }>(
           `(() => {
              const shade = document.querySelector(${JSON.stringify(SHADE)});
-             const hint = document.querySelector(${JSON.stringify(HINT)});
-             const link = document.querySelector(${JSON.stringify(HELP_LINK)});
+             const none = document.querySelector(${JSON.stringify(NONE)});
              const text = (el) => (el?.textContent ?? "").replace(/\\s+/g, " ").trim();
              return {
                panels: shade.querySelector('[data-slot="session-arc-panels"]') !== null,
-               none: text(hint.querySelector('[data-slot="session-arc-shade-hint-none"]')),
-               text: text(hint.querySelector(".session-arc-shade-hint-text")),
-               code: Array.from(hint.querySelectorAll("code")).map(text),
-               newArc: Array.from(hint.querySelectorAll("button")).some((b) => text(b) === "New Arc"),
-               link: text(link),
-               href: link?.getAttribute("href") ?? null,
-               unbound: Array.from(hint.querySelectorAll('[data-slot="session-arc-shade-hint-arc"]')).map(
-                 (el) => el.getAttribute("data-arc"),
-               ),
-               buttons: Array.from(hint.querySelectorAll("button")).map(text),
+               none: text(none),
+               justify: getComputedStyle(none).justifyContent,
+               links: shade.querySelectorAll("a").length,
+               buttons: Array.from(none.querySelectorAll("button")).map(text),
+               unbound: shade.querySelectorAll('[data-arc="${ARC_NAME}"]').length,
              };
            })()`,
         );
-        note("at0861 hint", JSON.stringify(hint));
-        expect(hint.panels, "no arc, no panels").toBe(false);
-        expect(hint.none, "the shade says the word the cell reads").toBe("None");
-        expect(hint.text, "it says what an arc is").toContain("An arc is");
-        expect(hint.code, "and names the command that starts one").toEqual(["/arc"]);
-        expect(hint.newArc, "with no button that starts one").toBe(false);
-        expect(hint.link).toBe("What an arc is");
-        expect(hint.href, "the link is a help link to the guide's Arcs section").toBe("features.md#arcs");
-        expect(hint.unbound, "the project's unbound arc is not listed").toEqual([]);
-        expect(hint.buttons, "and the hint holds no button at all").toEqual([]);
-
-        // ── The link opens the guide at its Arcs heading ──────────────────
-        await app.body("A").click(HELP_LINK);
-        const help = await kindBody(app, "help").waitForCondition<{ title: string; top: number; height: number }>(
-          `(() => {
-             const card = document.querySelector('[data-slot="help-card"]');
-             const title = card?.querySelector("h1");
-             const arcs = Array.from(card?.querySelectorAll("h2") ?? []).find(
-               (h) => (h.textContent ?? "").trim() === "Arcs",
-             );
-             if (!title || !arcs) return null;
-             const top = arcs.getBoundingClientRect().top;
-             if (top < 0 || top > window.innerHeight) return null;
-             return { title: (title.textContent ?? "").trim(), top: Math.round(top), height: window.innerHeight };
-           })()`,
-          { timeoutMs: 20_000 },
-        );
-        note("at0861 help", JSON.stringify(help));
-        expect(help.title).toBe("Tug: what it does and how to use it");
+        note("at0861 shade", JSON.stringify(shade));
+        expect(shade.panels, "no arc, no panels").toBe(false);
+        expect(shade.none, "the shade says None").toBe("None");
+        expect(shade.justify, "centered").toBe("center");
+        expect(shade.links, "no link").toBe(0);
+        expect(shade.buttons, "no button").toEqual([]);
+        expect(shade.unbound, "the project's unbound arc is not listed").toBe(0);
 
       } finally {
         await app.close();
