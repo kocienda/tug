@@ -115,6 +115,13 @@ function EntryMark({ read }: { read: CycleShadeEntry }): React.ReactElement | nu
       </TugBadge>
     );
   }
+  if (entry.state === "dropped") {
+    return (
+      <TugBadge size="xs" emphasis="ghost" role="inherit">
+        Dropped
+      </TugBadge>
+    );
+  }
   if (entry.state !== "running") return null;
   if (row === null) {
     return (
@@ -129,7 +136,7 @@ function EntryMark({ read }: { read: CycleShadeEntry }): React.ReactElement | nu
 /** What an entry waits on, as the numbers the map's tiles wear. */
 function Waits({ read }: { read: CycleShadeEntry }): React.ReactElement | null {
   const { entry, openWaits } = read;
-  if (entry.waits.length === 0 || entry.state === "joined") return null;
+  if (entry.waits.length === 0 || entry.state === "joined" || entry.state === "dropped") return null;
   return (
     <span className="session-cycle-shade-waits" data-slot="session-cycle-shade-waits">
       <span>Waits on</span>
@@ -271,6 +278,8 @@ function EntryAsset({
         </div>
       ) : entry.state === "joined" ? (
         <p className="session-cycle-shade-asset-line">Landed. Its rounds and commit stay on record.</p>
+      ) : entry.state === "dropped" ? (
+        <p className="session-cycle-shade-asset-line">Dropped. Starting its brief again brings it back.</p>
       ) : null}
     </div>
   );

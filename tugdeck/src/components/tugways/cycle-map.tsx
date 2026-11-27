@@ -25,7 +25,7 @@
 import "./cycle-map.css";
 
 import React, { useLayoutEffect, useMemo, useRef } from "react";
-import { Check, Play } from "lucide-react";
+import { Check, Play, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -40,8 +40,8 @@ import {
 } from "./cycle-map-layout";
 import { TugTooltip } from "./tug-tooltip";
 
-/** How an entry stands: the cycle record's four words. */
-export type CycleMapTileState = "joined" | "running" | "ready" | "waiting";
+/** How an entry stands: the cycle record's five words. */
+export type CycleMapTileState = "joined" | "running" | "dropped" | "ready" | "waiting";
 
 /** One entry of the cycle, as the map draws it. */
 export interface CycleMapTile {
@@ -50,7 +50,7 @@ export interface CycleMapTile {
   waits: readonly number[];
   /** The letters of every sketch this entry came from. */
   from: readonly string[];
-  /** @selector .tug-cycle-map-tile[data-state="joined" | "running" | "ready" | "waiting"] */
+  /** @selector .tug-cycle-map-tile[data-state="joined" | "running" | "dropped" | "ready" | "waiting"] */
   state: CycleMapTileState;
   /**
    * Running in another session: a dot on the tile's corner.
@@ -221,13 +221,15 @@ export const CycleMap = React.forwardRef<HTMLDivElement, CycleMapProps>(function
  * ---------------------------------------------------------------------------*/
 
 /**
- * Beside a tile's number: a check once joined, a play mark when ready, and
- * while running, a pip a step in the room the number leaves, or one bar
- * filled to the same fraction when the pips would pass the tile's edge.
+ * Beside a tile's number: a check once joined, a play mark when ready, a
+ * cross when dropped, and while running, a pip a step in the room the number
+ * leaves, or one bar filled to the same fraction when the pips would pass
+ * the tile's edge.
  */
 function TileMark({ tile, size }: { tile: CycleMapTile; size: CycleMapSize }): React.ReactElement | null {
   if (tile.state === "joined") return <Check size={14} aria-hidden />;
   if (tile.state === "ready") return <Play size={12} aria-hidden />;
+  if (tile.state === "dropped") return <X size={12} aria-hidden />;
   if (tile.state === "running" && tile.steps !== undefined) {
     const { done, total } = tile.steps;
     const progress = tileProgress(size, tile.n, total);

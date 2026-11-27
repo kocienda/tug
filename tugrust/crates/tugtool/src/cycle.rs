@@ -1,16 +1,20 @@
-//! `tugtool cycle create|rename|add-entry|add-from|add-sketch|attach|find|list|show|check` —
+//! `tugtool cycle create|rename|add-entry|add-from|add-sketch|attach|drop|find|list|show|check` —
 //! a cycle's record, written and read back.
 //!
 //! A cycle is a container of related arcs, briefs and sketches. The writing
 //! verbs act on this checkout's cycles; `show` reads a cycle by id from any
 //! checkout's store on this machine, so it needs no repository, and `check`
 //! reads every cycle on the machine for a broken chain. Every entry's state
-//! is derived from the arc log as it is read, never stored.
+//! is derived from the arc log as it is read, never stored, and so is
+//! whether the cycle is closed: `list` leaves a closed cycle out unless
+//! `--all` is passed, and every other verb reads it like any other.
 
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use tugarc_core::cycle::{self, ChainBreak, CycleArc, CycleView, EntryState, NewEntry};
+use tugarc_core::cycle::{
+    self, ChainBreak, CycleArc, CycleView, DroppedItem, EntryState, NewEntry,
+};
 use tugcore::instance::Paths;
 
 use crate::changes::AppError;
@@ -52,7 +56,8 @@ pub fn dispatch(cmd: CycleCommands, json: bool) -> ExitCode {
             "cycle find",
             run_find(&paths, brief.as_deref(), sketch.as_deref(), json),
         ),
-        CycleCommands::List => ("cycle list", run_list(&paths, json)),
+        CycleCommands::Drop { id, item } => ("cycle drop", run_drop(&paths, &id, &item, json)),
+        CycleCommands::List { all } => ("cycle list", run_list(&paths, all, json)),
         CycleCommands::Show { id } => return run_show(&paths, &id, json),
         CycleCommands::Check => return run_check(&paths, json),
     };
@@ -282,6 +287,33 @@ fn run_attach(paths: &Paths, id: &str, n: u32, arc: &str, json: bool) -> Result<
     Ok(())
 }
 
+#[derive(Serialize)]
+struct DropPayload {
+    id: String,
+    #[serde(flatten)]
+    item: DroppedItem,
+}
+
+fn run_drop(paths: &Paths, id: &str, item: &str, json: bool) -> Result<(), AppError> {
+    let repo = repo()?;
+    let item = cycle::drop_item(paths, &repo, id, item)?;
+    if json {
+        print_ok(
+            "cycle drop",
+            DropPayload {
+                id: id.to_string(),
+                item,
+            },
+        );
+    } else {
+        match item {
+            DroppedItem::Entry(n) => println!("{n}  dropped"),
+            DroppedItem::Sketch(letter) => println!("{letter}  dropped"),
+        }
+    }
+    Ok(())
+}
+
 /// One row of `cycle list`.
 #[derive(Serialize)]
 struct ListRow {
@@ -290,9 +322,10 @@ struct ListRow {
     updated: String,
     landed: usize,
     total: usize,
+    closed: bool,
 }
 
-fn run_list(paths: &Paths, json: bool) -> Result<(), AppError> {
+fn run_list(paths: &Paths, all: bool, json: bool) -> Result<(), AppError> {
     let repo = repo()?;
     let records = cycle::cycles(paths, &repo);
     let rows: Vec<ListRow> = records
@@ -302,18 +335,24 @@ fn run_list(paths: &Paths, json: bool) -> Result<(), AppError> {
             ListRow {
                 total: view.entries.len(),
                 landed: view.landed,
+                closed: view.closed,
                 id: view.id,
                 name: view.name,
                 updated: view.updated,
             }
         })
+        .filter(|row| all || !row.closed)
         .collect();
     if json {
         print_ok("cycle list", rows);
         return Ok(());
     }
     for row in &rows {
-        println!("{}  {}/{}  {}", row.id, row.landed, row.total, row.name);
+        let closed = if row.closed { "  closed" } else { "" };
+        println!(
+            "{}  {}/{}  {}{closed}",
+            row.id, row.landed, row.total, row.name
+        );
     }
     Ok(())
 }
@@ -384,6 +423,7 @@ fn state_word(state: EntryState) -> &'static str {
     match state {
         EntryState::Joined => "joined",
         EntryState::Running => "running",
+        EntryState::Dropped => "dropped",
         EntryState::Waiting => "waiting",
         EntryState::Ready => "ready",
     }
@@ -392,14 +432,16 @@ fn state_word(state: EntryState) -> &'static str {
 /// The plain-text form of `cycle show`.
 fn render(view: &CycleView) -> String {
     let mut out = format!(
-        "{}  {}  {}/{} landed\n",
+        "{}  {}  {}/{} landed{}\n",
         view.id,
         view.name,
         view.landed,
-        view.entries.len()
+        view.entries.len(),
+        if view.closed { "  closed" } else { "" }
     );
     for s in &view.sketches {
-        out.push_str(&format!("  {}  sketch {}\n", s.letter, s.id));
+        let dropped = if s.dropped.is_some() { "  dropped" } else { "" };
+        out.push_str(&format!("  {}  sketch {}{dropped}\n", s.letter, s.id));
     }
     for e in &view.entries {
         let mut line = format!(

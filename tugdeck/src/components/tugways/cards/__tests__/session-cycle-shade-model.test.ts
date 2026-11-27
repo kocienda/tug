@@ -256,6 +256,16 @@ describe("the header and the footer", () => {
   const summaryOf = (c: CycleWire, over: Partial<CycleShadeContext> = {}) =>
     cycleShadeSummary(c, cycleShadeEntries(c, ctx({ boundOwnerId: null, sessionId: STRANGER, ...over })));
 
+  test("a dropped entry is in the total, never landed, and waits on nothing", () => {
+    const given = cycle([entry(1, "joined"), entry(2, "dropped", { waits: [1] }), entry(3, "ready")]);
+    const s = summaryOf(given);
+    expect(s.landedText).toBe("1 of 3 landed");
+    expect(s.atRest).toBe(false);
+    const entries = cycleShadeEntries(given, ctx({ boundOwnerId: null, sessionId: STRANGER }));
+    expect(entries[1]!.sentence).toBe("Dropped");
+    expect(cycleMapTiles(entries).map((t) => t.state)).toEqual(["joined", "dropped", "ready"]);
+  });
+
   test("at the start: nothing landed, nothing here, the first ready entry next", () => {
     const start = cycle([entry(1, "ready"), entry(2, "ready"), entry(3, "waiting", { waits: [1] })]);
     const s = summaryOf(start);
@@ -324,6 +334,14 @@ describe("the header and the footer", () => {
     const s = summaryOf(rest);
     expect(s.atRest).toBe(true);
     expect(s.now).toEqual({ kind: "text", text: "At rest, 2 of 2 landed" });
+    expect(s.next).toEqual({ kind: "text", text: "Nothing waiting" });
+  });
+
+  test("at rest with one landed and one dropped: nothing is waiting on a landing", () => {
+    const rest = cycle([entry(1, "joined"), entry(2, "dropped")]);
+    const s = summaryOf(rest);
+    expect(s.atRest).toBe(true);
+    expect(s.now).toEqual({ kind: "text", text: "At rest, 1 of 2 landed" });
     expect(s.next).toEqual({ kind: "text", text: "Nothing waiting" });
   });
 });

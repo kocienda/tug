@@ -1212,8 +1212,12 @@ export function isDocumentArcEntry(
   );
 }
 
-/** The state of a cycle entry, derived from the arc log on the server. */
-export type CycleEntryState = "joined" | "running" | "ready" | "waiting";
+/**
+ * The state of a cycle entry, derived from the arc log on the server.
+ * `dropped` is an entry whose arc was discarded or that was given up by
+ * hand: settled, and never landed.
+ */
+export type CycleEntryState = "joined" | "running" | "dropped" | "ready" | "waiting";
 
 /** The arc a cycle entry is tied to: its name and its generation's start. */
 export interface CycleArcWire {
@@ -1302,6 +1306,7 @@ export interface CycleWire {
 const CYCLE_ENTRY_STATES: ReadonlySet<string> = new Set([
   "joined",
   "running",
+  "dropped",
   "ready",
   "waiting",
 ]);

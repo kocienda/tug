@@ -811,9 +811,30 @@ pub enum CycleCommands {
         #[arg(long)]
         sketch: Option<String>,
     },
-    /// List this checkout's cycles, the most recently changed first, each
-    /// with how many of its entries have landed.
-    List,
+    /// Mark an entry or a sketch as dropped: one that will never run.
+    ///
+    /// Nothing is removed or renumbered, and the item reads `dropped`. An
+    /// entry whose arc is running or has joined is refused: a running arc is
+    /// ended by discarding it, and a joined one is already settled. A sketch
+    /// an entry came from is refused too; drop the entry. Running the
+    /// entry's brief after all clears the mark.
+    Drop {
+        /// The cycle's id.
+        id: String,
+        /// The entry's number, or the sketch's letter.
+        item: String,
+    },
+    /// List this checkout's open cycles, the most recently changed first,
+    /// each with how many of its entries have landed.
+    ///
+    /// A cycle is closed when it has an entry, every entry has landed or
+    /// been dropped, and every sketch has an entry or was dropped. Closed
+    /// cycles are left out unless `--all` is passed.
+    List {
+        /// List closed cycles too.
+        #[arg(long)]
+        all: bool,
+    },
     /// Print a cycle with every entry's state.
     ///
     /// Read-only. Scans every checkout's cycles on this machine, so it needs

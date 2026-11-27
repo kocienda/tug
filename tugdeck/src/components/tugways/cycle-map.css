@@ -21,7 +21,7 @@
  * | Element                                        | Surface                                          | Role          | Context                                                         |
  * |------------------------------------------------|--------------------------------------------------|---------------|-----------------------------------------------------------------|
  * | --tug7-element-global-text-normal-default-rest | --tug7-surface-global-primary-normal-raised-rest | content       | .tug-cycle-map-tile, .tug-cycle-map-seal (color)                |
- * | --tug7-element-global-text-normal-muted-rest   | --tug7-surface-global-primary-normal-raised-rest | content       | .tug-cycle-map-tile[data-state="waiting"] (color, border-color) |
+ * | --tug7-element-global-text-normal-muted-rest   | --tug7-surface-global-primary-normal-raised-rest | content       | .tug-cycle-map-tile[data-state="waiting" | "dropped"] (color, border-color) |
  * | --tug7-element-tone-icon-normal-accent-rest    | --tug7-surface-global-primary-normal-raised-rest | informational | [data-state="ready"] > .tug-cycle-map-tile-mark (color)         |
  * | --tug7-element-tone-icon-normal-success-rest   | --tug7-surface-global-primary-normal-raised-rest | informational | [data-state="joined"] > .tug-cycle-map-tile-mark (color)        |
  * | --tug7-element-tone-border-normal-accent-rest  | --tug7-surface-global-primary-normal-raised-rest | decorative    | [data-state="ready"], [data-chosen] tile (border-color, outline)|
@@ -194,6 +194,14 @@
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-raised-rest */
 .tug-cycle-map-tile[data-state="waiting"] {
+  border-color: var(--tugx-block-text-color-muted);
+  color: var(--tugx-block-text-color-muted);
+}
+
+/* Given up: the waiting tile's muted ink, on a dashed edge, with a cross. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-raised-rest */
+.tug-cycle-map-tile[data-state="dropped"] {
+  border-style: dashed;
   border-color: var(--tugx-block-text-color-muted);
   color: var(--tugx-block-text-color-muted);
 }

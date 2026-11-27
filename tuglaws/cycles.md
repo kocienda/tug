@@ -22,13 +22,23 @@ A **cycle** is a container of related work. It holds numbered **entries** and le
 
 **Every arc is on a cycle.** A bare `/arc` writes a real cycle of one, because that arc may turn out to be the first stage of work that later gains another brief and another arc.
 
-**A cycle is never closed.** Entries and sketches can be added at any time, and nothing is ever removed. A cycle has no landing gesture of its own: each arc lands by its own join. *Rejected: a closing or landing gesture for the whole cycle.*
+**A cycle closes when its work is finished, and reopens when work is added.** A cycle is closed when it has at least one entry, every entry is settled, and no sketch is pending. An entry is settled when it is joined or dropped ([State is derived](#state-is-derived)), and a sketch is pending when no entry names its letter and it has not been dropped. The rule counts entries, not arcs: a cycle with one entry landed and another not yet started has no open arc and stays open, because that is when what is ready next matters. A cycle with no entries yet is open, or it would close between its creation and its first entry.
+
+Closed is read from the record and the arc log on every read, beside the entries' states, and is never stored (`cycle_closed` in `tugrust/crates/tugarc-core/src/cycle.rs`), so a cycle cannot be closed while one of its arcs is open. Nothing closes a cycle by hand and nothing reopens one: a brief written from a closed cycle's sketch or brief is added to it by [the chain's finding rule](#the-chain), which makes the rule false, and an undone join does the same. Entries and sketches can be added at any time, and nothing is ever removed or renumbered, so a closed cycle's record is what it reopens from. A cycle has no landing gesture of its own: each arc lands by its own join. *Rejected: a closing or landing gesture for the whole cycle. Rejected: closing by age, since a cycle with unfinished paperwork stays open until that paperwork is run or dropped.*
+
+**A closed cycle is on no surface.** The feed leaves it out ([How a cycle reaches a surface](#how-a-cycle-reaches-a-surface)), and it leaves the moment its last entry settles: the cell goes from `2/3` to `None` with no `3/3` in between, because the join announces the landing itself. `tugtool cycle list` leaves closed cycles out and `--all` shows them, and `show`, `find` and `check` read any cycle, closed or not. *Rejected: holding a finished cycle in its session until the session's next turn. Rejected: a surface that lists closed cycles.*
+
+*Reversed, 2026-11-26: a cycle was first never closed. Every cycle then stayed on every surface for good, a session whose cycle had landed days before still read `1/1 : —`, and the Cycles & Arcs card only grew. The user asked for a cycle to close once its arcs have finished and to reopen when another is added.*
 
 The record is one file per cycle in the app's own store, outside the project and never committed. `tugrust/crates/tugarc-core/src/cycle.rs` holds its shape and every write to it, and `tugrust/crates/tugtool/src/cycle.rs` is the `tugtool cycle` verb over it. An entry links its arc by name and by the start of the arc's generation, because an arc name is unique only within one generation.
 
 ## State is derived
 
-An entry is **joined**, **running**, **ready** or **waiting**, and the record stores none of these. Each is read from the arc log every time the record is read: joined when the linked arc's generation ended in a join, running when that generation is open, and otherwise ready when every entry it waits on has joined and waiting when one has not. `entry_states` in `tugrust/crates/tugarc-core/src/cycle.rs` is the rule. Because nothing is stored, a cycle cannot disagree with the arcs it names.
+An entry is **joined**, **running**, **dropped**, **ready** or **waiting**, and the record stores none of these. Each is read from the arc log every time the record is read: joined when the linked arc's generation ended in a join, running when that generation is open, dropped when that generation was discarded or the entry was dropped by hand, and otherwise ready when every entry it waits on has joined and waiting when one has not. `entry_states` in `tugrust/crates/tugarc-core/src/cycle.rs` is the rule. Because nothing is stored, a cycle cannot disagree with the arcs it names.
+
+**A dropped entry is settled, and nothing is lost by it.** An entry whose arc was discarded will not land as it stands, so it reads dropped and no longer holds its cycle open. Running `/arc` on its brief again links the entry to the new arc, and it reads running. A wait on a dropped entry is not met: the entry that waits stays waiting, and its cycle stays open until that entry is settled too. *Reversed, 2026-11-26: a discarded arc's entry first read ready again, the same as an entry that never had an arc, which would have held its cycle open for good.*
+
+**Dropping by hand is the one stored fact.** `tugtool cycle drop <id> <n|letter>` marks an entry or a sketch that will never run. Nothing in the arc log says the user has given up on work that never started, so the mark is kept in the record, as a gate's note is. It removes nothing and renumbers nothing. It is refused on an entry whose arc is open, which is ended by discarding the arc, on one that has joined, and on a sketch an entry already came from, where the entry is what there is to drop. An open or joined arc outranks a mark left on its entry, and attaching an arc to a dropped entry, or adding an entry from a dropped sketch, clears the mark. The verb is typed, and no surface has a control for it.
 
 **A gate is a note.** "After you approve the spike" is free text on an entry. It is shown with the entry and blocks nothing. *Rejected: gates as states that hold an entry back mechanically.*
 
@@ -46,7 +56,7 @@ A cycle is named once, when it is created, by the skills, from the opening sente
 
 ## How a cycle reaches a surface
 
-Cycles ride the same aggregate frame as the arc rows, as a list on each project's changeset, composed in `tugrust/crates/tugcast/src/feeds/changeset.rs` from one read of the arc log. An entry reading running and its arc's row arrive in one frame and cannot disagree. A write to a cycle's record is seen by a file watch (`tugrust/crates/tugcast/src/feeds/cycle_watch.rs`), never by a timer.
+Cycles ride the same aggregate frame as the arc rows, as a list on each project's changeset, composed in `tugrust/crates/tugcast/src/feeds/changeset.rs` from one read of the arc log. A closed cycle is left out of that list (`cycle_entries_in`), which is the one place every surface gets its cycles, so no surface filters for itself. An entry reading running and its arc's row arrive in one frame and cannot disagree. A write to a cycle's record is seen by a file watch (`tugrust/crates/tugcast/src/feeds/cycle_watch.rs`), never by a timer.
 
 In the deck, `tugdeck/src/lib/cycle-store.ts` projects that frame and holds no feed of its own. Sketch text is composed on the server and travels on the wire, because the deck has no filesystem.
 
@@ -69,6 +79,7 @@ The map draws a cycle as a graph, and both surfaces compose the one component: `
 - **A sketch is a seal**, wired to the entries it heads and seated in the column just before them, so a sketch added late stands beside what it added.
 - **A wire is solid once what it leaves has landed.** Until then the wire is dashed.
 - **Waiting is solid gray.** The border of a waiting tile and an unmet wait chip are solid gray. *Rejected: dashed borders for waiting.*
+- **Dropped is muted.** A dropped entry in a cycle that is still open keeps its tile, with a dashed border in the muted ink and a cross where a joined tile has its check. Its row and its strip segment are muted the same way, and it stays in the total and is never counted as landed.
 - **A tile's steps stay inside the tile.** The pips share the width the tile has left after its number, and an arc with more steps than readable pips fit draws one bar filled to the same fraction, at both sizes.
 
 The map is presentational: it reads no store and derives no state. The host holds the selection and paints the well around the map.
@@ -98,7 +109,7 @@ No surface has more than one vertical scroller, and nothing inside it is an exce
 
 ## The CYCLE:ARC cell
 
-The Session card's status row has an ordinary cell labelled `CYCLE:ARC`. Pressed, it raises and lowers the cycle shade. Its value is written the way its label is, two fractions joined by a spaced colon, as `0/3 : 2/5`: the cycle's entries landed over its entries, then this session's arc's steps done over its steps. A cycle of one reads 0/1 or 1/1 like any other. A session bound to no arc holds the arc's place with a dash, as `1/1 : —`, and an arc that is not walking steps (devising, reviewing, auditing) shows that stage's mark in the second place, as the arc cell did (`cycleCellReading` in `tugdeck/src/components/tugways/cards/session-cycle-shade-model.ts`). *Rejected: a separate expand control on the status row's edge.*
+The Session card's status row has an ordinary cell labelled `CYCLE:ARC`. Pressed, it raises and lowers the cycle shade. Its value is written the way its label is, two fractions joined by a spaced colon, as `0/3 : 2/5`: the cycle's entries landed over its entries, then this session's arc's steps done over its steps. A cycle of one reads 0/1 like any other, and 1/1 only while a sketch on it still waits for an entry, because a cycle whose every entry has landed and that has no sketch pending is closed and the cell then reads `None`. A session bound to no arc holds the arc's place with a dash, as `1/3 : —`, and an arc that is not walking steps (devising, reviewing, auditing) shows that stage's mark in the second place, as the arc cell did (`cycleCellReading` in `tugdeck/src/components/tugways/cards/session-cycle-shade-model.ts`). *Rejected: a separate expand control on the status row's edge.*
 
 *Reversed, 2026-11-26: the cell first read the cycle or the arc, never both: the landed fraction for two or more entries, and the arc's reading for one. The user wanted both numbers at once.*
 
@@ -122,7 +133,7 @@ The shade is a header, the map, the asset list and a footer (`tugdeck/src/compon
 
 The sidebar card lists cycles first, then the arcs no cycle names, then waiting paperwork. An arc is drawn once: an arc a cycle's entry carries is drawn in its cycle and left out of the loose list.
 
-**A folded cycle shows a strip.** In place of its map, a folded cycle shows one segment per entry in the tone of that entry's state. A cycle at rest, with every entry joined, starts folded, and the user's fold or unfold then holds for as long as the card is open (`cycleIsFolded` in `tugdeck/src/components/arcs/arcs-projection.ts`).
+**A folded cycle shows a strip.** In place of its map, a folded cycle shows one segment per entry in the tone of that entry's state. A cycle starts open, and the user's fold or unfold holds for as long as the card is open (`cycleIsFolded` in `tugdeck/src/components/arcs/arcs-projection.ts`). *Reversed, 2026-11-26: a cycle at rest, with every entry joined, first started folded. Such a cycle is now closed and never reaches the card, unless a sketch on it is still pending, which is work still to start.*
 
 Every row is a keyboard stop, and the map is never the only door: each tile and seal has a row that says the same thing.
 

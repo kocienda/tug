@@ -146,20 +146,24 @@ describe("projectArcsCard — an arc is drawn once", () => {
 });
 
 describe("projectArcsCard — a section", () => {
-  test("carries the header text, the strip and whether it is at rest", () => {
+  test("carries the header text and the strip, and counts a dropped entry as not landed", () => {
     const section = sectionOf(DATA);
     expect(section.id).toBe("3f9a1c2e");
     expect(section.name).toBe("Arc hardening");
     expect(section.landedText).toBe("1 of 4 landed");
-    expect(section.atRest).toBe(false);
     expect(section.strip).toEqual(["joined", "running", "ready", "waiting"]);
 
-    const rested = cycleWith(
-      GOLDEN_CYCLE.entries.map((e) => ({ ...e, state: "joined" as const })),
+    // An entry given up stays in its place, in the strip, on the map and in
+    // the total, and is never one of the landed.
+    const dropped = cycleWith(
+      GOLDEN_CYCLE.entries.map((e) => (e.n === 3 ? { ...e, state: "dropped" as const } : e)),
     );
-    const rest = sectionOf(withCycles([rested]));
-    expect(rest.atRest).toBe(true);
-    expect(rest.landedText).toBe("At rest · 4 arcs");
+    const given = sectionOf(withCycles([dropped]));
+    expect(given.landedText).toBe("1 of 4 landed");
+    expect(given.strip).toEqual(["joined", "running", "dropped", "waiting"]);
+    expect(given.tiles.map((t) => t.state)).toEqual(["joined", "running", "dropped", "waiting"]);
+    const third = given.assets.find((a) => a.key === entryKey(3));
+    expect(third?.kind === "entry" && third.row.sentence).toBe("Dropped");
   });
 
   test("lists the sketch before the entries that came from it, then every entry", () => {
@@ -342,11 +346,6 @@ describe("projectArcsCard — a cycle of one", () => {
     ).not.toContain(RUNNING_KEY);
   });
 
-  test("at rest, it counts one arc", () => {
-    const landed = cycleWith([GOLDEN_CYCLE.entries[0]!]);
-    expect(sectionOf(withCycles([landed])).landedText).toBe("At rest · 1 arc");
-  });
-
   test("a second entry makes it a cycle of two, in the same shape", () => {
     const two = cycleWith(GOLDEN_CYCLE.entries.slice(0, 2));
     expect(sectionOf(withCycles([two])).landedText).toBe("1 of 2 landed");
@@ -411,14 +410,9 @@ describe("listArcsCard — the rows the arrows walk", () => {
     expect(cycleIsFolded(foldCycle(view, section), section)).toBe(false);
   });
 
-  test("a cycle at rest starts folded, and the reader's unfold holds", () => {
-    const rested = cycleWith(
-      GOLDEN_CYCLE.entries.map((e) => ({ ...e, state: "joined" as const })),
-    );
-    const restedSection = sectionOf(withCycles([rested]));
-    expect(restedSection.atRest).toBe(true);
-    expect(cycleIsFolded(NO_CYCLE_VIEW, restedSection)).toBe(true);
-    expect(cycleIsFolded(foldCycle(NO_CYCLE_VIEW, restedSection), restedSection)).toBe(false);
+  test("every cycle starts open, and the reader's fold holds", () => {
+    expect(cycleIsFolded(NO_CYCLE_VIEW, section)).toBe(false);
+    expect(cycleIsFolded(foldCycle(NO_CYCLE_VIEW, section), section)).toBe(true);
   });
 
   test("a press on the map selects one asset and opens its row", () => {

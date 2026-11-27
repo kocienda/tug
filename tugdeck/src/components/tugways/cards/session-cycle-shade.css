@@ -181,6 +181,14 @@ body[data-tug-motion="off"] .session-cycle-shade-list {
   line-height: 1.2;
 }
 
+/* A dropped entry is given up: its number, its name and its badge go quiet. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-cycle-shade-asset[data-state="dropped"] .session-cycle-shade-number,
+.session-cycle-shade-asset[data-state="dropped"] .session-cycle-shade-title,
+.session-cycle-shade-asset[data-state="dropped"] .session-cycle-shade-trailing {
+  color: var(--tugx-cycle-shade-text-muted);
+}
+
 /* A sketch's seal as it leads its asset: the map's seal, small. */
 /* @tug-renders-on: --tug7-surface-global-primary-normal-raised-rest */
 .session-cycle-shade-seal {

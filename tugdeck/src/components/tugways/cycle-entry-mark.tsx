@@ -1,6 +1,7 @@
 /**
  * CycleEntryMark — how a cycle's entry stands, at the trailing edge of its
- * row: a Joined badge, the running arc's lifecycle mark, or a Ready badge.
+ * row: a Joined badge, the running arc's lifecycle mark, a Ready badge, or a
+ * Dropped badge in whatever ink its row gives it.
  *
  * A waiting entry has no mark; what it waits on says it. A running entry
  * draws the arc's own lifecycle mark from the model the host hands it, so
@@ -31,7 +32,7 @@ import { TugBadge } from "./tug-badge";
 export interface CycleEntryMarkProps extends Omit<React.ComponentPropsWithoutRef<"span">, "children"> {
   /**
    * How the entry stands.
-   * @selector .tug-cycle-entry-mark[data-state="joined" | "running" | "ready"]
+   * @selector .tug-cycle-entry-mark[data-state="joined" | "running" | "dropped" | "ready"]
    */
   state: CycleMapTileState;
   /** The running arc's track model. Read only while `state` is `running`. */
@@ -60,6 +61,10 @@ export const CycleEntryMark = React.forwardRef<HTMLSpanElement, CycleEntryMarkPr
       ) : state === "ready" ? (
         <TugBadge size="xs" emphasis="tinted" role="action">
           Ready
+        </TugBadge>
+      ) : state === "dropped" ? (
+        <TugBadge size="xs" emphasis="ghost" role="inherit">
+          Dropped
         </TugBadge>
       ) : model != null ? (
         <ArcLifecycleMark model={model} name={name} size="rail" showWord />

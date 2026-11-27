@@ -1212,6 +1212,10 @@ function CycleEntryView({
               <span className="arcs-cycle-line" data-slot="arcs-cycle-landed">
                 Landed. Its rounds and commit stay on record.
               </span>
+            ) : state === "dropped" ? (
+              <span className="arcs-cycle-line" data-slot="arcs-cycle-dropped">
+                Dropped. Starting its brief again brings it back.
+              </span>
             ) : (
               <span className="arcs-cycle-line" data-slot="arcs-cycle-sentence">
                 {row.sentence}

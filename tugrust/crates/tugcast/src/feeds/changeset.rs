@@ -2082,8 +2082,14 @@ fn callsigns_by_arc(
         .collect()
 }
 
-/// The repository's cycles, most recently changed first, each entry's state
-/// derived from the arc log the arc rows beside them read.
+/// The repository's open cycles, most recently changed first, each entry's
+/// state derived from the arc log the arc rows beside them read.
+///
+/// A closed cycle — every entry landed or dropped, no sketch pending — is
+/// left out here, at the one place every surface gets its cycles from, so
+/// none of them filters and a cycle leaves them all in the frame its last
+/// entry settles. Closed is derived in the same read, so an undone join or
+/// an entry added to the cycle brings it back with no gesture.
 ///
 /// Composed by the project that composes the repository's arcs, and hidden
 /// exactly when they are: an app-test's aggregate lists no cycle the
@@ -2109,8 +2115,8 @@ pub(crate) async fn cycle_entries(
     .unwrap_or_default()
 }
 
-/// The synchronous body of [`cycle_entries`]: every cycle of `root`, read
-/// against one read of its arc log.
+/// The synchronous body of [`cycle_entries`]: every open cycle of `root`,
+/// read against one read of its arc log.
 fn cycle_entries_in(
     paths: &Paths,
     root: &Path,
@@ -2125,10 +2131,9 @@ fn cycle_entries_in(
     let log = std::fs::read_to_string(&log_path).unwrap_or_default();
     records
         .iter()
-        .map(|record| {
-            let view = tugarc_core::cycle::view_cycle_in(&log, record);
-            cycle_wire(paths, root, view, bound_by_arc, callsign_by_arc)
-        })
+        .map(|record| tugarc_core::cycle::view_cycle_in(&log, record))
+        .filter(|view| !view.closed)
+        .map(|view| cycle_wire(paths, root, view, bound_by_arc, callsign_by_arc))
         .collect()
 }
 
@@ -5736,6 +5741,74 @@ Some context.
             Some("sess-b")
         );
         assert!(cycles[0].entries[1].bound_callsign.is_none());
+    }
+
+    /// A cycle whose work is finished is left out of the list, and comes
+    /// back when its landing is undone. An entry whose arc was discarded
+    /// travels as `dropped` while the cycle is still open, and settles it.
+    #[test]
+    fn a_closed_cycle_is_left_out_and_returns_when_its_join_is_undone() {
+        use tugarc_core::cycle::{NewEntry, add_entry, add_sketch, attach, create_cycle};
+        let data = tempfile::tempdir().unwrap();
+        let paths = Paths::under(data.path());
+        let (_dir, root) = init_repo();
+        let id = create_cycle(&paths, &root, "One", None).unwrap().id;
+        let sketch = tugarc_core::sketch::record_free_sketch(
+            &paths,
+            &root,
+            "# Sketch\n\nClose the cycle.\n\nSource: session s, turns 1–1\n",
+            None,
+        )
+        .unwrap()
+        .id;
+        add_sketch(&paths, &root, &id, &sketch, None).unwrap();
+        let entry = |brief: &str| NewEntry {
+            brief: brief.to_owned(),
+            waits: Vec::new(),
+            from: vec!["A".into()],
+            note: None,
+        };
+        add_entry(&paths, &root, &id, entry("briefs/a.md")).unwrap();
+        tugarc_core::append_arc_start(&paths, &root, "aa", ".tug/arcs/aa/brief.md").unwrap();
+        attach(&paths, &root, &id, 1, "aa").unwrap();
+        let none = HashMap::new();
+        let listed = || cycle_entries_in(&paths, &root, &none, &none);
+
+        assert_eq!(listed().len(), 1, "open while its arc runs");
+        tugarc_core::append_arc_log(&paths, &root, "aa", "302d43b5d1", "joined").unwrap();
+        assert!(listed().is_empty(), "its one arc joined");
+        tugarc_core::append_arc_log(&paths, &root, "aa", "undone", "reversed join (operation 4)")
+            .unwrap();
+        let back = listed();
+        assert_eq!(back.len(), 1, "the undo reopens it");
+        assert_eq!(back[0].entries[0].state, "running");
+        tugarc_core::append_arc_log(
+            &paths,
+            &root,
+            "aa",
+            "redone",
+            "re-applied join (operation 4)",
+        )
+        .unwrap();
+        assert!(listed().is_empty());
+
+        // A second entry reopens it; its arc discarded, the entry reads
+        // dropped. A third, not started, keeps the cycle listed beside it.
+        add_entry(&paths, &root, &id, entry("briefs/b.md")).unwrap();
+        add_entry(&paths, &root, &id, entry("briefs/c.md")).unwrap();
+        tugarc_core::append_arc_start(&paths, &root, "bb", ".tug/arcs/bb/brief.md").unwrap();
+        attach(&paths, &root, &id, 2, "bb").unwrap();
+        tugarc_core::append_arc_log(&paths, &root, "bb", "discarded", "").unwrap();
+        let open = listed();
+        assert_eq!(open.len(), 1);
+        let states: Vec<&str> = open[0].entries.iter().map(|e| e.state.as_str()).collect();
+        assert_eq!(states, ["joined", "dropped", "ready"]);
+        assert_eq!(open[0].landed, 1);
+        assert!(open[0].entries[1].owner_id.is_none(), "no live card");
+
+        // The last one given up by hand, the cycle is closed again.
+        tugarc_core::cycle::drop_item(&paths, &root, &id, "3").unwrap();
+        assert!(listed().is_empty());
     }
 
     /// A cycle's sketch carries its want and its whole body from the sketch

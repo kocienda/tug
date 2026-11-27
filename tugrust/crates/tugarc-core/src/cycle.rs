@@ -11,12 +11,14 @@
 //! numbered **entries** — one brief each, and at most one arc once that brief's
 //! arc opens — and lettered **sketches**, the sketch store's own ids. Entries
 //! are numbered 1, 2, 3 and sketches lettered A, B, C in the order added, and
-//! neither is ever renumbered, re-lettered or removed.
+//! neither is ever renumbered, re-lettered or removed. One that will never
+//! run is marked dropped by hand and stays where it is.
 //!
 //! An entry links its arc by name and generation start, the same shape a
 //! sketch links its arc, because an arc name is unique only within one
 //! generation. How far an entry has got is never stored: it is derived from
-//! the arc log each time the record is read.
+//! the arc log each time the record is read, and so is whether the cycle is
+//! closed: every entry settled and no sketch still pending.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -58,6 +60,11 @@ pub struct CycleEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
     pub added: String,
+    /// When the entry was dropped by hand, as one that will never run. The
+    /// one stored fact about how far an entry has got, because only the user
+    /// knows it; an arc that is open or joined outranks it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dropped: Option<String>,
 }
 
 /// One sketch on a cycle: the sketch store's id under the cycle's letter.
@@ -71,6 +78,9 @@ pub struct CycleSketch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub brief: Option<String>,
     pub added: String,
+    /// When the sketch was dropped by hand, as one no entry will come from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dropped: Option<String>,
 }
 
 /// A cycle's record: its `cycle.json`, and where it lies.
@@ -300,6 +310,7 @@ pub fn add_entry(paths: &Paths, repo: &Path, id: &str, entry: NewEntry) -> Resul
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty()),
         added: now_iso8601(),
+        dropped: None,
     });
     if let Some(at) = wait_loop(&entries) {
         return Err(ArcError::Refused(format!(
@@ -307,6 +318,7 @@ pub fn add_entry(paths: &Paths, repo: &Path, id: &str, entry: NewEntry) -> Resul
         )));
     }
     record.entries = entries;
+    undrop_sketches(&mut record, n);
     save(&mut record)?;
     Ok(n)
 }
@@ -339,9 +351,21 @@ pub fn add_from(
     merge_letters(&record, &mut from, letters)?;
     if from != record.entries[at].from {
         record.entries[at].from = from.clone();
+        undrop_sketches(&mut record, n);
         save(&mut record)?;
     }
     Ok(from)
+}
+
+/// Clear the dropped mark on every sketch entry `n` came from: a sketch an
+/// entry names is not one nothing will come from.
+fn undrop_sketches(record: &mut CycleRecord, n: u32) {
+    let from = record.entry(n).map(|e| e.from.clone()).unwrap_or_default();
+    for sketch in &mut record.sketches {
+        if from.contains(&sketch.letter) {
+            sketch.dropped = None;
+        }
+    }
 }
 
 /// Append each of `letters`, normalized, to `from`, keeping one of each.
@@ -427,6 +451,7 @@ pub fn add_sketch(
         id: sketch_id.to_string(),
         brief,
         added: now_iso8601(),
+        dropped: None,
     });
     save(&mut record)?;
     Ok(letter)
@@ -438,7 +463,8 @@ pub fn add_sketch(
 /// links a different arc generation that is still open. Attaching the link an
 /// entry already holds changes nothing; a link to a generation that has ended
 /// is replaced, so an entry whose arc was discarded can be carried by a new
-/// one.
+/// one. Attaching clears a dropped mark: an entry that is run after all is
+/// carried like any other.
 pub fn attach(
     paths: &Paths,
     repo: &Path,
@@ -463,7 +489,8 @@ pub fn attach(
         return Err(ArcError::Refused(format!("cycle {id} has no entry {n}")));
     };
     match &entry.arc {
-        Some(held) if *held == link => return Ok(link),
+        Some(held) if *held == link && entry.dropped.is_none() => return Ok(link),
+        Some(held) if *held == link => {}
         Some(held) if link_status(&log, held) == LinkStatus::Open => {
             return Err(ArcError::Refused(format!(
                 "entry {n} is already carried by arc {}, which is still open",
@@ -473,8 +500,83 @@ pub fn attach(
         _ => {}
     }
     entry.arc = Some(link.clone());
+    entry.dropped = None;
     save(&mut record)?;
     Ok(link)
+}
+
+/// What [`drop_item`] marked: an entry by its number, or a sketch by its
+/// letter.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DroppedItem {
+    Entry(u32),
+    Sketch(String),
+}
+
+/// Mark entry `n` or sketch `letter` of cycle `id` as dropped: one that will
+/// never run. `item` is the entry's number or the sketch's letter.
+///
+/// Nothing is removed and nothing is renumbered. An entry whose arc is open
+/// or joined is refused: a running arc is ended by discarding it, and a
+/// joined one is already settled. A sketch an entry came from is refused
+/// too, because that entry is what there is to drop. Dropping what is
+/// already dropped changes nothing.
+pub fn drop_item(
+    paths: &Paths,
+    repo: &Path,
+    id: &str,
+    item: &str,
+) -> Result<DroppedItem, ArcError> {
+    let mut record = load(paths, repo, id)?;
+    let item = item.trim();
+    if let Ok(n) = item.parse::<u32>() {
+        let log_path = tugtool_core::paths::arc_log_path_at(paths, repo);
+        let log = fs::read_to_string(&log_path).unwrap_or_default();
+        let Some(at) = record.entries.iter().position(|e| e.n == n) else {
+            return Err(ArcError::Refused(format!("cycle {id} has no entry {n}")));
+        };
+        let link = record.entries[at].arc.clone();
+        let held = link.as_ref().map(|a| a.name.as_str()).unwrap_or_default();
+        match link
+            .as_ref()
+            .map_or(LinkStatus::NotStarted, |link| link_status(&log, link))
+        {
+            LinkStatus::Open => {
+                return Err(ArcError::Refused(format!(
+                    "entry {n} is carried by arc {held}, which is still open: discard the arc instead"
+                )));
+            }
+            LinkStatus::Joined => {
+                return Err(ArcError::Refused(format!(
+                    "entry {n} has landed: arc {held} joined"
+                )));
+            }
+            LinkStatus::Discarded | LinkStatus::NotStarted => {}
+        }
+        if record.entries[at].dropped.is_none() {
+            record.entries[at].dropped = Some(now_iso8601());
+            save(&mut record)?;
+        }
+        return Ok(DroppedItem::Entry(n));
+    }
+    let letter = item.to_ascii_uppercase();
+    let Some(at) = record.sketches.iter().position(|s| s.letter == letter) else {
+        return Err(ArcError::Refused(format!(
+            "cycle {id} has no entry or sketch {item}"
+        )));
+    };
+    if let Some(e) = record.entries.iter().find(|e| e.from.contains(&letter)) {
+        return Err(ArcError::Refused(format!(
+            "sketch {letter} has entry {}: drop the entry instead",
+            e.n
+        )));
+    }
+    if record.sketches[at].dropped.is_none() {
+        record.sketches[at].dropped = Some(now_iso8601());
+        save(&mut record)?;
+    }
+    Ok(DroppedItem::Sketch(letter))
 }
 
 /// Every record of `id` under the data root, each with the project state dir
@@ -685,9 +787,12 @@ pub enum EntryState {
     Joined,
     /// The linked arc's generation is open.
     Running,
-    /// Neither, and some wait is not joined.
+    /// The linked arc's generation was discarded, or the entry was dropped
+    /// by hand and no arc carries it.
+    Dropped,
+    /// None of those, and some wait is not joined.
     Waiting,
-    /// Neither, and every wait is joined.
+    /// None of those, and every wait is joined.
     Ready,
 }
 
@@ -697,9 +802,16 @@ impl EntryState {
         match self {
             EntryState::Joined => "joined",
             EntryState::Running => "running",
+            EntryState::Dropped => "dropped",
             EntryState::Waiting => "waiting",
             EntryState::Ready => "ready",
         }
+    }
+
+    /// Whether the entry is finished with: landed, or given up. A cycle
+    /// closes when every entry is.
+    pub fn is_settled(self) -> bool {
+        matches!(self, EntryState::Joined | EntryState::Dropped)
     }
 }
 
@@ -710,9 +822,11 @@ pub enum LinkStatus {
     Open,
     /// The generation ended in a join that still stands.
     Joined,
-    /// No such generation is under way: the log never recorded it, or it was
-    /// discarded. A link that reads this way is kept, so the history is not
-    /// lost, and its entry reads as not started.
+    /// The generation ended in a discard that still stands. The link is
+    /// kept, so the history is not lost, and its entry reads as dropped.
+    Discarded,
+    /// The log never recorded the generation, so its entry reads as not
+    /// started.
     NotStarted,
 }
 
@@ -761,14 +875,14 @@ pub fn link_status(log_text: &str, link: &CycleArc) -> LinkStatus {
         if is_terminal(marker, note) {
             *terminated = true;
             *ending = Some(if marker == "discarded" || marker == "released" {
-                LinkStatus::NotStarted
+                LinkStatus::Discarded
             } else {
                 LinkStatus::Joined
             });
         } else if marker == "undone" {
             let reverses = match *ending {
                 Some(LinkStatus::Joined) => note.starts_with("reversed join"),
-                Some(LinkStatus::NotStarted) => note.starts_with("reversed discard"),
+                Some(LinkStatus::Discarded) => note.starts_with("reversed discard"),
                 _ => false,
             };
             if reverses {
@@ -778,7 +892,7 @@ pub fn link_status(log_text: &str, link: &CycleArc) -> LinkStatus {
             if note.starts_with("re-applied join") {
                 *ending = Some(LinkStatus::Joined);
             } else if note.starts_with("re-applied discard") {
-                *ending = Some(LinkStatus::NotStarted);
+                *ending = Some(LinkStatus::Discarded);
             }
         }
     }
@@ -797,8 +911,10 @@ pub fn link_status(log_text: &str, link: &CycleArc) -> LinkStatus {
 /// Every entry's state, in entry order, derived from the arc log text.
 ///
 /// Pure over its inputs, so it is the whole of the rule: an entry whose arc
-/// joined is joined, one whose arc is open is running, and any other is
-/// waiting while some entry it waits on is not joined and ready once all are.
+/// joined is joined, one whose arc is open is running, one whose arc was
+/// discarded or that was dropped by hand is dropped, and any other is
+/// waiting while some entry it waits on is not joined and ready once all
+/// are. A dropped entry satisfies no wait.
 pub fn entry_states(log_text: &str, record: &CycleRecord) -> Vec<(u32, EntryState)> {
     let status = |e: &CycleEntry| {
         e.arc
@@ -818,6 +934,8 @@ pub fn entry_states(log_text: &str, record: &CycleRecord) -> Vec<(u32, EntryStat
             let state = match status(e) {
                 LinkStatus::Joined => EntryState::Joined,
                 LinkStatus::Open => EntryState::Running,
+                LinkStatus::Discarded => EntryState::Dropped,
+                LinkStatus::NotStarted if e.dropped.is_some() => EntryState::Dropped,
                 LinkStatus::NotStarted if e.waits.iter().all(|w| joined.contains(w)) => {
                     EntryState::Ready
                 }
@@ -826,6 +944,34 @@ pub fn entry_states(log_text: &str, record: &CycleRecord) -> Vec<(u32, EntryStat
             (e.n, state)
         })
         .collect()
+}
+
+/// The letters of the sketches still pending on `record`: no entry came from
+/// one, and it has not been dropped.
+pub fn pending_sketches(record: &CycleRecord) -> Vec<String> {
+    record
+        .sketches
+        .iter()
+        .filter(|s| s.dropped.is_none())
+        .filter(|s| !record.entries.iter().any(|e| e.from.contains(&s.letter)))
+        .map(|s| s.letter.clone())
+        .collect()
+}
+
+/// Whether a cycle whose entries read `states` is closed: it has at least
+/// one entry, every entry is settled ([`EntryState::is_settled`]), and no
+/// sketch is pending ([`pending_sketches`]).
+///
+/// Derived on every read, beside [`entry_states`], and never stored, so a
+/// cycle cannot disagree with its arcs: adding an entry, relinking a dropped
+/// one or undoing a join makes it false again with no reopening gesture. The
+/// rule counts entries, never arcs, so a cycle with one entry landed and the
+/// next not started stays open; and a cycle with no entries yet is open, or
+/// it would close between its creation and its first entry.
+pub fn cycle_closed(record: &CycleRecord, states: &[(u32, EntryState)]) -> bool {
+    !states.is_empty()
+        && states.iter().all(|(_, state)| state.is_settled())
+        && pending_sketches(record).is_empty()
 }
 
 /// One entry as a reader sees it: the record's entry, its derived state, and
@@ -854,6 +1000,8 @@ pub struct CycleView {
     pub sketches: Vec<CycleSketch>,
     /// How many entries have joined.
     pub landed: usize,
+    /// Whether the cycle's work is finished ([`cycle_closed`]).
+    pub closed: bool,
 }
 
 /// Read `record` against its own checkout's arc log.
@@ -874,6 +1022,7 @@ pub fn view_cycle(paths: &Paths, record: &CycleRecord) -> CycleView {
 /// it once and passes it to each; [`view_cycle`] is this over a fresh read.
 pub fn view_cycle_in(log: &str, record: &CycleRecord) -> CycleView {
     let states = entry_states(log, record);
+    let closed = cycle_closed(record, &states);
     let entries: Vec<EntryView> = record
         .entries
         .iter()
@@ -904,6 +1053,7 @@ pub fn view_cycle_in(log: &str, record: &CycleRecord) -> CycleView {
             .iter()
             .filter(|e| e.state == EntryState::Joined)
             .count(),
+        closed,
         entries,
         sketches: record.sketches.clone(),
     }
@@ -1108,6 +1258,7 @@ mod tests {
             from: Vec::new(),
             note: None,
             added: String::new(),
+            dropped: None,
         };
         assert_eq!(wait_loop(&[at(1, &[]), at(2, &[1]), at(3, &[1, 2])]), None);
         assert!(wait_loop(&[at(1, &[3]), at(2, &[1]), at(3, &[2])]).is_some());
@@ -1460,6 +1611,7 @@ mod tests {
             id: "0000aaaa".into(),
             brief: None,
             added: String::new(),
+            dropped: None,
         });
         record.entries[0].from = vec!["A".into()];
         assert!(chain_breaks(&record).is_empty());
@@ -1496,6 +1648,7 @@ mod tests {
             from: Vec::new(),
             note: None,
             added: String::new(),
+            dropped: None,
         }
     }
 
@@ -1538,12 +1691,12 @@ mod tests {
             vec![
                 (1, EntryState::Joined),
                 (2, EntryState::Running),
-                (3, EntryState::Ready),
+                (3, EntryState::Dropped),
                 (4, EntryState::Ready),
                 (5, EntryState::Waiting),
                 (6, EntryState::Ready),
             ],
-            "a discarded arc and a never-logged one read as not started"
+            "a discarded arc reads as dropped, a never-logged one as not started"
         );
     }
 
@@ -1564,7 +1717,7 @@ mod tests {
             name: "a".into(),
             created: Some(T2.into()),
         };
-        assert_eq!(link_status(log, &old), LinkStatus::NotStarted);
+        assert_eq!(link_status(log, &old), LinkStatus::Discarded);
         assert_eq!(link_status(log, &new), LinkStatus::Joined);
         let stale = CycleArc {
             name: "a".into(),
@@ -1613,7 +1766,7 @@ mod tests {
         let rediscarded = format!(
             "{discarded}2026-11-01T03:00:00Z  a  redone  re-applied discard (operation 5)\n"
         );
-        assert_eq!(link_status(&rediscarded, &link), LinkStatus::NotStarted);
+        assert_eq!(link_status(&rediscarded, &link), LinkStatus::Discarded);
 
         // An undo of anything else leaves the ending as it was.
         let replayed = "\
@@ -1642,6 +1795,190 @@ mod tests {
                 (4, EntryState::Waiting),
             ]
         );
+    }
+
+    fn sketch(letter: &str, dropped: bool) -> CycleSketch {
+        CycleSketch {
+            letter: letter.into(),
+            id: "0000aaaa".into(),
+            brief: None,
+            added: String::new(),
+            dropped: dropped.then(|| T0.to_string()),
+        }
+    }
+
+    #[test]
+    fn a_cycle_closes_when_every_entry_is_settled_and_reopens_with_work() {
+        let closed = |log: &str, record: &CycleRecord| view_cycle_in(log, record).closed;
+        let start = "2026-11-01T00:00:00Z  a  arc-start  brief.md\n";
+        let joined = format!("{start}2026-11-01T01:00:00Z  a  302d43b5d1  joined\n");
+        let undone =
+            format!("{joined}2026-11-01T02:00:00Z  a  undone  reversed join (operation 4)\n");
+        let redone =
+            format!("{undone}2026-11-01T03:00:00Z  a  redone  re-applied join (operation 4)\n");
+
+        // No entries yet: open, or it would close before its first entry.
+        assert!(!closed(&joined, &of(Vec::new())));
+
+        // A cycle of one follows its arc: open while it runs, closed when it
+        // joins, open again when the join is undone.
+        let one = of(vec![linked(1, &[], Some(("a", T0)))]);
+        assert!(!closed(start, &one));
+        assert!(closed(&joined, &one));
+        assert!(!closed(&undone, &one));
+        assert!(closed(&redone, &one));
+
+        // The rule counts entries, not arcs: one landed and the next not
+        // started has no open arc and stays open.
+        let mut two = of(vec![linked(1, &[], Some(("a", T0))), linked(2, &[1], None)]);
+        assert!(!closed(&joined, &two));
+        // Dropped by hand, the second is settled, and is not landed.
+        two.entries[1].dropped = Some(T0.into());
+        let view = view_cycle_in(&joined, &two);
+        assert_eq!(view.entries[1].state, EntryState::Dropped);
+        assert!(view.closed);
+        assert_eq!(view.landed, 1);
+        let json = serde_json::to_value(&view).unwrap();
+        assert_eq!(json["closed"], true);
+        assert_eq!(json["entries"][1]["state"], "dropped");
+        assert!(json["entries"][0].get("dropped").is_none());
+
+        // A discarded arc settles its entry, and undoing the discard runs it.
+        let discarded = format!("{start}2026-11-01T01:00:00Z  a  discarded\n");
+        assert_eq!(
+            entry_states(&discarded, &one),
+            vec![(1, EntryState::Dropped)]
+        );
+        assert!(closed(&discarded, &one));
+        let revived =
+            format!("{discarded}2026-11-01T02:00:00Z  a  undone  reversed discard (operation 5)\n");
+        assert_eq!(entry_states(&revived, &one), vec![(1, EntryState::Running)]);
+        assert!(!closed(&revived, &one));
+
+        // A wait on a dropped entry is not satisfied, so the waiter holds the
+        // cycle open until it is settled too.
+        let waiting = of(vec![linked(1, &[], Some(("a", T0))), linked(2, &[1], None)]);
+        assert_eq!(
+            entry_states(&discarded, &waiting),
+            vec![(1, EntryState::Dropped), (2, EntryState::Waiting)]
+        );
+        assert!(!closed(&discarded, &waiting));
+
+        // An open arc outranks a mark left on its entry.
+        let mut marked = one.clone();
+        marked.entries[0].dropped = Some(T0.into());
+        assert_eq!(entry_states(start, &marked), vec![(1, EntryState::Running)]);
+    }
+
+    #[test]
+    fn a_pending_sketch_holds_a_cycle_open() {
+        let joined = "\
+2026-11-01T00:00:00Z  a  arc-start  brief.md
+2026-11-01T01:00:00Z  a  302d43b5d1  joined
+";
+        let mut record = of(vec![linked(1, &[], Some(("a", T0)))]);
+        record.sketches = vec![sketch("A", false)];
+        assert_eq!(pending_sketches(&record), vec!["A"]);
+        assert!(
+            !view_cycle_in(joined, &record).closed,
+            "nothing came from A"
+        );
+
+        record.entries[0].from = vec!["A".into()];
+        assert!(pending_sketches(&record).is_empty());
+        assert!(view_cycle_in(joined, &record).closed);
+
+        record.sketches.push(sketch("B", false));
+        assert!(!view_cycle_in(joined, &record).closed);
+        record.sketches[1] = sketch("B", true);
+        assert!(
+            view_cycle_in(joined, &record).closed,
+            "a dropped sketch is not pending"
+        );
+    }
+
+    #[test]
+    fn drop_marks_what_will_never_run_and_running_it_after_all_clears_the_mark() {
+        let (_t, repo, paths) = scratch();
+        let id = sketched(&paths, &repo, "C");
+        let b = record_sketch(&paths, &repo, "second");
+        assert_eq!(add_sketch(&paths, &repo, &id, &b, None).unwrap(), "B");
+        add_entry(&paths, &repo, &id, entry("briefs/a.md", &[])).unwrap();
+        add_entry(&paths, &repo, &id, entry("briefs/b.md", &[])).unwrap();
+        let view = || view_cycle(&paths, &find_cycle(&paths, &id).remove(0).1);
+        let refused = |item: &str| {
+            let err = drop_item(&paths, &repo, &id, item).unwrap_err();
+            assert!(matches!(err, ArcError::Refused(_)), "{item}: {err:?}");
+            err.to_string()
+        };
+        let log = |line: &str| log_append(&paths, &repo, line);
+
+        // A running arc is discarded, not dropped; a joined one is settled.
+        log("2026-11-01T00:00:00Z  aa  arc-start  brief.md");
+        attach(&paths, &repo, &id, 1, "aa").unwrap();
+        assert!(refused("1").contains("still open"));
+        log("2026-11-01T01:00:00Z  aa  302d43b5d1  joined");
+        assert!(refused("1").contains("landed"));
+        refused("9");
+        refused("Z");
+        assert!(refused("a").contains("entry 1"), "A has entries to drop");
+
+        // Entry 2 is dropped where it stands; sketch B still holds the cycle.
+        assert_eq!(
+            drop_item(&paths, &repo, &id, " 2 ").unwrap(),
+            DroppedItem::Entry(2)
+        );
+        let v = view();
+        assert_eq!(v.entries.len(), 2, "nothing is removed or renumbered");
+        assert_eq!(v.entries[1].state, EntryState::Dropped);
+        assert!(!v.closed);
+        assert_eq!(
+            drop_item(&paths, &repo, &id, "b").unwrap(),
+            DroppedItem::Sketch("B".into())
+        );
+        let v = view();
+        assert!(v.sketches[1].dropped.is_some());
+        assert!(v.closed);
+
+        // Dropping the dropped writes nothing.
+        let before = find_cycle(&paths, &id).remove(0).1;
+        drop_item(&paths, &repo, &id, "2").unwrap();
+        drop_item(&paths, &repo, &id, "B").unwrap();
+        assert_eq!(find_cycle(&paths, &id).remove(0).1, before);
+
+        // Run after all, the entry is carried like any other.
+        log("2026-11-02T00:00:00Z  bb  arc-start  brief.md");
+        attach(&paths, &repo, &id, 2, "bb").unwrap();
+        let v = view();
+        assert_eq!(v.entries[1].entry.dropped, None);
+        assert_eq!(v.entries[1].state, EntryState::Running);
+        assert!(!v.closed);
+
+        // Its arc discarded, it is settled again; a new arc on the same
+        // brief relinks it and reopens the cycle.
+        log("2026-11-02T01:00:00Z  bb  discarded");
+        let v = view();
+        assert_eq!(v.entries[1].state, EntryState::Dropped);
+        assert!(v.closed);
+        drop_item(&paths, &repo, &id, "2").unwrap();
+        log("2026-11-03T00:00:00Z  bb  arc-start  brief.md");
+        attach(&paths, &repo, &id, 2, "bb").unwrap();
+        let v = view();
+        assert_eq!(v.entries[1].entry.dropped, None);
+        assert_eq!(v.entries[1].state, EntryState::Running);
+        assert!(!v.closed);
+        log("2026-11-03T01:00:00Z  bb  9ac1e0f2aa  joined");
+        assert!(view().closed);
+
+        // An entry written from the dropped sketch reopens the cycle, and
+        // the sketch is no longer one nothing came from.
+        let mut from_b = entry("briefs/c.md", &[]);
+        from_b.from = vec!["B".into()];
+        assert_eq!(add_entry(&paths, &repo, &id, from_b).unwrap(), 3);
+        let v = view();
+        assert_eq!(v.sketches[1].dropped, None);
+        assert_eq!(v.entries[2].state, EntryState::Ready);
+        assert!(!v.closed);
     }
 
     #[test]

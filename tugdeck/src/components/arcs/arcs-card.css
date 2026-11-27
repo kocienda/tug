@@ -270,6 +270,11 @@
   background-color: var(--tug7-element-tone-border-normal-accent-rest);
 }
 
+/* Given up: the plain segment, fainter than one still waiting. */
+.arcs-cycle-strip > [data-state="dropped"] {
+  opacity: 0.45;
+}
+
 /* An asset: one row, closed or open. Its number or letter and its state stay
    at the top of the row, level with its name, however far it opens. */
 .arcs-cycle-row[data-slot] {
@@ -299,6 +304,14 @@
   font-weight: var(--tug-font-weight-semibold);
   font-variant-numeric: tabular-nums;
   line-height: 22px;
+}
+
+/* A dropped entry is given up, so its number, its name and its badge take
+   the row's secondary voice. */
+.arcs-cycle-row[data-state="dropped"] .arcs-cycle-number,
+.arcs-cycle-row[data-state="dropped"] .arcs-cycle-title,
+.arcs-cycle-row[data-state="dropped"] .tug-cycle-entry-mark {
+  color: var(--tug7-element-global-text-normal-subtle-rest);
 }
 
 .arcs-cycle-content {

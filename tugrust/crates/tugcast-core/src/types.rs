@@ -1372,8 +1372,10 @@ pub struct CycleEntryWire {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
     pub added: String,
-    /// `joined` | `running` | `ready` | `waiting`, derived from the arc log
-    /// in the same pass that composes the arc rows beside it.
+    /// `joined` | `running` | `dropped` | `ready` | `waiting`, derived from
+    /// the arc log in the same pass that composes the arc rows beside it.
+    /// `dropped` is an entry whose arc was discarded or that was given up
+    /// by hand.
     pub state: String,
     /// Every stage rotation of the linked arc's current generation, oldest
     /// first: the history of the sessions that worked the entry.
@@ -1465,7 +1467,8 @@ pub struct ProjectChangeset {
     /// Arcs that exist only as documents — no branch yet — sorted by name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub document_arcs: Vec<DocumentArcEntry>,
-    /// The repository's cycles, most recently changed first. Listed only by
+    /// The repository's open cycles, most recently changed first; a cycle
+    /// whose work is finished is left out. Listed only by
     /// the project that lists the repository's arcs, and omitted when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cycles: Vec<CycleWire>,

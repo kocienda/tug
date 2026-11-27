@@ -1,4 +1,4 @@
-//! `tugtool cycle create|rename|add-entry|add-from|add-sketch|attach|find|list|show|check`:
+//! `tugtool cycle create|rename|add-entry|add-from|add-sketch|attach|drop|find|list|show|check`:
 //! a cycle's record written in a scratch checkout, and every entry's state
 //! read back from the arc log; and an arc-less sketch recorded on stdin, the
 //! way a skill with no arc records one.
@@ -214,6 +214,101 @@ fn a_cycle_is_written_and_its_entries_read_from_the_arc_log() {
         .output()
         .unwrap();
     assert_eq!(absent.status.code(), Some(3), "{absent:?}");
+}
+
+#[test]
+fn a_finished_cycle_leaves_the_list_and_a_drop_settles_what_will_never_run() {
+    let s = Scratch::new();
+    let id = s.ok(&["cycle", "create", "--name", "Closing"]);
+    let mut sketches = Vec::new();
+    for name in ["first", "second"] {
+        let sketch = s.root.join(format!(".tug/arcs/{name}/sketch.md"));
+        std::fs::create_dir_all(sketch.parent().unwrap()).unwrap();
+        std::fs::write(&sketch, format!("# Sketch\n\nWant {name}.\n")).unwrap();
+        let recorded = s.ok(&["sketch", "record", name]);
+        sketches.push(recorded.split_whitespace().nth(1).unwrap().to_string());
+    }
+    assert_eq!(s.ok(&["cycle", "add-sketch", &id, &sketches[0]]), "A");
+    assert_eq!(s.ok(&["cycle", "add-sketch", &id, &sketches[1]]), "B");
+    for brief in ["briefs/one.md", "briefs/two.md"] {
+        s.ok(&["cycle", "add-entry", &id, "--brief", brief, "--from", "A"]);
+    }
+    let listed = |all: bool| {
+        let args: &[&str] = if all {
+            &["cycle", "list", "--all"]
+        } else {
+            &["cycle", "list"]
+        };
+        s.json(args).as_array().unwrap().clone()
+    };
+    let refused = |item: &str| {
+        let out = s.out(&["cycle", "drop", &id, item]);
+        assert!(!out.status.success(), "drop {item} should be refused");
+        String::from_utf8_lossy(&out.stderr).to_string()
+    };
+
+    // A running arc is discarded, never dropped; a landed one is settled.
+    s.write_log("2026-11-01T00:00:00.000Z  alpha  arc-start  brief.md");
+    s.ok(&["cycle", "attach", &id, "1", "alpha"]);
+    assert!(refused("1").contains("still open"));
+    s.write_log("2026-11-01T01:00:00.000Z  alpha  302d43b5d1  joined");
+    assert!(refused("1").contains("landed"));
+    assert!(refused("A").contains("entry 1"));
+    refused("7");
+
+    // One landed and one not started: open, and listed.
+    assert_eq!(listed(false)[0]["closed"], false);
+
+    // Entry 2 dropped, sketch B still pending: open.
+    assert_eq!(s.ok(&["cycle", "drop", &id, "2"]), "2  dropped");
+    assert_eq!(listed(false).len(), 1);
+    let dropped = s.json(&["cycle", "drop", &id, "b"]);
+    assert_eq!(dropped["id"], id.as_str());
+    assert_eq!(dropped["sketch"], "B");
+
+    // Every entry settled and no sketch pending: closed, and off the list.
+    assert!(listed(false).is_empty());
+    assert_eq!(s.ok(&["cycle", "list"]), "");
+    let all = listed(true);
+    assert_eq!(all.len(), 1);
+    assert_eq!(all[0]["closed"], true);
+    assert_eq!(all[0]["landed"], 1);
+    assert_eq!(all[0]["total"], 2);
+    assert_eq!(
+        s.ok(&["cycle", "list", "--all"]),
+        format!("{id}  1/2  Closing  closed")
+    );
+
+    // A closed cycle is still shown and still found.
+    let shown = s.json(&["cycle", "show", &id]);
+    assert_eq!(shown["closed"], true);
+    assert_eq!(shown["entries"][1]["state"], "dropped");
+    assert!(shown["sketches"][1]["dropped"].is_string());
+    let text = s.ok(&["cycle", "show", &id]);
+    assert!(text.contains("1/2 landed  closed"), "{text}");
+    assert!(
+        text.contains(&format!("B  sketch {}  dropped", sketches[1])),
+        "{text}"
+    );
+    assert!(text.contains("2  dropped  briefs/two.md"), "{text}");
+    assert_eq!(
+        s.json(&["cycle", "find", "--brief", "briefs/two.md"])["id"],
+        id.as_str()
+    );
+
+    // Run after all, the dropped entry reopens the cycle; and undoing the
+    // landing of the other keeps it open once that arc joins.
+    s.write_log("2026-11-02T00:00:00.000Z  beta  arc-start  brief.md");
+    s.ok(&["cycle", "attach", &id, "2", "beta"]);
+    assert_eq!(listed(false).len(), 1);
+    assert_eq!(
+        s.json(&["cycle", "show", &id])["entries"][1]["state"],
+        "running"
+    );
+    s.write_log("2026-11-02T01:00:00.000Z  beta  9ac1e0f2aa  joined");
+    assert!(listed(false).is_empty());
+    s.write_log("2026-11-02T02:00:00.000Z  beta  undone  reversed join (operation 4)");
+    assert_eq!(listed(false).len(), 1);
 }
 
 /// Run `tugtool sketch record [args…] --json` with `text` on stdin and return

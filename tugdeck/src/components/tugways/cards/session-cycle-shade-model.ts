@@ -156,6 +156,8 @@ function sentenceOf(entry: CycleEntryWire, where: CycleEntryWhere | null, openWa
     case "running":
       if (where === "here") return "Running in this session";
       return where === "elsewhere" ? "Running in another session" : "Running";
+    case "dropped":
+      return "Dropped";
     case "ready":
       return entry.note ?? "Ready to start";
     default:
@@ -276,7 +278,7 @@ export interface CycleShadeSummary {
   total: number;
   /** "2 of 5 landed". */
   landedText: string;
-  /** Every entry has joined. */
+  /** Every entry is settled: joined or dropped. Only a pending sketch keeps such a cycle open. */
   atRest: boolean;
   /** What this session is running, or that it runs nothing. */
   now: CycleNowLine;
@@ -298,7 +300,7 @@ export function cycleShadeSummary(cycle: CycleWire, entries: readonly CycleShade
   const total = entries.length;
   const landed = entries.filter((e) => e.entry.state === "joined").length;
   const landedText = cycleLandedText(landed, total);
-  const atRest = total > 0 && landed === total;
+  const atRest = total > 0 && entries.every((e) => e.entry.state === "joined" || e.entry.state === "dropped");
   const current = entries.find((e) => e.where === "here") ?? null;
   const ready = entries.filter((e) => e.entry.state === "ready");
   const first = ready[0];
@@ -347,6 +349,8 @@ export function cycleEntryStanding(read: CycleShadeEntry): CycleEntryStanding {
       return { state: "done", title: "Joined", detail: "Landed. Its rounds and commit stay on record." };
     case "running":
       return { state: "active", title: sentence, detail: entry.note ?? null };
+    case "dropped":
+      return { state: "pending", title: "Dropped", detail: "Starting its brief again brings it back." };
     case "ready":
       return { state: "pending", title: "Ready to start", detail: entry.note ?? "Nothing is in its way." };
     default:

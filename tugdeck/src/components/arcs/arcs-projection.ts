@@ -265,10 +265,8 @@ export interface CycleSection {
   id: string;
   cycle: CycleWire;
   name: string;
-  /** "N of M landed", or "At rest · M arcs". */
+  /** "N of M landed". A dropped entry is one of the M and never of the N. */
   landedText: string;
-  /** Every entry has joined. A cycle at rest starts folded. */
-  atRest: boolean;
   tiles: readonly CycleMapTile[];
   sketches: readonly CycleMapSketch[];
   /** Each sketch's row before the entries that came from it; a sketch no entry came from, last. */
@@ -336,6 +334,8 @@ function sentenceOf(
       return followedSession !== null && entry.bound_session === followedSession
         ? "Running in this session"
         : "Running in another session";
+    case "dropped":
+      return "Dropped";
     case "ready":
       return entry.note ?? "Ready to start";
     case "waiting":
@@ -463,16 +463,12 @@ function cycleItem(
   if (rows.length === 0) return null;
   const sketches = sketchRows(cycle);
   const landed = rows.filter((r) => r.entry.state === "joined").length;
-  const atRest = landed === rows.length;
   return {
     kind: "section",
     id: cycle.id,
     cycle,
     name: cycle.name,
-    landedText: atRest
-      ? `At rest · ${rows.length} ${rows.length === 1 ? "arc" : "arcs"}`
-      : `${landed} of ${rows.length} landed`,
-    atRest,
+    landedText: `${landed} of ${rows.length} landed`,
     tiles: rows.map(tileOf),
     sketches: sketches.map((s) => ({ letter: s.letter, want: s.want })),
     assets: assetsOf(rows, sketches),
@@ -535,7 +531,8 @@ export function projectArcsCard(
 /**
  * What the reader has done to the cycles since the card opened: which are
  * folded, and which assets are selected in each. Keyed by cycle id. A cycle
- * with no entry in `folded` takes its start from whether it is at rest.
+ * with no entry in `folded` starts open: a cycle whose work is finished is
+ * closed and never reaches the card, so there is none at rest to fold.
  */
 export interface CycleViewState {
   folded: ReadonlyMap<string, boolean>;
@@ -548,9 +545,9 @@ export const NO_CYCLE_VIEW: CycleViewState = {
   chosen: new Map(),
 };
 
-/** Whether a section is folded: the reader's choice, else folded at rest. */
+/** Whether a section is folded: the reader's choice, else open. */
 export function cycleIsFolded(view: CycleViewState, section: CycleSection): boolean {
-  return view.folded.get(section.id) ?? section.atRest;
+  return view.folded.get(section.id) ?? false;
 }
 
 /** The assets selected in one cycle. */
