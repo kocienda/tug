@@ -189,7 +189,10 @@
 
    Opaque, on the pane's own ground, because its assets pass under it; above
    them, because every cell is positioned and a later one would otherwise
-   paint over it. */
+   paint over it. The selector outranks the list's striping, whose bands are
+   4% washes: a pin wearing one is see-through, and the rows show through the
+   map as they pass under it. */
+.arcs-list.tug-list-view[data-row-striping] .tug-list-view-cell[data-tug-list-cell-kind="cycle-pin"],
 .arcs-list .tug-list-view-cell[data-tug-list-cell-kind="cycle-pin"] {
   position: sticky;
   top: 0;

@@ -244,6 +244,11 @@ describe.skipIf(!SHOULD_RUN)("AT0899: a cycle is a section on the Cycles & Arcs 
             rootScroll: root.scrollHeight,
             tail: document.querySelector('[data-slot="arcs-cycle-tail"]')?.getBoundingClientRect().height ?? -1,
             pinPosition: getComputedStyle(pin).position,
+            // The pin's ground: rows pass under it, so it must be opaque.
+            pinAlpha: (() => {
+              const m = getComputedStyle(pin).backgroundColor.match(/\\/\\s*([\\d.]+)\\s*\\)$|rgba\\([^)]*,\\s*([\\d.]+)\\)$/);
+              return m === null ? 1 : Number(m[1] ?? m[2]);
+            })(),
           };
         })()`;
         // A wait that runs out is reported by the reading below, which says
@@ -260,6 +265,7 @@ describe.skipIf(!SHOULD_RUN)("AT0899: a cycle is a section on the Cycles & Arcs 
           gap: number;
           pinTop: number;
           scrollTop: number;
+          pinAlpha: number;
         }>(under);
         note(`pressed: ${JSON.stringify(pressed)}`);
         expect(pressed.open, "the pressed entry's row is open").toBe(true);
@@ -267,6 +273,7 @@ describe.skipIf(!SHOULD_RUN)("AT0899: a cycle is a section on the Cycles & Arcs 
         expect(pressed.scrollTop, "the card scrolled to bring the row up").toBeGreaterThan(0);
         expect(Math.abs(pressed.pinTop), "the pin holds the top of the card").toBeLessThanOrEqual(1);
         expect(Math.abs(pressed.gap), "the row's top is at the pin's foot").toBeLessThanOrEqual(1);
+        expect(pressed.pinAlpha, "the pin is opaque, so the rows under it never show through").toBe(1);
         const openRows = await card.evalJS<string[]>(
           `Array.from(document.querySelectorAll(${JSON.stringify(`${ENTRIES}[data-open="true"]`)})).map((el) => el.getAttribute("data-asset") ?? "")`,
         );

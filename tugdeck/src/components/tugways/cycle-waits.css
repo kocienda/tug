@@ -20,7 +20,8 @@
 
    A chip wears the number its tile wears on the cycle map, in a frame of the
    tile's shape. The run sets no colour for its word or its numbers: they take
-   the host row's ink.
+   the host row's ink. It sets its own size, since a row's trailing slot
+   inherits the page's and would draw the run larger than the row's text.
 
    Laws: [L06] met is `data-met`; [L16] pairings declared; [L19] component
    authoring guide; [L20] owns `--tugx-cycle-waits-*`. */
@@ -29,6 +30,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--tugx-cycle-waits-gap, var(--tug-space-2xs));
+  font-size: var(--tugx-cycle-waits-font-size, var(--tug-font-size-xs));
 }
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */

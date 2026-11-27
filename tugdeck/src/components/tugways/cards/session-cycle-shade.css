@@ -288,6 +288,7 @@ body[data-tug-motion="off"] .session-cycle-shade-list {
   display: inline-flex;
   align-items: center;
   gap: var(--tug-space-2xs);
+  font-size: var(--tug-font-size-sm);
 }
 
 /* A wait wears the number its tile wears on the map. */

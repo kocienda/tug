@@ -1,7 +1,7 @@
 {
   ".arcs-section .tug-list-view-cell[data-tug-list-cell-kind=\"cycle-pin\"]": {
     "align-items": "normal",
-    "background-color": "color(srgb 0.178985 0.189679 0.209906 / 0.04)",
+    "background-color": "oklch(0.27 0.01 270)",
     "border-bottom-color": "oklch(0.58 0.02 263.333344)",
     "border-bottom-width": "0px",
     "border-left-width": "0px",
