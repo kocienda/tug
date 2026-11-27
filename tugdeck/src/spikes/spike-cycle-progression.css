@@ -1,0 +1,73 @@
+/* @tug-pairings: none — spike scaffolding; the shade's header, map, rows and
+ * footer draw from `session-cycle-shade.css` and their components' own
+ * stylesheets [L20] */
+
+/* spike-cycle-progression — the card stand-in the cycle shade is raised in,
+   and the few lengths the evolved shade adds to the shipped one. Nothing here
+   is production styling. */
+
+.sp-prog-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tug-space-sm);
+}
+
+.sp-prog-caption {
+  margin: 0;
+  font-size: var(--tug-font-size-xs);
+  line-height: 1.5;
+  color: var(--tug7-element-field-text-normal-label-rest);
+}
+
+.sp-prog-readout {
+  font-family: var(--tug-font-family-mono);
+  color: var(--tugx-block-text-color-muted);
+}
+
+/* The Session card, as tall as a raised shade holds. */
+.sp-prog-card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 780px;
+  height: 860px;
+  border: 1px solid var(--tugx-block-hairline);
+  border-radius: var(--tugx-block-radius);
+  background: var(--tug7-surface-global-primary-normal-content-rest);
+  overflow: hidden;
+}
+
+.sp-prog-closed {
+  margin: 0;
+  padding: var(--tug-space-lg);
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.5;
+  color: var(--tug7-element-field-text-normal-label-rest);
+}
+
+/* The wrapped map: one shipped map per row of six, stacked. It scrolls by
+   itself past four rows, so a very long run cannot take the list's room. */
+.sp-prog-map {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+  max-height: 320px;
+  overflow: auto;
+}
+
+/* The brief's title beside an entry's own name. */
+.sp-prog-of {
+  margin-inline-start: var(--tug-space-sm);
+  font-size: var(--tug-font-size-sm);
+  font-weight: var(--tug-font-weight-regular);
+}
+
+.sp-prog-pace {
+  font-size: var(--tug-font-size-sm);
+  white-space: nowrap;
+}
+
+.sp-prog-command {
+  font-family: var(--tug-font-family-mono);
+  padding-bottom: var(--tug-space-xs);
+}
