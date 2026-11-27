@@ -96,9 +96,9 @@ Selection is one set, and the rule is the same on both surfaces because both app
 
 No surface has more than one vertical scroller, and nothing inside it is an exception. In the shade it is the asset list, and the shade itself does not scroll; the running entry's steps are laid out in full inside that list, never in a capped scroller of their own. In the sidebar it is the card. The map's own sideways overflow is the only other scrolling.
 
-## The CYCLE & ARC cell
+## The CYCLE:ARC cell
 
-The Session card's status row has an ordinary cell labelled `CYCLE & ARC`. Pressed, it raises and lowers the cycle shade. It shows two fractions: the cycle's entries landed over its entries, and this session's arc's steps done over its steps. A cycle of one reads 0/1 or 1/1 like any other. A session bound to no arc shows the cycle's fraction alone, and an arc that is not walking steps (devising, reviewing, auditing) shows that stage's mark in the second place, as the arc cell did (`cycleCellReading` in `tugdeck/src/components/tugways/cards/session-cycle-shade-model.ts`). *Rejected: a separate expand control on the status row's edge.*
+The Session card's status row has an ordinary cell labelled `CYCLE:ARC`. Pressed, it raises and lowers the cycle shade. Its value is written the way its label is, two fractions joined by a colon, as `0/3:2/5`: the cycle's entries landed over its entries, then this session's arc's steps done over its steps. A cycle of one reads 0/1 or 1/1 like any other. A session bound to no arc holds the arc's place with a dash, as `1/1:—`, and an arc that is not walking steps (devising, reviewing, auditing) shows that stage's mark in the second place, as the arc cell did (`cycleCellReading` in `tugdeck/src/components/tugways/cards/session-cycle-shade-model.ts`). *Rejected: a separate expand control on the status row's edge.*
 
 *Reversed, 2026-11-26: the cell first read the cycle or the arc, never both: the landed fraction for two or more entries, and the arc's reading for one. The user wanted both numbers at once.*
 
@@ -116,7 +116,7 @@ The shade is a header, the map, the asset list and a footer (`tugdeck/src/compon
 
 **Other shades stand over the cycle shade and do not lower it.** A Changes or History shade presents over a raised cycle shade, Find opens beside it, and the cycle shade is there when they leave (`tugdeck/src/lib/arc-shade-controller.ts`). Only share mode lowers it, because share mode selects the transcript turns the shade would cover.
 
-**A lowered cycle shade leaves nothing standing.** The CYCLE & ARC cell carries the fractions and the way back. *Rejected: a footer left standing under a lowered shade.*
+**A lowered cycle shade leaves nothing standing.** The CYCLE:ARC cell carries the fractions and the way back. *Rejected: a footer left standing under a lowered shade.*
 
 ## The Cycles & Arcs card
 

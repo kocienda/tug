@@ -302,7 +302,7 @@ async function readArcSurfaces(app: App): Promise<ArcSurfaces> {
  */
 async function awaitArcSurfaces(app: App, timeoutMs = 60_000): Promise<void> {
   await app.body("A").waitForCondition<boolean>(
-    `(document.querySelector(${JSON.stringify(CELL)})?.querySelector(".session-telemetry-endcap-label")?.textContent ?? "").trim() === "CYCLE & ARC"`,
+    `(document.querySelector(${JSON.stringify(CELL)})?.querySelector(".session-telemetry-endcap-label")?.textContent ?? "").trim() === "CYCLE:ARC"`,
     { timeoutMs },
   );
   await app.body("A").waitForCondition<boolean>(
@@ -379,7 +379,7 @@ describe.skipIf(!SHOULD_RUN)(
           const before = await readArcSurfaces(app);
           note(`at0627 arc surfaces before the close: ${JSON.stringify(before)}`);
           expect(before.sigil, "the masthead sigil names the arc").toContain(ARC_NAME);
-          expect(before.cellLabel).toBe("CYCLE & ARC");
+          expect(before.cellLabel).toBe("CYCLE:ARC");
           expect(before.cellText).toBe("1/3");
           expect(before.steps).toEqual([
             "1.The only step",
@@ -431,7 +431,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(after.sigil, "the masthead sigil survived the reconnect").toContain(
             ARC_NAME,
           );
-          expect(after.cellLabel, "the Z2 cell still reads CYCLE & ARC").toBe("CYCLE & ARC");
+          expect(after.cellLabel, "the Z2 cell still reads CYCLE:ARC").toBe("CYCLE:ARC");
           expect(after.cellText, "and still counts the run").toBe("1/3");
           expect(after.steps, "the step list survived too").toEqual([
             ...before.steps,

@@ -1,5 +1,5 @@
 /**
- * at0898-cycle-shade.test.ts — the cycle shade and the CYCLE & ARC cell, for a
+ * at0898-cycle-shade.test.ts — the cycle shade and the CYCLE:ARC cell, for a
  * session working one arc of a cycle of several entries.
  *
  * The cycle is made through `tugtool cycle` in a scratch project: one
@@ -7,7 +7,7 @@
  * first, and the first carried by the arc the session is bound to. What is
  * read:
  *
- *   1. The status row's fourth cell is labelled CYCLE & ARC and shows two
+ *   1. The status row's fourth cell is labelled CYCLE:ARC and shows two
  *      readings: how many entries have landed of how many there are, and
  *      beside it the bound arc's own reading. Both stay inside the cell.
  *   2. A press on the cell raises the shade in its several-entry form: the
@@ -234,7 +234,7 @@ describe.skipIf(!SHOULD_RUN)("AT0898: the cycle shade and the CYCLE cell", () =>
           env: scratch?.cli.env,
         });
 
-        // ── The cell: CYCLE & ARC, landed of total, and the arc's reading ─
+        // ── The cell: CYCLE:ARC, landed of total, and the arc's reading ─
         await app.body("A").waitForCondition<boolean>(
           `(() => {
              const value = document.querySelector(${JSON.stringify(CELL)})?.querySelector('[data-slot="session-telemetry-arc-value"]');
@@ -247,6 +247,7 @@ describe.skipIf(!SHOULD_RUN)("AT0898: the cycle shade and the CYCLE cell", () =>
           label: string;
           cycle: string;
           arc: string;
+          text: string;
           aria: string | null;
           pairRight: number;
           cellRight: number;
@@ -259,6 +260,7 @@ describe.skipIf(!SHOULD_RUN)("AT0898: the cycle shade and the CYCLE cell", () =>
                label: (cell.querySelector(".session-telemetry-endcap-label")?.textContent ?? "").trim(),
                cycle: (value?.querySelector('[data-slot="session-telemetry-cycle-fraction"]')?.textContent ?? "").trim(),
                arc: (value?.querySelector('[data-slot="session-telemetry-arc-reading"]')?.textContent ?? "").trim(),
+               text: (pair?.textContent ?? "").replace(/\\s+/g, ""),
                aria: value?.getAttribute("aria-label") ?? null,
                pairRight: pair?.getBoundingClientRect().right ?? Infinity,
                cellRight: cell.getBoundingClientRect().right,
@@ -266,9 +268,10 @@ describe.skipIf(!SHOULD_RUN)("AT0898: the cycle shade and the CYCLE cell", () =>
            })()`,
         );
         note("at0898 cell", JSON.stringify(cell));
-        expect(cell.label, "the cell is labelled CYCLE & ARC").toBe("CYCLE & ARC");
+        expect(cell.label, "the cell is labelled CYCLE:ARC").toBe("CYCLE:ARC");
         expect(cell.cycle, "its first reading is landed of total").toBe("0/3");
         expect(cell.arc, "and its second is the bound arc's own reading").not.toBe("");
+        expect(cell.text, "the two are written as the label is, joined by a colon").toBe(`0/3:${cell.arc}`);
         expect(cell.pairRight, "both readings stay inside the cell").toBeLessThanOrEqual(cell.cellRight + 0.5);
         expect(cell.aria, "its accessible label names the cycle").toContain(CYCLE_NAME);
         expect(cell.aria, "and how much has landed").toContain("0 of 3 landed");

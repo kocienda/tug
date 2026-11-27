@@ -441,7 +441,7 @@ describe.skipIf(!SHOULD_RUN)(
            })()`,
           );
           note("at0473 Z2 with no arc", JSON.stringify(quietBox));
-          expect(quietBox.label).toBe("CYCLE & ARC");
+          expect(quietBox.label).toBe("CYCLE:ARC");
           expect(quietBox.arcValue).toBe(false);
           expect(quietBox.width).toBeGreaterThan(0);
 
@@ -501,7 +501,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           const atTheDoor = await app.body("A").evalJS<ArcCellProbe>(PROBE_ARC_CELL);
           note("at0473 Z2 as ARC, at the door", JSON.stringify(atTheDoor));
-          expect(atTheDoor.label).toBe("CYCLE & ARC");
+          expect(atTheDoor.label).toBe("CYCLE:ARC");
           expect(atTheDoor.text).not.toMatch(/\d+\/\d+/);
 
           // A real arc on project A, bound to the followed card's session — the
@@ -524,7 +524,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           const bare = await app.body("A").evalJS<ArcCellProbe>(PROBE_ARC_CELL);
           note("at0473 Z2 as ARC, no plan", JSON.stringify(bare));
-          expect(bare.label).toBe("CYCLE & ARC");
+          expect(bare.label).toBe("CYCLE:ARC");
           // No strip in this box: the cell is an instrument, and the whole
           // track lives on its placard ([D168]).
           expect(bare.tracks).toBe(0);
@@ -594,7 +594,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           const arcBox = await app.body("A").evalJS<ArcCellProbe>(PROBE_ARC_CELL);
           note("at0473 Z2 as ARC", JSON.stringify(arcBox));
-          expect(arcBox.label).toBe("CYCLE & ARC");
+          expect(arcBox.label).toBe("CYCLE:ARC");
           // **Numbers whenever there are numbers.** A declared step turns the
           // word into the pair, which is the one reading that changes while
           // somebody watches. Plain text, not a `TugStepFraction`: this cell is

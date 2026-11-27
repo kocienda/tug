@@ -364,11 +364,11 @@ export function cycleEntrySketchText(cycle: CycleWire, entry: CycleEntryWire): s
 }
 
 // ---------------------------------------------------------------------------
-// The CYCLE & ARC cell
+// The CYCLE:ARC cell
 // ---------------------------------------------------------------------------
 
 /**
- * The cycle's half of the CYCLE & ARC cell: how many of its entries have
+ * The cycle's half of the CYCLE:ARC cell: how many of its entries have
  * landed of how many there are, and the sentence a screen reader hears for
  * it. Every cycle has one, a cycle of one included, which reads 0/1 or 1/1.
  * The arc's half is the cell's own reading of this session's arc, which
