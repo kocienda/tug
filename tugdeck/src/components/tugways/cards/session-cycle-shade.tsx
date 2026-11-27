@@ -287,6 +287,9 @@ function EntryAsset({
             </span>
           ) : undefined
         }
+        // The facts wrap on their own and carry atoms taller than a line of
+        // text, so the description takes no line clamp, which would cut them.
+        descriptionMaxLines={0}
         trailing={
           <span className="session-cycle-shade-trailing">
             <EntryMark read={read} />

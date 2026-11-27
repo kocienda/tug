@@ -54,7 +54,8 @@ body {
 /* ---- The body ----------------------------------------------------------- */
 
 .session-cycle-shade {
-  flex: 0 1 auto;
+  /* Fills the height the shade holds; the list takes what is spare. */
+  flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -111,6 +112,7 @@ body {
 /* ---- The map's well ----------------------------------------------------- */
 
 .session-cycle-shade-map {
+  flex: none;
   padding: var(--tug-space-sm) var(--tug-space-md);
   background-color: var(--tugx-cycle-shade-well-bg);
   border-bottom: 1px solid var(--tugx-cycle-shade-rule);
@@ -132,9 +134,9 @@ body {
 
 .session-cycle-shade-list {
   position: relative;
-  /* As tall as its rows, shrinking to scroll only when the shade reaches its
-     cap. */
-  flex: 0 1 auto;
+  /* Fills what the held height leaves between the map and the footer, and
+     scrolls when its rows need more. */
+  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   /* A press on the map changes what is above an asset; the scroller must not

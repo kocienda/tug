@@ -1,6 +1,7 @@
 /**
  * at0902-cycle-shade-sized-by-content.test.ts — the cycle shade is as tall as
- * what it holds, and holds no blank space.
+ * what it holds when it rises, holds no blank space, and holds its height
+ * while it is up, so a press on the map never moves the map.
  *
  * The cycle is a cycle of one, made through `tugtool cycle` in a scratch
  * project by the card's own session: one sketch, A, and one ready entry from
@@ -14,10 +15,12 @@
  *   3. Nothing stands under the last row: the list's bottom edge is the last
  *      asset's, and the list has nothing to scroll to.
  *   4. A press on the entry's tile opens it in place, and it is wholly in view
- *      in the list.
+ *      in the list. The shade's height and the map's place on the screen are
+ *      what they were before the press: the shade does not hop.
  *
  * @covers tugdeck/src/components/tugways/cards/session-cycle-shade.tsx
  * @covers tugdeck/src/components/tugways/cards/session-cycle-shade.css
+ * @covers tugdeck/src/components/tugways/cards/session-arc-shade.tsx
  * @covers tugdeck/src/components/tugways/cards/session-arc-shade.css
  * @covers tugdeck/src/components/tugways/cards/session-cycle-shade-model.ts
  */
@@ -111,6 +114,8 @@ interface SizeReading {
   /** The shade's height, and the height of the box its four-fifths cap is taken of. */
   shadeHeight: number;
   hostHeight: number;
+  /** The map's top edge, in the viewport. */
+  mapTop: number;
   /** The list's scrollable overflow: scroll height less client height. */
   overflow: number;
   /** From the last asset's bottom edge to the list's. */
@@ -135,6 +140,7 @@ const read = (app: App): Promise<SizeReading> =>
          opened: assets.filter((el) => el.hasAttribute("data-open")).map((el) => el.getAttribute("data-asset")),
          shadeHeight: round(shade.getBoundingClientRect().height),
          hostHeight: round(shade.offsetParent.getBoundingClientRect().height),
+         mapTop: round(document.querySelector(${JSON.stringify(MAP)}).getBoundingClientRect().top),
          overflow: list.scrollHeight - list.clientHeight,
          tail: round(box.bottom - last.getBoundingClientRect().bottom),
          entryInView: entry !== undefined && entry.top >= box.top - 1 && entry.bottom <= box.bottom + 1,
@@ -194,16 +200,27 @@ describe.skipIf(!SHOULD_RUN)("AT0902: the cycle shade is sized by its content", 
         expect(rest.tail, "nothing stands under the last row").toBeLessThanOrEqual(1);
 
         await app.body("A").click(TILE_1);
+        // The list scrolls smoothly to bring the opened entry into view, since
+        // the shade holds its height; wait for the scroll to bring it in.
         await app.body("A").waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(`${LIST} [data-asset="e1"][data-open]`)}) !== null`,
+          `(() => {
+             const list = document.querySelector(${JSON.stringify(LIST)});
+             const entry = list?.querySelector('[data-asset="e1"][data-open]');
+             if (!list || !entry) return false;
+             const box = list.getBoundingClientRect();
+             const at = entry.getBoundingClientRect();
+             return at.top >= box.top - 1 && at.bottom <= box.bottom + 1;
+           })()`,
           { timeoutMs: 8_000 },
-        );
+        ).catch(() => false);
         await atRest(app);
         const pressed = await read(app);
         note("at0902 tile pressed", JSON.stringify(pressed));
         expect(pressed.opened, "the pressed entry opens in place").toEqual(["e1"]);
         expect(pressed.entryInView, "and stands wholly in view").toBe(true);
         expect(pressed.tail, "still with nothing under the last row").toBeLessThanOrEqual(1);
+        expect(pressed.shadeHeight, "the shade keeps the height it rose to").toBe(rest.shadeHeight);
+        expect(pressed.mapTop, "so the map does not move under the press").toBe(rest.mapTop);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

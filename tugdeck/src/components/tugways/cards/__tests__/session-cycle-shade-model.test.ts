@@ -29,6 +29,8 @@ import {
   cycleListView,
   cycleMapSketches,
   cycleRevealTop,
+  clampCycleShadeFrac,
+  cycleShadeHeightKey,
   cycleMapTiles,
   cycleShadeEntries,
   cycleShadeForm,
@@ -351,6 +353,13 @@ describe("the asset list", () => {
     expect(cycleRevealTop(100, 200, 280, 400), "taller than the view: its top shows").toBe(280);
     // A list that does not scroll at all shows everything, so nothing moves.
     expect(cycleRevealTop(0, 500, 300, 120)).toBe(0);
+  });
+
+  test("a height set by the grip stays between the floor and the four-fifths cap, kept per card", () => {
+    expect(clampCycleShadeFrac(0.5)).toBe(0.5);
+    expect(clampCycleShadeFrac(0.95), "the top fifth always shows").toBe(0.8);
+    expect(clampCycleShadeFrac(0.05), "room for the header, the map and the footer").toBe(0.25);
+    expect(cycleShadeHeightKey("A")).not.toBe(cycleShadeHeightKey("B"));
   });
 
   test("a selected key the cycle no longer holds is ignored", () => {

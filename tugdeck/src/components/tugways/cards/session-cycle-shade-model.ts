@@ -86,6 +86,28 @@ export function cycleShadeForm(cycle: CycleWire | null): CycleShadeForm {
   return (cycle?.entries.length ?? 0) >= 1 ? "several" : "none";
 }
 
+/**
+ * The tallest a cycle shade stands, as a fraction of the transcript it covers:
+ * the top fifth always shows. A height the user sets by its grip is held to it.
+ */
+export const CYCLE_SHADE_MAX_FRAC = 0.8;
+
+/** The shortest height the grip sets: enough for the header, the map and the footer. */
+export const CYCLE_SHADE_MIN_FRAC = 0.25;
+
+/** A height the grip sets, held between the floor and the cap. */
+export function clampCycleShadeFrac(frac: number): number {
+  return Math.min(CYCLE_SHADE_MAX_FRAC, Math.max(CYCLE_SHADE_MIN_FRAC, frac));
+}
+
+/**
+ * The key a card's cycle-shade height is kept under, in the shade-height
+ * domain. One per card, so each Session card keeps the height its user set.
+ */
+export function cycleShadeHeightKey(cardId: string): string {
+  return `cycle-shade:${cardId}`;
+}
+
 /** What a bound arc carries that its stand-in cycle of one is composed from. */
 export interface StandInArc {
   ownerId: string;

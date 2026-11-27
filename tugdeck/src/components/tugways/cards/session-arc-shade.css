@@ -2,6 +2,7 @@
   --tug7-element-global-text-normal-muted-rest    | --tug7-surface-global-primary-normal-content-rest | informational
   --tug7-element-global-border-normal-default-rest | --tug7-surface-global-primary-normal-content-rest | informational
   --tug7-element-global-border-normal-muted-rest   | --tug7-surface-global-primary-normal-content-rest | informational
+  --tug7-surface-toggle-primary-normal-on-rest     | --tug7-surface-global-primary-normal-content-rest | informational
 } */
 
 /**
@@ -11,6 +12,8 @@
  * | --tug7-element-global-text-normal-muted-rest     | --tug7-surface-global-primary-normal-content-rest | informational | .session-arc-shade-label (color)               |
  * | --tug7-element-global-border-normal-default-rest | --tug7-surface-global-primary-normal-content-rest | informational | .session-arc-shade (border-top-color)          |
  * | --tug7-element-global-border-normal-muted-rest   | --tug7-surface-global-primary-normal-content-rest | informational | .session-arc-shade-head (border-bottom-color)  |
+ * | --tug7-element-global-border-normal-default-rest | --tug7-surface-global-primary-normal-content-rest | informational | .session-arc-shade-grip-handle (background)   |
+ * | --tug7-surface-toggle-primary-normal-on-rest     | --tug7-surface-global-primary-normal-content-rest | informational | .session-arc-shade-grip-handle, dragged (background) |
  */
 
 /* The arc shade: a panel rooted at the bottom of the transcript slot, standing
@@ -25,6 +28,8 @@ body {
   --tugx-arc-shade-bg: var(--tug7-surface-global-primary-normal-content-rest);
   --tugx-arc-shade-border: var(--tug7-element-global-border-normal-default-rest);
   --tugx-arc-shade-rule: var(--tug7-element-global-border-normal-muted-rest);
+  --tugx-arc-shade-grip: var(--tug7-element-global-border-normal-default-rest);
+  --tugx-arc-shade-grip-active: var(--tug7-surface-toggle-primary-normal-on-rest);
 }
 
 .session-arc-shade {
@@ -54,11 +59,49 @@ body {
   transform: none;
 }
 
-/* A cycle is as tall as what it holds, up to the four fifths every shade may
-   take, and never holds blank space. Its body does not scroll: the list under
-   the map is the one scroller, and only once the four fifths are reached. */
+/* A cycle's height is set when it rises and held while it is up (see
+   `session-arc-shade.tsx`), so its body fills the held height and does not
+   scroll: the list under the map is the one scroller. */
 .session-arc-shade[data-form="several"] .session-arc-shade-body {
+  flex: 1 1 auto;
   overflow: hidden;
+}
+
+.session-arc-shade[data-form="several"] .session-arc-shade-body > * {
+  flex: 1 1 auto;
+}
+
+/* The grip on a cycle's top edge, which sets the shade's height. It lies over
+   the header's top strip, where the header shows nothing. */
+.session-arc-shade-grip {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  z-index: 1;
+  height: 10px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 3px;
+  box-sizing: border-box;
+  cursor: ns-resize;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-arc-shade-grip-handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background-color: var(--tugx-arc-shade-grip);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-arc-shade-grip:hover .session-arc-shade-grip-handle,
+.session-arc-shade-grip:active .session-arc-shade-grip-handle {
+  background-color: var(--tugx-arc-shade-grip-active);
 }
 
 /* Motion off (`body[data-tug-motion="off"]`) is answered by `styles/tug.css`,

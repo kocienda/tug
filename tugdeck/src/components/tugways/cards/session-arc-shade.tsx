@@ -5,10 +5,16 @@
  * Stays mounted for the life of the card and is raised and lowered by one data
  * attribute, which a CSS transform reads, so a raise builds nothing and the
  * first frame of the rise costs only the transform. Raised, it stands over the
- * bottom of the transcript slot, as tall as what it holds and never taller
- * than four fifths of the slot; the transcript left showing above it is made
- * inert for as long as the shade is up. Lowered, the shade itself is inert and
- * translated out of its clipping pane.
+ * bottom of the transcript slot, never taller than four fifths of the slot;
+ * the transcript left showing above it is made inert for as long as the shade
+ * is up. Lowered, the shade itself is inert and translated out of its clipping
+ * pane.
+ *
+ * A cycle's shade takes its height when it rises and holds it until it
+ * lowers, so nothing pressed inside it moves the map at its top: an asset
+ * that opens grows the list, which scrolls. The height it takes is what it
+ * holds, or the height the user set with the grip on its top edge, which the
+ * card keeps (`cycleShadeHeightKey`, in the shade-height domain).
  *
  * Whether it is raised is read from the card's `ArcShadeController`, and the
  * arc it shows from the session's binding. While raised and not covered by
@@ -60,7 +66,13 @@ import { useArcForSession } from "@/lib/arc-session-index";
 import { CardIdContext } from "@/lib/card-id-context";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
-import { cycleShadeForm } from "./session-cycle-shade-model";
+import {
+  readPersistedShadeFrac,
+  subscribeShadeHeightDomain,
+  writePersistedShadeFrac,
+} from "@/components/tugways/shade-height";
+
+import { clampCycleShadeFrac, cycleShadeForm, cycleShadeHeightKey } from "./session-cycle-shade-model";
 import { useShadeCycle } from "./use-session-cycle";
 
 /** Focus order of the header's lowering control, first in the shade's walk. */
@@ -194,6 +206,66 @@ export function SessionArcShade({
     };
   }, [raised, transcriptPaneRef]);
 
+  // A cycle's height, held from the rise to the lowering so that a press in
+  // the shade never moves the map. The height the user set with the grip is
+  // the card's, and wins; otherwise the shade takes what it holds, measured
+  // once as it rises, and the CSS cap keeps either under four fifths. A shade
+  // that lowers keeps its height, so the fall is the height it rose to. DOM
+  // writes, never React state ([L06]); the stored height enters through
+  // `useSyncExternalStore` ([L02]).
+  const heightKey = cardId !== null ? cycleShadeHeightKey(cardId) : null;
+  const getSetFrac = useCallback(
+    () => (heightKey !== null ? readPersistedShadeFrac(heightKey) : null),
+    [heightKey],
+  );
+  const setFrac = useSyncExternalStore(subscribeShadeHeightDomain, getSetFrac);
+  const cycleId = cycle?.id ?? null;
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (root === null || !raised) return;
+    if (!several) {
+      root.style.height = "";
+      return;
+    }
+    if (setFrac !== null) {
+      root.style.height = `${clampCycleShadeFrac(setFrac) * 100}%`;
+      return;
+    }
+    root.style.height = "";
+    root.style.height = `${root.offsetHeight}px`;
+  }, [raised, several, setFrac, cycleId]);
+
+  // The grip on a cycle's top edge: dragged, it sets the shade's height, and
+  // the card keeps the height it was let go at.
+  const onGripDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return;
+      const root = rootRef.current;
+      const pane = root?.parentElement ?? null;
+      if (root === null || pane === null) return;
+      const rect = pane.getBoundingClientRect();
+      if (rect.height <= 0) return;
+      event.preventDefault();
+      const grip = event.currentTarget;
+      grip.setPointerCapture(event.pointerId);
+      let frac = clampCycleShadeFrac(root.offsetHeight / rect.height);
+      const onMove = (move: PointerEvent): void => {
+        frac = clampCycleShadeFrac((rect.bottom - move.clientY) / rect.height);
+        root.style.height = `${frac * 100}%`;
+      };
+      const onUp = (): void => {
+        grip.removeEventListener("pointermove", onMove);
+        grip.removeEventListener("pointerup", onUp);
+        grip.removeEventListener("pointercancel", onUp);
+        if (heightKey !== null) writePersistedShadeFrac(heightKey, frac);
+      };
+      grip.addEventListener("pointermove", onMove);
+      grip.addEventListener("pointerup", onUp);
+      grip.addEventListener("pointercancel", onUp);
+    },
+    [heightKey],
+  );
+
   return (
     <section
       ref={rootRef}
@@ -207,6 +279,16 @@ export function SessionArcShade({
       inert={!live}
     >
       <FocusModeScope>
+        {several ? (
+          <div
+            className="session-arc-shade-grip"
+            data-slot="session-arc-shade-grip"
+            aria-hidden
+            onPointerDown={onGripDown}
+          >
+            <span className="session-arc-shade-grip-handle" />
+          </div>
+        ) : null}
         {several ? null : (
           <header className="session-arc-shade-head" data-slot="session-arc-shade-head">
             <span className="session-arc-shade-label" data-slot="session-arc-shade-label">
