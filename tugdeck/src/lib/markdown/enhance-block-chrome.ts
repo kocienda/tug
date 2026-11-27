@@ -101,11 +101,10 @@ export const SHARE_ICON: ReadonlyArray<IconChild> = [
   { tag: "path", attrs: { d: "M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" } },
 ];
 
-/** Lucide `Target` icon (24×24 viewBox): the bullseye, on a pane and on a figure. */
-export const TARGET_ICON: ReadonlyArray<IconChild> = [
+/** Lucide `CircleDot` icon (24×24 viewBox): the bullseye, on a pane and on a figure. */
+export const BULLSEYE_ICON: ReadonlyArray<IconChild> = [
   { tag: "circle", attrs: { cx: "12", cy: "12", r: "10" } },
-  { tag: "circle", attrs: { cx: "12", cy: "12", r: "6" } },
-  { tag: "circle", attrs: { cx: "12", cy: "12", r: "2" } },
+  { tag: "circle", attrs: { cx: "12", cy: "12", r: "1" } },
 ];
 
 /** The attribute a chrome button wears while its action is out ([L06]). */

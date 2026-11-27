@@ -136,7 +136,7 @@ import {
   buildFoldButton,
   buildIcon,
   SHARE_ICON,
-  TARGET_ICON,
+  BULLSEYE_ICON,
 } from "@/lib/markdown/enhance-block-chrome";
 import { closeFigureBullseye, requestFigureBullseye } from "@/lib/figure-bullseye-store";
 import { isShareAvailable } from "@/lib/os-share";
@@ -954,7 +954,7 @@ function buildBullseyeButton(figure: { source: string; layers: ChartLayers }, pr
   button.setAttribute("aria-label", presented ? "Take this diagram out of bullseye" : "Show this diagram at full size");
   button.setAttribute("aria-pressed", presented ? "true" : "false");
   if (presented) button.setAttribute("data-on", "");
-  button.appendChild(buildIcon(TARGET_ICON, "tugx-chart-bullseye-icon", "default"));
+  button.appendChild(buildIcon(BULLSEYE_ICON, "tugx-chart-bullseye-icon", "default"));
   button.addEventListener("click", (e) => {
     e.preventDefault();
     if (presented) closeFigureBullseye();
