@@ -115,8 +115,8 @@ beforeAll(() => {
   const cycleId = run(["cycle", "create", "--name", CYCLE_NAME]);
   run(["cycle", "add-sketch", cycleId, sketchId]);
   run(["cycle", "add-entry", cycleId, "--brief", "briefs/at0899-one.md", "--from", "A"]);
-  run(["cycle", "add-entry", cycleId, "--brief", "briefs/at0899-two.md", "--wait", "1"]);
-  run(["cycle", "add-entry", cycleId, "--brief", "briefs/at0899-three.md", "--wait", "1"]);
+  run(["cycle", "add-entry", cycleId, "--brief", "briefs/at0899-two.md", "--wait", "1", "--from", "A"]);
+  run(["cycle", "add-entry", cycleId, "--brief", "briefs/at0899-three.md", "--wait", "1", "--from", "A"]);
 
   fixtureDir = seedScratchSession(projectDir(), SID);
 });

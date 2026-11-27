@@ -284,6 +284,60 @@ export const CYCLE_MAP_MEASURES: Readonly<Record<CycleMapSize, CycleMapMeasures>
   compact: { colW: 68, rowH: 38, tileW: 44, tileH: 28, pad: 6 },
 };
 
+/**
+ * The lengths inside a tile that decide how many pips fit beside its number,
+ * in px. They mirror `cycle-map.css` (the tile's border and padding, the gap
+ * between number and mark, the pip at its ordinary pitch), and `digit` is a
+ * digit of the number at its size, measured rather than taken from a font
+ * table: about 9.5 px at 16 px semibold and 7 px at 12 px, rounded up.
+ */
+export interface CycleMapTileInner {
+  border: number;
+  pad: number;
+  gap: number;
+  digit: number;
+  /** A pip's width and the space between two, at the size's ordinary drawing. */
+  pipWidth: number;
+  pipGap: number;
+}
+
+export const CYCLE_MAP_TILE_INNER: Readonly<Record<CycleMapSize, CycleMapTileInner>> = {
+  full: { border: 1.5, pad: 8, gap: 4, digit: 10, pipWidth: 4, pipGap: 2 },
+  compact: { border: 1.5, pad: 5, gap: 2, digit: 8, pipWidth: 2, pipGap: 1 },
+};
+
+/** The least readable pip: 2 px wide, 1 px apart. */
+export const LEAST_PIP = { width: 2, gap: 1 } as const;
+
+/**
+ * How a running entry's progress is drawn on its tile: `pips` at their
+ * ordinary pitch, `dense` when they have to shrink toward the least readable
+ * pip to share the room, and `bar`, one bar filled to the same fraction,
+ * when even the least readable pips would pass the tile's edge.
+ */
+export type CycleMapProgress = "pips" | "dense" | "bar";
+
+/** The room beside a tile's number, in px, at a size, for entry `n`. */
+export function tileMarkRoom(size: CycleMapSize, n: number): number {
+  const inner = CYCLE_MAP_TILE_INNER[size];
+  const digits = String(Math.max(0, Math.trunc(n))).length;
+  return CYCLE_MAP_MEASURES[size].tileW - 2 * inner.border - 2 * inner.pad - digits * inner.digit - inner.gap;
+}
+
+/** The most pips of `width` and `gap` that fit in `room`: the last pip needs no space after it. */
+function pipsThatFit(room: number, width: number, gap: number): number {
+  return Math.max(0, Math.floor((room + gap) / (width + gap)));
+}
+
+/** Pips or a bar for a tile with `total` steps, at a size, for entry `n`. */
+export function tileProgress(size: CycleMapSize, n: number, total: number): CycleMapProgress {
+  const room = tileMarkRoom(size, n);
+  const inner = CYCLE_MAP_TILE_INNER[size];
+  if (total <= pipsThatFit(room, inner.pipWidth, inner.pipGap)) return "pips";
+  if (total <= pipsThatFit(room, LEAST_PIP.width, LEAST_PIP.gap)) return "dense";
+  return "bar";
+}
+
 /** Where one tile or seal is drawn. A seal is a square the tile's height, at the tile's right edge. */
 export interface CycleMapBox {
   n: number;

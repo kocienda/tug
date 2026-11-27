@@ -85,6 +85,13 @@ Flaws the spike has too, hidden by its sample data:
 | 10 | A running entry's steps scroll inside the list, giving two scrollbars ([F09]): both the spike and the shade put the steps in `TugPopupListScroller`, which has its own height cap | five steps fit under the cap |
 | 11 | No sketch on the map | its fixture always has one; the real record did not ([F02]) |
 
+Found on the second reading, when the fixes were made:
+
+| # | Part | Spike | Shipped, and the answer |
+|---|---|---|---|
+| 12 | A landed cycle of one, folded in the sidebar | never drawn, since its cycle of one is a row | "At rest · 1 arcs" once a cycle of one is a section; the count now agrees with itself, "At rest · 1 arc" |
+| 13 | The landed line's base | "Landed on main", from its sample data | the cycle record carries no base branch, so the sidebar says "Landed. Its rounds and commit stay on record.", the shade's own words, rather than naming a base that may be wrong |
+
 So rows 1 to 3 are places the shipped surfaces fell short of the spike, rows 4 to 8 are differences the user has decided, and rows 9 to 11 are flaws in the design itself that real data exposed.
 
 **[F12] The laws in `tuglaws/tuglaws.md` run to L39.** The file groups numbered laws under headings; none is about work records or sessions. `tuglaws/cycles.md` holds the cycle rules and `tuglaws/arc-lifecycle.md` the arc's. **(verified)**
@@ -143,8 +150,8 @@ Anything the arc finds that this table missed is matched to the spike the same w
 
 ## Open Questions {#open-questions}
 
-- **What the two fractions look like when the arc is not walking steps.** An arc being devised, reviewed or audited has no step count. Whether the second place shows that stage's mark, as the arc cell did, or stays empty needs the cell drawn and the user's eye on it.
-- **How many steps is too many pips.** [B13] needs a threshold at each tile size. It is a matter of measuring the tile's inner width and choosing a least readable pip; the first drawing will settle it.
+- **What the two fractions look like when the arc is not walking steps.** An arc being devised, reviewed or audited has no step count. The cell as built shows that stage's word in the second place, as the arc cell did, so `0/3 Reviewing` sits where `0/3 2/7` would. With a cycle the cell's box is sized for the cycle's fraction beside the arc's widest reading, so it is wider in a session that has a cycle than in one that has none; a session with no cycle keeps the box it had. Whether the word should stay, or be shortened to fit the narrower box, needs the user's eye on the drawn cell.
+- **How many steps is too many pips.** [B13] needs a threshold at each tile size. It is a matter of measuring the tile's inner width and choosing a least readable pip; the first drawing will settle it. *Settled:* the least readable pip is 2 px wide with 1 px between. The room beside the number is the tile's width less its 1.5 px borders, its padding (8 px full, 5 px compact), the number (a digit about 10 px at 16 px semibold, 8 px at 12 px) and the 4 px or 2 px gap: 31 px full and 21 px compact for a one-digit entry, 21 px and 13 px for two digits. Full tiles draw pips at their 4 px pitch up to 5 steps (3 for two digits), shrink them toward the least readable pip up to 10 (7), and draw a bar past that. Compact pips are already the least readable, so they hold 7 (4) and then a bar. `tileProgress` in `cycle-map-layout.ts` computes this, and both surfaces and the spike read it.
 
 ---
 

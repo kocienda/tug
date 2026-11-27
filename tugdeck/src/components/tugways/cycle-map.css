@@ -30,6 +30,7 @@
  * | --tug7-element-tone-border-normal-data-rest    | --tug7-surface-global-primary-normal-raised-rest | informational | .tug-cycle-map-seal (border, outline)                           |
  * | --tug7-element-tone-fill-normal-success-rest   | --tug7-surface-global-primary-normal-raised-rest | informational | .tug-cycle-map-pips > [data-pip="done"] (background)            |
  * | --tug7-element-tone-fill-normal-active-rest    | --tug7-surface-global-primary-normal-raised-rest | decorative    | .tug-cycle-map-pips > [data-pip="now"] (background)             |
+ * | --tug7-element-tone-fill-normal-success-rest   | --tug7-surface-global-primary-normal-raised-rest | informational | .tug-cycle-map-bar > span (background)                          |
  * | --tug7-element-tone-fill-normal-agent-rest     | --tug7-surface-card-primary-normal-well-rest     | decorative    | .tug-cycle-map-tile[data-elsewhere]::after (background)         |
  * | --tug7-element-global-text-normal-muted-rest   | --tug7-surface-card-primary-normal-well-rest     | informational | .tug-cycle-map-wire-line (stroke), -wire-head (fill)            |
  * | --tug7-element-tone-border-normal-success-rest | --tug7-surface-card-primary-normal-well-rest     | informational | .tug-cycle-map-wire[data-met] (stroke, fill)                    |
@@ -68,6 +69,7 @@
   --tugx-cycle-map-pip-gap: 1px;
   --tugx-cycle-map-pip-width: 2px;
   --tugx-cycle-map-pip-height: 8px;
+  --tugx-cycle-map-bar-width: 14px;
   --tugx-cycle-map-dot-offset: -4px;
   --tugx-cycle-map-dot-size: 7px;
 }
@@ -170,13 +172,18 @@
 }
 
 .tug-cycle-map-tile-number {
+  flex: none;
   font-size: var(--tugx-cycle-map-number-size, 16px);
   font-weight: var(--tug-font-weight-semibold);
   line-height: 1;
 }
 
+/* The mark takes the room the number leaves, and nothing past it. */
 .tug-cycle-map-tile-mark {
-  display: inline-flex;
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  justify-content: flex-end;
   align-items: center;
 }
 
@@ -233,14 +240,22 @@
   background: var(--tug7-element-tone-fill-normal-agent-rest);
 }
 
-/* How far a running entry has got: one pip a step. */
+/* How far a running entry has got: one pip a step, sharing the mark's room.
+   Dense pips shrink toward the least readable pip, 2 px wide and 1 px apart;
+   past that the tile draws a bar instead (`tileProgress`). */
 .tug-cycle-map-pips {
-  display: inline-flex;
+  display: flex;
+  min-width: 0;
   gap: var(--tugx-cycle-map-pip-gap, 2px);
 }
 
+.tug-cycle-map-pips[data-dense] {
+  gap: 1px;
+}
+
 .tug-cycle-map-pips > span {
-  width: var(--tugx-cycle-map-pip-width, 4px);
+  flex: 0 1 var(--tugx-cycle-map-pip-width, 4px);
+  min-width: 2px;
   height: var(--tugx-cycle-map-pip-height, 10px);
   border-radius: 1px;
   background: var(--tugx-block-hairline);
@@ -252,6 +267,24 @@
 
 .tug-cycle-map-pips > span[data-pip="now"] {
   background: var(--tug7-element-tone-fill-normal-active-rest);
+}
+
+/* Too many steps for pips: one bar, filled to the same fraction. */
+.tug-cycle-map-bar {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: var(--tugx-cycle-map-bar-width, 24px);
+  height: var(--tugx-cycle-map-pip-height, 10px);
+  border-radius: 1px;
+  overflow: hidden;
+  background: var(--tugx-block-hairline);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-raised-rest */
+.tug-cycle-map-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--tug7-element-tone-fill-normal-success-rest);
 }
 
 /* ---- Seals -------------------------------------------------------------- */

@@ -718,7 +718,9 @@ pub enum CycleCommands {
     /// its number.
     ///
     /// Entries number 1, 2, 3 in the order added and are never renumbered.
-    /// A wait on an entry that does not exist, or on the new entry itself, is
+    /// Every entry names at least one sketch on the cycle it came from, so
+    /// an entry with no `--from` is refused, as is one with no brief. A wait
+    /// on an entry that does not exist, or on the new entry itself, is
     /// refused.
     AddEntry {
         /// The cycle's id.
@@ -730,22 +732,45 @@ pub enum CycleCommands {
         #[arg(long)]
         wait: Vec<u32>,
         /// The letter of a sketch on the cycle this entry came from.
-        /// Repeatable.
+        /// Required, and repeatable.
         #[arg(long)]
         from: Vec<String>,
         /// Free text, for a gate that is not an entry.
         #[arg(long)]
         note: Option<String>,
     },
+    /// Add sketch letters to an entry already on record, and print the
+    /// letters it comes from.
+    ///
+    /// It only adds: a letter already named stays where it is, and nothing
+    /// is removed or renumbered. This is how an entry written before every
+    /// entry had to name a sketch is repaired.
+    AddFrom {
+        /// The cycle's id.
+        id: String,
+        /// The entry's number.
+        n: u32,
+        /// The letter of a sketch on the cycle. Required, and repeatable.
+        #[arg(long, required = true)]
+        from: Vec<String>,
+    },
     /// Add a sketch from the sketch store and print its letter.
     ///
     /// Refused when the sketch is not in the store. A sketch already on the
     /// cycle keeps the letter it has.
+    ///
+    /// `--brief` records the brief that wrote the sketch up, when that brief
+    /// led to further briefs and has no arc of its own. A sketch that carries
+    /// none takes it; one that carries a different brief refuses.
     AddSketch {
         /// The cycle's id.
         id: String,
         /// The sketch's id: eight hex characters.
         sketch: String,
+        /// The brief that wrote the sketch up, relative to the project root
+        /// or absolute inside the checkout.
+        #[arg(long)]
+        brief: Option<String>,
     },
     /// Tie entry `n` to the arc's current generation.
     ///
@@ -770,23 +795,25 @@ pub enum CycleCommands {
         #[arg(long)]
         name: String,
     },
-    /// Print the cycle id and entry number that hold a brief in this
-    /// checkout, or nothing when no entry does.
+    /// Print the cycle that holds a brief or a sketch in this checkout: its
+    /// id and the entry number that holds the brief, or the letter of the
+    /// sketch (the one named, or the one the brief wrote up). Nothing when
+    /// no cycle holds it.
     ///
-    /// Exits 0 either way. The most recently changed cycle is asked first.
+    /// Exits 0 either way. The most recently changed cycle is asked first,
+    /// and within a cycle an entry answers before a sketch.
     Find {
         /// The brief's path, relative to the project root or absolute
         /// inside the checkout.
+        #[arg(long, required_unless_present = "sketch", conflicts_with = "sketch")]
+        brief: Option<String>,
+        /// A sketch's id, as `tugtool sketch record` printed it.
         #[arg(long)]
-        brief: String,
+        sketch: Option<String>,
     },
     /// List this checkout's cycles, the most recently changed first, each
     /// with how many of its entries have landed.
-    List {
-        /// Only the cycles the calling session created.
-        #[arg(long)]
-        mine: bool,
-    },
+    List,
     /// Print a cycle with every entry's state.
     ///
     /// Read-only. Scans every checkout's cycles on this machine, so it needs
@@ -795,6 +822,13 @@ pub enum CycleCommands {
         /// The cycle's id: eight hex characters.
         id: String,
     },
+    /// List every cycle on this machine that breaks the chain: an entry
+    /// with no brief or no sketch, a letter the cycle does not have, a sketch
+    /// gone from the store, or an arc carried by more than one entry.
+    ///
+    /// Read-only, and needs no repository. Exits 0 when every record is
+    /// whole, and 1 when any breaks.
+    Check,
 }
 
 #[derive(Subcommand)]

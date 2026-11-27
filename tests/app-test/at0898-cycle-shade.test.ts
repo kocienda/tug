@@ -1,22 +1,27 @@
 /**
- * at0898-cycle-shade.test.ts — the cycle shade and the CYCLE cell, for a
+ * at0898-cycle-shade.test.ts — the cycle shade and the CYCLE & ARC cell, for a
  * session working one arc of a cycle of several entries.
  *
- * The cycle is made through `tugtool cycle` in a scratch project: three
- * entries, the second and third waiting on the first, and the first carried
- * by the arc the session is bound to. What is read:
+ * The cycle is made through `tugtool cycle` in a scratch project: one
+ * sketch, A, and three entries from it, the second and third waiting on the
+ * first, and the first carried by the arc the session is bound to. What is
+ * read:
  *
- *   1. The status row's fourth cell is labelled CYCLE and reads how many
- *      entries have landed of how many there are.
+ *   1. The status row's fourth cell is labelled CYCLE & ARC and shows two
+ *      readings: how many entries have landed of how many there are, and
+ *      beside it the bound arc's own reading. Both stay inside the cell.
  *   2. A press on the cell raises the shade in its several-entry form: the
- *      cycle's name, the map, a list of one asset per entry, and the
- *      two-line footer where Done would stand. The key view is on the
+ *      cycle's name, the map, a list of the sketch and one asset per entry,
+ *      and the two-line footer where Done would stand. The key view is on the
  *      header's lowering control.
  *   3. A press on a map tile brings that entry's asset to the top of the
  *      list. The list stays whole and the map does not move.
  *   4. A shift-press on a second tile narrows the list to the two chosen
  *      entries under a Back bar, and Back makes the list whole again.
  *   5. Nothing in the shade starts anything: it holds no Start control.
+ *   6. The list is the shade's one vertical scroller: a running entry's steps
+ *      are laid out in full inside it, so every popup list set into an asset
+ *      scrolls nothing of its own.
  *
  * @covers tugdeck/src/components/tugways/cards/session-cycle-shade.tsx
  * @covers tugdeck/src/components/tugways/cards/session-cycle-shade.css
@@ -45,6 +50,7 @@ import {
   bindArc,
   createArc,
   makeArcScratchRepo,
+  recordStampedPlan,
   rmArcScratchRepo,
   rmScratchSession,
   seedScratchSession,
@@ -95,11 +101,21 @@ beforeAll(() => {
     },
   });
   fixtureDir = seedScratchSession(projectDir(), SID);
-  createArc(projectDir(), ARC_NAME, "at0898 fixture", scratch.cli);
+  const arc = createArc(projectDir(), ARC_NAME, "at0898 fixture", scratch.cli);
+  // Three steps, the first open, so the running entry draws its steps.
+  recordStampedPlan(projectDir(), ARC_NAME, arc.worktree, { ...scratch.cli, rows: 3 });
   const id = cycle("create", "--name", CYCLE_NAME);
-  cycle("add-entry", id, "--brief", "briefs/first.md");
-  cycle("add-entry", id, "--brief", "briefs/second.md", "--wait", "1");
-  cycle("add-entry", id, "--brief", "briefs/third.md", "--wait", "1");
+  // `sketch record` prints "sketch <id> v1 (minted)"; the id is its second word.
+  const recorded = tugtool(["sketch", "record"], {
+    cwd: projectDir(),
+    binaryRoot: scratch.cli.binaryRoot,
+    env: scratch.cli.env,
+    stdin: "# Sketch\n\nShow the cycle the session works in.\n",
+  }).trim();
+  cycle("add-sketch", id, recorded.split(/\s+/)[1] ?? "");
+  cycle("add-entry", id, "--brief", "briefs/first.md", "--from", "A");
+  cycle("add-entry", id, "--brief", "briefs/second.md", "--wait", "1", "--from", "A");
+  cycle("add-entry", id, "--brief", "briefs/third.md", "--wait", "1", "--from", "A");
   cycle("attach", id, "1", ARC_NAME);
 });
 
@@ -127,6 +143,13 @@ interface ShadeReading {
   narrowed: boolean;
   footerLines: string[];
   buttons: string[];
+  /**
+   * The buttons that are the shade's own, leaving out the bound arc's verbs
+   * in its entry: those are the arc's transport, kept so the arc can be
+   * stopped and landed from its entry, and a stopped arc's verbs include its
+   * own Start. The shade itself starts no entry.
+   */
+  shadeButtons: string[];
   keyViewLabel: string | null;
 }
 
@@ -167,6 +190,9 @@ const read = (app: App): Promise<ShadeReading> =>
          buttons: Array.from(shade.querySelectorAll("button")).map(
            (el) => (text(el) + " " + (el.getAttribute("aria-label") ?? "")).trim(),
          ),
+         shadeButtons: Array.from(shade.querySelectorAll("button"))
+           .filter((el) => el.closest('[data-slot="session-cycle-shade-here"]') === null)
+           .map((el) => (text(el) + " " + (el.getAttribute("aria-label") ?? "")).trim()),
          keyViewLabel: keyView !== null && shade.contains(keyView) ? keyView.getAttribute("aria-label") : null,
        };
      })()`,
@@ -208,27 +234,45 @@ describe.skipIf(!SHOULD_RUN)("AT0898: the cycle shade and the CYCLE cell", () =>
           env: scratch?.cli.env,
         });
 
-        // ── The cell: CYCLE, and landed of total ──────────────────────────
+        // ── The cell: CYCLE & ARC, landed of total, and the arc's reading ─
         await app.body("A").waitForCondition<boolean>(
-          `(document.querySelector(${JSON.stringify(CELL)})?.querySelector('[data-slot="session-telemetry-arc-value"]')?.textContent ?? "").trim() === "0/3"`,
+          `(() => {
+             const value = document.querySelector(${JSON.stringify(CELL)})?.querySelector('[data-slot="session-telemetry-arc-value"]');
+             return (value?.querySelector('[data-slot="session-telemetry-cycle-fraction"]')?.textContent ?? "").trim() === "0/3"
+               && (value?.querySelector('[data-slot="session-telemetry-arc-reading"]')?.textContent ?? "").trim() !== "";
+           })()`,
           { timeoutMs: 30_000 },
         );
-        const cell = await app.body("A").evalJS<{ label: string; value: string; aria: string | null }>(
+        const cell = await app.body("A").evalJS<{
+          label: string;
+          cycle: string;
+          arc: string;
+          aria: string | null;
+          pairRight: number;
+          cellRight: number;
+        }>(
           `(() => {
              const cell = document.querySelector(${JSON.stringify(CELL)});
              const value = cell.querySelector('[data-slot="session-telemetry-arc-value"]');
+             const pair = value?.querySelector(".session-telemetry-cycle-arc-pair");
              return {
                label: (cell.querySelector(".session-telemetry-endcap-label")?.textContent ?? "").trim(),
-               value: (value?.textContent ?? "").trim(),
+               cycle: (value?.querySelector('[data-slot="session-telemetry-cycle-fraction"]')?.textContent ?? "").trim(),
+               arc: (value?.querySelector('[data-slot="session-telemetry-arc-reading"]')?.textContent ?? "").trim(),
                aria: value?.getAttribute("aria-label") ?? null,
+               pairRight: pair?.getBoundingClientRect().right ?? Infinity,
+               cellRight: cell.getBoundingClientRect().right,
              };
            })()`,
         );
         note("at0898 cell", JSON.stringify(cell));
-        expect(cell.label, "the cell is labelled CYCLE").toBe("CYCLE");
-        expect(cell.value, "and reads landed of total").toBe("0/3");
+        expect(cell.label, "the cell is labelled CYCLE & ARC").toBe("CYCLE & ARC");
+        expect(cell.cycle, "its first reading is landed of total").toBe("0/3");
+        expect(cell.arc, "and its second is the bound arc's own reading").not.toBe("");
+        expect(cell.pairRight, "both readings stay inside the cell").toBeLessThanOrEqual(cell.cellRight + 0.5);
         expect(cell.aria, "its accessible label names the cycle").toContain(CYCLE_NAME);
         expect(cell.aria, "and how much has landed").toContain("0 of 3 landed");
+        expect(cell.aria, "and the session's own arc").toContain(`arc ${ARC_NAME}`);
 
         // ── The shade, raised by the cell ─────────────────────────────────
         await app.body("A").click(CELL);
@@ -249,15 +293,44 @@ describe.skipIf(!SHOULD_RUN)("AT0898: the cycle shade and the CYCLE cell", () =>
         expect(rest.name, "it names the cycle").toBe(CYCLE_NAME);
         expect(rest.landed, "and says how much has landed").toContain("0");
         expect(rest.mapHeight, "the map is drawn").toBeGreaterThan(0);
-        expect(rest.assets, "the list holds one asset per entry").toEqual(["e1", "e2", "e3"]);
+        expect(rest.assets, "the list holds the sketch and one asset per entry").toEqual(["sA", "e1", "e2", "e3"]);
         expect(rest.footerLines, "the two-line footer stands under the list").toEqual(["now", "next"]);
         expect(rest.frameHead, "the frame draws no header of its own").toBe(false);
         expect(rest.frameFoot, "and no Done footer").toBe(false);
         expect(rest.back, "a whole list has no Back bar").toBe(false);
         expect(rest.keyViewLabel, "the key view is on the lowering control").toBe("Lower the cycle");
         expect(
-          rest.buttons.filter((b) => /start/i.test(b)),
+          rest.shadeButtons.filter((b) => /start/i.test(b)),
           "the shade holds no Start control",
+        ).toEqual([]);
+
+        // ── The list is the one scroller ──────────────────────────────────
+        const inner = await app.body("A").evalJS<{ lists: number; overflows: string[]; where: string[] }>(
+          `(() => {
+             const body = document.querySelector(${JSON.stringify(BODY)});
+             const lists = Array.from(body.querySelectorAll('[data-slot="tug-popup-list"]'));
+             const scrollers = Array.from(body.querySelectorAll(".tug-popup-list-scroller"));
+             return {
+               lists: lists.length,
+               overflows: scrollers.map((el) => getComputedStyle(el).overflowY),
+               // For a failure to read: each scroller's slot, its frame's layout, and its heights.
+               where: scrollers.map((el) =>
+                 [
+                   el.getAttribute("data-slot") ?? "-",
+                   el.parentElement?.getAttribute("data-layout") ?? "no-layout",
+                   el.parentElement?.getAttribute("data-slot") ?? "-",
+                   getComputedStyle(el).maxHeight,
+                   el.scrollHeight + "/" + el.clientHeight,
+                 ].join(" "),
+               ),
+             };
+           })()`,
+        );
+        note("at0898 popup lists in the shade", JSON.stringify(inner));
+        expect(inner.lists, "the running entry's body is drawn in the list").toBeGreaterThan(0);
+        expect(
+          inner.overflows.filter((o) => o !== "visible"),
+          "no popup list inside an asset scrolls on its own",
         ).toEqual([]);
 
         // ── A press on the map brings the asset to the list's top ─────────
@@ -266,7 +339,7 @@ describe.skipIf(!SHOULD_RUN)("AT0898: the cycle shade and the CYCLE cell", () =>
         const picked = await read(app);
         note("at0898 one tile pressed", JSON.stringify(picked));
         expect(picked.chosenTiles, "the pressed tile is chosen").toEqual(["3"]);
-        expect(picked.assets, "one chosen entry leaves the list whole").toEqual(["e1", "e2", "e3"]);
+        expect(picked.assets, "one chosen entry leaves the list whole").toEqual(["sA", "e1", "e2", "e3"]);
         expect(Math.abs(picked.offsets.e3 ?? 99), "its asset is at the top of the list").toBeLessThanOrEqual(2);
         expect(picked.back).toBe(false);
         expect(picked.mapTop, "the map did not move").toBe(rest.mapTop);
@@ -291,7 +364,7 @@ describe.skipIf(!SHOULD_RUN)("AT0898: the cycle shade and the CYCLE cell", () =>
         expect(narrowed.narrowed).toBe(true);
         expect(narrowed.mapTop, "the map did not move").toBe(rest.mapTop);
         expect(
-          narrowed.buttons.filter((b) => /start/i.test(b)),
+          narrowed.shadeButtons.filter((b) => /start/i.test(b)),
           "narrowed, there is still no Start control",
         ).toEqual([]);
 
@@ -302,7 +375,7 @@ describe.skipIf(!SHOULD_RUN)("AT0898: the cycle shade and the CYCLE cell", () =>
           { timeoutMs: 8_000 },
         );
         const whole = await read(app);
-        expect(whole.assets, "Back shows every entry").toEqual(["e1", "e2", "e3"]);
+        expect(whole.assets, "Back shows every asset").toEqual(["sA", "e1", "e2", "e3"]);
         expect(whole.chosenTiles, "and clears what was chosen").toEqual([]);
       } finally {
         await app.close();

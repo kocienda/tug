@@ -290,6 +290,25 @@ describe("the header and the footer", () => {
     const s = summaryOf(GOLDEN);
     expect(s.now).toEqual({ kind: "text", text: "No arc in this session" });
     expect(s.elsewhere).toBe(1);
+    // The footer names the session that work runs in, with its chip.
+    expect(s.elsewhereSessions.map((x) => x.id)).toEqual([GOLDEN.entries[1]!.bound_session!]);
+  });
+
+  test("the footer names each other session once, in entry order", () => {
+    const two = cycle([
+      entry(1, "running", { owner_id: "tugarc/a#1", bound_session: "sess-a", bound_callsign: "able-ant" }),
+      entry(2, "running", { owner_id: "tugarc/b#1", bound_session: "sess-b" }),
+      entry(3, "running", { owner_id: "tugarc/c#1", bound_session: "sess-a", bound_callsign: "able-ant" }),
+    ]);
+    const s = summaryOf(two);
+    expect(s.elsewhere).toBe(3);
+    expect(s.elsewhereSessions).toEqual([
+      { id: "sess-a", tag: "able-ant" },
+      { id: "sess-b", tag: null },
+    ]);
+    expect(summaryOf(two, { sessionId: "sess-a", boundOwnerId: null }).elsewhereSessions).toEqual([
+      { id: "sess-b", tag: null },
+    ]);
   });
 
   test("midway with nothing ready: nothing until an arc lands", () => {
@@ -351,22 +370,19 @@ describe("a cycle of one whose arc is not this session's", () => {
 });
 
 describe("the cell's reading", () => {
-  test("several entries read the fraction and name the cycle", () => {
-    expect(cycleCellReading(GOLDEN, true)).toEqual({
-      kind: "fraction",
+  test("a cycle reads landed over its entries and names the cycle", () => {
+    expect(cycleCellReading(GOLDEN)).toEqual({
       text: "1/4",
       label: "cycle Arc hardening, 1 of 4 landed",
     });
-    expect(cycleCellReading(GOLDEN, false).kind).toBe("fraction");
   });
 
-  test("one entry, or an arc with no cycle, reads as the arc does", () => {
-    expect(cycleCellReading(cycle([entry(1, "running")]), true)).toEqual({ kind: "arc" });
-    expect(cycleCellReading(null, true)).toEqual({ kind: "arc" });
+  test("a cycle of one reads 0/1 or 1/1 like any other", () => {
+    expect(cycleCellReading(cycle([entry(1, "running")]))?.text).toBe("0/1");
+    expect(cycleCellReading(cycle([entry(1, "joined")], { landed: 1 }))?.text).toBe("1/1");
   });
 
-  test("no cycle of several and no arc reads None", () => {
-    expect(cycleCellReading(null, false)).toEqual({ kind: "none" });
-    expect(cycleCellReading(cycle([entry(1, "ready")]), false)).toEqual({ kind: "none" });
+  test("no cycle has no cycle fraction, whatever the arc", () => {
+    expect(cycleCellReading(null)).toBeNull();
   });
 });

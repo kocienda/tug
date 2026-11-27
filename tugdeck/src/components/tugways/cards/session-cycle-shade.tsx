@@ -263,7 +263,7 @@ function EntryAsset({
         </div>
       ) : entry.state === "running" && row !== null && steps.length > 0 ? (
         <div className="session-cycle-shade-steps" data-slot="session-cycle-shade-steps">
-          <TugPopupListFrame kind="item">
+          <TugPopupListFrame kind="item" layout="inline">
             <TugPopupListScroller>
               <ArcStepItems steps={steps} live={arcTrackModelFromEntry(row).live} />
             </TugPopupListScroller>
@@ -278,7 +278,7 @@ function EntryAsset({
 
 /** Two lines: what this session is doing now, and what is ready next. */
 function Footer({ summary }: { summary: CycleShadeSummary }): React.ReactElement {
-  const { now, next, elsewhere } = summary;
+  const { now, next, elsewhere, elsewhereSessions } = summary;
   const nowRow = now.kind === "entry" ? now.entry.row : null;
   return (
     <div className="session-cycle-shade-footer" data-slot="session-cycle-shade-footer">
@@ -302,7 +302,20 @@ function Footer({ summary }: { summary: CycleShadeSummary }): React.ReactElement
         <span className="session-cycle-shade-spacer" />
         {elsewhere > 0 ? (
           <span className="session-cycle-shade-footer-else">
-            {elsewhere === 1 ? "1 more in another session" : `${elsewhere} more in other sessions`}
+            {elsewhereSessions.length === 0 ? (
+              elsewhere === 1 ? (
+                "1 more in another session"
+              ) : (
+                `${elsewhere} more in other sessions`
+              )
+            ) : (
+              <>
+                <span>{`${elsewhere} more in`}</span>
+                {elsewhereSessions.map((s) => (
+                  <SessionCitation key={s.id} citedId={s.id} recordedTag={s.tag} />
+                ))}
+              </>
+            )}
           </span>
         ) : null}
       </div>

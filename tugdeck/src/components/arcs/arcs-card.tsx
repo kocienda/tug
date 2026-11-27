@@ -147,6 +147,7 @@ import {
   type ArcTrackModel,
 } from "@/components/tugways/tug-arc-track";
 import { arcBranchFacts } from "@/lib/arc-meta-facts";
+import { parseArcRecord } from "@/lib/arc-record-text";
 import { documentArcTrackModel } from "@/lib/document-arc-entry";
 import { ArcJoinRegisterView } from "@/components/tugways/arc-join-register";
 import {
@@ -209,7 +210,6 @@ import {
   NO_CYCLE_VIEW,
   pressCycleMap,
   pressCycleRow,
-  pressCycleSingle,
   projectArcsCard,
   type ArcRow,
   type ArcsCardItem,
@@ -1107,8 +1107,6 @@ interface CycleEntryProps {
   cycleId: string;
   row: CycleEntryRow;
   open: boolean;
-  /** False for a cycle of one, whose single entry needs no number. */
-  numbered: boolean;
 }
 
 /**
@@ -1124,7 +1122,6 @@ function CycleEntryView({
   cycleId,
   row,
   open,
-  numbered,
   model,
   under,
   onContextMenu,
@@ -1180,11 +1177,9 @@ function CycleEntryView({
       data-open={open ? "true" : undefined}
       onContextMenu={onContextMenu}
       leading={
-        numbered ? (
-          <span className="arcs-cycle-number" data-slot="arcs-cycle-number">
-            {entry.n}
-          </span>
-        ) : undefined
+        <span className="arcs-cycle-number" data-slot="arcs-cycle-number">
+          {entry.n}
+        </span>
       }
       trailing={
         <CycleEntryMark
@@ -1210,6 +1205,12 @@ function CycleEntryView({
               // frame, so the entry and the arc cannot disagree.
               <span className="arcs-steps" data-slot="arcs-cycle-steps">
                 <ArcStepItems steps={steps} live={model?.live ?? true} />
+              </span>
+            ) : state === "joined" ? (
+              // The badge already says Joined; the open row says what that
+              // left behind, in the shade's words.
+              <span className="arcs-cycle-line" data-slot="arcs-cycle-landed">
+                Landed. Its rounds and commit stay on record.
               </span>
             ) : (
               <span className="arcs-cycle-line" data-slot="arcs-cycle-sentence">
@@ -1333,7 +1334,19 @@ function CycleSketchRowView({
         <span className="arcs-cycle-title">{`Sketch ${sketch.letter}`}</span>
         {open ? (
           <span className="arcs-cycle-sketch-text" data-slot="arcs-cycle-sketch-text">
-            {text !== "" ? text : "No text on record."}
+            {text.trim() !== ""
+              ? parseArcRecord(text).map((block, index) =>
+                  block.kind === "paragraph" ? (
+                    <p key={index}>{block.text}</p>
+                  ) : (
+                    <ul key={index}>
+                      {block.items.map((item, at) => (
+                        <li key={at}>{item}</li>
+                      ))}
+                    </ul>
+                  ),
+                )
+              : "No text on record."}
           </span>
         ) : sketch.want !== "" ? (
           <span className="arcs-cycle-want">{sketch.want}</span>
@@ -1356,31 +1369,13 @@ const CycleAssetCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
       open={item.open}
     />
   ) : (
-    <CycleEntry cycleId={item.section.id} row={item.asset.row} open={item.open} numbered />
-  );
-};
-
-/** A cycle of one entry: that entry's row, with no pin, map or number. */
-const CycleSingleCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
-  index,
-  dataSource,
-}: TugListViewCellProps<CockpitRowsDataSource>) => {
-  const item = dataSource.items[index];
-  if (item?.kind !== "cycle-single") return null;
-  return (
-    <CycleEntry
-      cycleId={item.single.id}
-      row={item.single.row}
-      open={item.open}
-      numbered={false}
-    />
+    <CycleEntry cycleId={item.section.id} row={item.asset.row} open={item.open} />
   );
 };
 
 const ARC_CELL_RENDERERS = {
   "cycle-pin": CyclePinCell,
   "cycle-asset": CycleAssetCell,
-  "cycle-single": CycleSingleCell,
   arc: ArcCell,
   plan: PlanCell,
 };
@@ -1680,9 +1675,6 @@ function ArcsBody(): React.ReactElement {
         // it is the link to the session.
         case "cycle-asset":
           setView((was) => pressCycleRow(was, item.section.id, item.asset.key));
-          return;
-        case "cycle-single":
-          setView((was) => pressCycleSingle(was, item.single));
           return;
         default:
           // A plan row has no room to open.

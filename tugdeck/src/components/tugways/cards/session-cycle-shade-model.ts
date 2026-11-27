@@ -282,6 +282,8 @@ export interface CycleShadeSummary {
   now: CycleNowLine;
   /** How many entries run in other sessions. */
   elsewhere: number;
+  /** The sessions those entries run in, each once, in entry order: the footer's chips. */
+  elsewhereSessions: readonly { id: string; tag: string | null }[];
   /** The first ready entry, or why there is none. */
   next: CycleNextLine;
 }
@@ -311,6 +313,11 @@ export function cycleShadeSummary(cycle: CycleWire, entries: readonly CycleShade
         ? { kind: "entry", entry: current }
         : { kind: "text", text: atRest ? `At rest, ${landedText}` : "No arc in this session" },
     elsewhere: entries.filter((e) => e.where === "elsewhere").length,
+    elsewhereSessions: entries.reduce<{ id: string; tag: string | null }[]>((sessions, e) => {
+      const id = e.entry.bound_session;
+      if (e.where !== "elsewhere" || id === undefined || sessions.some((s) => s.id === id)) return sessions;
+      return [...sessions, { id, tag: e.entry.bound_callsign ?? null }];
+    }, []),
     next:
       first !== undefined
         ? { kind: "entry", entry: first, note: first.entry.note ?? null, more: ready.length - 1 }
@@ -357,29 +364,35 @@ export function cycleEntrySketchText(cycle: CycleWire, entry: CycleEntryWire): s
 }
 
 // ---------------------------------------------------------------------------
-// The CYCLE cell
+// The CYCLE & ARC cell
 // ---------------------------------------------------------------------------
 
 /**
- * What the status cell reads: a cycle of several entries as its fraction; a
- * cycle of one, or an arc with no cycle, as the arc's own reading; neither
- * as `None`. `arc` and `none` leave the words to the cell, which already has
- * them.
+ * The cycle's half of the CYCLE & ARC cell: how many of its entries have
+ * landed of how many there are, and the sentence a screen reader hears for
+ * it. Every cycle has one, a cycle of one included, which reads 0/1 or 1/1.
+ * The arc's half is the cell's own reading of this session's arc, which
+ * stands beside this one whenever the session has an arc; a session with
+ * neither reads `None`.
  */
-export type CycleCellReading =
-  | { kind: "fraction"; text: string; label: string }
-  | { kind: "arc" }
-  | { kind: "none" };
+export interface CycleCellReading {
+  text: string;
+  label: string;
+}
 
-/** The cell's reading for the cycle a card shows and whether it has an arc. */
-export function cycleCellReading(cycle: CycleWire | null, hasArc: boolean): CycleCellReading {
-  if (cycle !== null && cycle.entries.length >= 2) {
-    const total = cycle.entries.length;
-    return {
-      kind: "fraction",
-      text: `${cycle.landed}/${total}`,
-      label: `cycle ${cycle.name}, ${cycleLandedText(cycle.landed, total)}`,
-    };
-  }
-  return hasArc ? { kind: "arc" } : { kind: "none" };
+/**
+ * The widest cycle fraction the cell sizes its box for. Digits are
+ * `tabular-nums`, so the shape is what matters; a cycle past nine entries
+ * reads wider, and no cycle has one.
+ */
+export const CYCLE_CELL_WIDEST_FRACTION = "0/0";
+
+/** The cycle's fraction for the cycle a card shows, or null with no cycle. */
+export function cycleCellReading(cycle: CycleWire | null): CycleCellReading | null {
+  if (cycle === null || cycle.entries.length === 0) return null;
+  const total = cycle.entries.length;
+  return {
+    text: `${cycle.landed}/${total}`,
+    label: `cycle ${cycle.name}, ${cycleLandedText(cycle.landed, total)}`,
+  };
 }

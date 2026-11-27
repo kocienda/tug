@@ -65,6 +65,11 @@ pub struct CycleEntry {
 pub struct CycleSketch {
     pub letter: String,
     pub id: String,
+    /// The brief that wrote this sketch up, when that brief led to further
+    /// briefs and has no arc of its own. It is a link to the sketch, never
+    /// an entry: an entry with no arc would read as ready forever.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brief: Option<String>,
     pub added: String,
 }
 
@@ -163,12 +168,28 @@ pub fn rename_cycle(
     Ok(record)
 }
 
-/// The entry in this checkout that holds brief `brief`, named relative to the
-/// project root, as `(cycle id, entry number)`.
+/// Where a brief sits on a cycle: an entry that holds it, or a sketch it
+/// wrote up.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct BriefFound {
+    /// The cycle's id.
+    pub id: String,
+    /// The entry that holds the brief, when one does.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub n: Option<u32>,
+    /// The letter of the sketch the brief wrote up, when no entry holds it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub letter: Option<String>,
+}
+
+/// The cycle in this checkout that holds brief `brief`, named relative to
+/// the project root: through an entry that holds it, or through a sketch
+/// that carries it as the brief that wrote it up.
 ///
-/// The most recently changed cycle is asked first, and within a cycle the
-/// earliest entry. `None` when no entry holds the brief.
-pub fn find_entry_by_brief(paths: &Paths, repo: &Path, brief: &str) -> Option<(String, u32)> {
+/// The most recently changed cycle is asked first. Within a cycle the
+/// earliest entry answers, and a sketch only when no entry holds the brief.
+/// `None` when neither does on any cycle.
+pub fn find_by_brief(paths: &Paths, repo: &Path, brief: &str) -> Option<BriefFound> {
     let wanted = normal_brief(brief);
     if wanted.is_empty() {
         return None;
@@ -179,18 +200,47 @@ pub fn find_entry_by_brief(paths: &Paths, repo: &Path, brief: &str) -> Option<(S
             .iter()
             .filter(|e| normal_brief(&e.brief) == wanted)
             .map(|e| e.n)
-            .min()?;
-        Some((record.id, n))
+            .min();
+        let letter = || {
+            record
+                .sketches
+                .iter()
+                .find(|s| s.brief.as_deref().map(normal_brief) == Some(wanted))
+                .map(|s| s.letter.clone())
+        };
+        let (n, letter) = match n {
+            Some(n) => (Some(n), None),
+            None => (None, Some(letter()?)),
+        };
+        Some(BriefFound {
+            id: record.id.clone(),
+            n,
+            letter,
+        })
     })
 }
 
-/// This checkout's cycles that session `writer` created, the most recently
-/// changed first. A cycle that recorded no writer belongs to nobody.
-pub fn cycles_by(paths: &Paths, repo: &Path, writer: &str) -> Vec<CycleRecord> {
-    cycles(paths, repo)
-        .into_iter()
-        .filter(|record| record.created_by.as_deref() == Some(writer))
-        .collect()
+/// The cycle in this checkout that holds sketch `sketch_id`, with the
+/// letter it holds it under, the most recently changed cycle first. This is
+/// how a brief finds its cycle from the sketch it comes from, never from the
+/// session that writes it.
+pub fn find_by_sketch(paths: &Paths, repo: &Path, sketch_id: &str) -> Option<BriefFound> {
+    let wanted = sketch_id.trim();
+    if wanted.is_empty() {
+        return None;
+    }
+    cycles(paths, repo).into_iter().find_map(|record| {
+        let letter = record
+            .sketches
+            .iter()
+            .find(|s| s.id == wanted)
+            .map(|s| s.letter.clone())?;
+        Some(BriefFound {
+            id: record.id.clone(),
+            n: None,
+            letter: Some(letter),
+        })
+    })
 }
 
 /// A brief path in the one spelling entries are compared in: trimmed, with
@@ -205,21 +255,15 @@ fn normal_brief(brief: &str) -> &str {
 
 /// Add an entry to cycle `id` and return its number.
 ///
-/// Refused when the brief path is empty or absolute, when a wait names an
-/// entry that does not exist, and when a `from` letter names no sketch on the
-/// cycle. A wait can only name an entry already there, so a new entry cannot
-/// close a loop; the whole graph is checked all the same.
+/// Refused when the brief path is empty or absolute, when the entry names no
+/// sketch it came from, when a wait names an entry that does not exist, and
+/// when a `from` letter names no sketch on the cycle. Every link of the chain
+/// is refused here, by the record's one writer ([L40]), so no skill has to
+/// remember it. A wait can only name an entry already there, so a new entry
+/// cannot close a loop; the whole graph is checked all the same.
 pub fn add_entry(paths: &Paths, repo: &Path, id: &str, entry: NewEntry) -> Result<u32, ArcError> {
     let mut record = load(paths, repo, id)?;
-    let brief = entry.brief.trim();
-    if brief.is_empty() {
-        return Err(ArcError::Refused("an entry needs a brief".into()));
-    }
-    if Path::new(brief).is_absolute() {
-        return Err(ArcError::Refused(format!(
-            "the brief is named relative to the project root, not as {brief}"
-        )));
-    }
+    let brief = relative_brief(&entry.brief)?;
     let n = record.entries.iter().map(|e| e.n).max().unwrap_or(0) + 1;
     let mut waits: Vec<u32> = Vec::new();
     for w in entry.waits {
@@ -238,16 +282,11 @@ pub fn add_entry(paths: &Paths, repo: &Path, id: &str, entry: NewEntry) -> Resul
         }
     }
     let mut from: Vec<String> = Vec::new();
-    for letter in entry.from {
-        let letter = letter.trim().to_ascii_uppercase();
-        if !record.sketches.iter().any(|s| s.letter == letter) {
-            return Err(ArcError::Refused(format!(
-                "cycle {id} has no sketch {letter}"
-            )));
-        }
-        if !from.contains(&letter) {
-            from.push(letter);
-        }
+    merge_letters(&record, &mut from, entry.from)?;
+    if from.is_empty() {
+        return Err(ArcError::Refused(format!(
+            "an entry needs the sketch it came from: add one to cycle {id} and name its letter"
+        )));
     }
     let mut entries = record.entries.clone();
     entries.push(CycleEntry {
@@ -272,17 +311,110 @@ pub fn add_entry(paths: &Paths, repo: &Path, id: &str, entry: NewEntry) -> Resul
     Ok(n)
 }
 
+/// Add `letters` to the sketches entry `n` of cycle `id` came from, and
+/// return the entry's letters as written.
+///
+/// It only adds: a letter already named is kept where it is, nothing is
+/// removed, and nothing is renumbered. Refused when no letter is given, when
+/// the cycle has no entry `n`, and when a letter names no sketch on the
+/// cycle. This is how an entry written before every entry had to name a
+/// sketch is repaired.
+pub fn add_from(
+    paths: &Paths,
+    repo: &Path,
+    id: &str,
+    n: u32,
+    letters: Vec<String>,
+) -> Result<Vec<String>, ArcError> {
+    let mut record = load(paths, repo, id)?;
+    if letters.iter().all(|l| l.trim().is_empty()) {
+        return Err(ArcError::Refused(
+            "name the letter of a sketch to add".into(),
+        ));
+    }
+    let Some(at) = record.entries.iter().position(|e| e.n == n) else {
+        return Err(ArcError::Refused(format!("cycle {id} has no entry {n}")));
+    };
+    let mut from = record.entries[at].from.clone();
+    merge_letters(&record, &mut from, letters)?;
+    if from != record.entries[at].from {
+        record.entries[at].from = from.clone();
+        save(&mut record)?;
+    }
+    Ok(from)
+}
+
+/// Append each of `letters`, normalized, to `from`, keeping one of each.
+/// Refused when a letter names no sketch on `record`.
+fn merge_letters(
+    record: &CycleRecord,
+    from: &mut Vec<String>,
+    letters: Vec<String>,
+) -> Result<(), ArcError> {
+    for letter in letters {
+        let letter = letter.trim().to_ascii_uppercase();
+        if letter.is_empty() {
+            continue;
+        }
+        if !record.sketches.iter().any(|s| s.letter == letter) {
+            return Err(ArcError::Refused(format!(
+                "cycle {} has no sketch {letter}",
+                record.id
+            )));
+        }
+        if !from.contains(&letter) {
+            from.push(letter);
+        }
+    }
+    Ok(())
+}
+
+/// A brief path as the record keeps it: trimmed, relative to the project
+/// root. Refused when empty or absolute.
+fn relative_brief(brief: &str) -> Result<String, ArcError> {
+    let brief = normal_brief(brief);
+    if brief.is_empty() {
+        return Err(ArcError::Refused("an entry needs a brief".into()));
+    }
+    if Path::new(brief).is_absolute() {
+        return Err(ArcError::Refused(format!(
+            "the brief is named relative to the project root, not as {brief}"
+        )));
+    }
+    Ok(brief.to_string())
+}
+
 /// Add sketch `sketch_id` from the sketch store to cycle `id` and return its
 /// letter. A sketch already on the cycle keeps the letter it has.
+///
+/// `brief` is the brief that wrote the sketch up, when that brief has no arc
+/// of its own. It is added to a sketch that carries none; the brief a sketch
+/// already carries is never replaced, so naming a different one is refused.
 pub fn add_sketch(
     paths: &Paths,
     repo: &Path,
     id: &str,
     sketch_id: &str,
+    brief: Option<&str>,
 ) -> Result<String, ArcError> {
     let mut record = load(paths, repo, id)?;
-    if let Some(s) = record.sketches.iter().find(|s| s.id == sketch_id) {
-        return Ok(s.letter.clone());
+    let brief = brief.map(relative_brief).transpose()?;
+    if let Some(at) = record.sketches.iter().position(|s| s.id == sketch_id) {
+        let letter = record.sketches[at].letter.clone();
+        match (&record.sketches[at].brief, brief) {
+            (_, None) => {}
+            (Some(held), Some(given)) if *held == given => {}
+            (Some(held), Some(_)) => {
+                return Err(ArcError::Refused(format!(
+                    "sketch {letter} already carries the brief {held}"
+                )));
+            }
+            (None, Some(given)) => {
+                record.sketches[at].brief = Some(given);
+                save(&mut record)?;
+            }
+        }
+        return Ok(letter);
     }
     if find_sketch(paths, sketch_id).is_empty() {
         return Err(ArcError::Refused(format!(
@@ -293,6 +425,7 @@ pub fn add_sketch(
     record.sketches.push(CycleSketch {
         letter: letter.clone(),
         id: sketch_id.to_string(),
+        brief,
         added: now_iso8601(),
     });
     save(&mut record)?;
@@ -379,6 +512,123 @@ pub fn cycles(paths: &Paths, repo: &Path) -> Vec<CycleRecord> {
         .collect();
     all.sort_by(|a, b| b.updated.cmp(&a.updated).then_with(|| a.id.cmp(&b.id)));
     all
+}
+
+/// Every cycle on this machine, in every checkout's store, ordered by
+/// checkout and then by id.
+pub fn all_cycles(paths: &Paths) -> Vec<CycleRecord> {
+    let projects = paths.base_data_dir.join("projects");
+    let Ok(read) = fs::read_dir(&projects) else {
+        return Vec::new();
+    };
+    let mut all: Vec<CycleRecord> = read
+        .filter_map(|e| e.ok())
+        .map(|e| e.path().join("cycles"))
+        .filter_map(|root| fs::read_dir(root).ok())
+        .flat_map(|dirs| dirs.filter_map(|e| e.ok()))
+        .filter(|e| valid_id(&e.file_name().to_string_lossy()))
+        .filter_map(|e| read_record(&e.path()))
+        .collect();
+    all.sort_by(|a, b| {
+        a.project_dir
+            .cmp(&b.project_dir)
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    all
+}
+
+/// A cycle that breaks the chain, and how.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ChainBreak {
+    pub id: String,
+    pub name: String,
+    pub project_dir: String,
+    /// One sentence per broken link.
+    pub problems: Vec<String>,
+}
+
+/// The links `record` breaks by itself: an entry with no brief, an entry
+/// that names no sketch, and a letter that names no sketch on the cycle.
+pub fn chain_breaks(record: &CycleRecord) -> Vec<String> {
+    let mut problems = Vec::new();
+    for e in &record.entries {
+        if e.brief.trim().is_empty() {
+            problems.push(format!("entry {} has no brief", e.n));
+        }
+        if e.from.is_empty() {
+            problems.push(format!("entry {} names no sketch", e.n));
+        }
+        for letter in &e.from {
+            if !record.sketches.iter().any(|s| &s.letter == letter) {
+                problems.push(format!(
+                    "entry {} names sketch {letter}, which the cycle does not have",
+                    e.n
+                ));
+            }
+        }
+    }
+    problems
+}
+
+/// Every cycle on this machine that breaks the chain: what each breaks by
+/// itself ([`chain_breaks`]), a sketch the sketch store no longer holds, and
+/// an arc generation carried by more than one entry, on one cycle or across
+/// a checkout's cycles. Empty when every record is whole.
+pub fn check_cycles(paths: &Paths) -> Vec<ChainBreak> {
+    let records = all_cycles(paths);
+    // (checkout, arc, generation) → every (cycle id, entry) carrying it.
+    let mut carriers: std::collections::BTreeMap<(String, String, String), Vec<(String, u32)>> =
+        std::collections::BTreeMap::new();
+    for record in &records {
+        for e in &record.entries {
+            if let Some(arc) = &e.arc {
+                carriers
+                    .entry((
+                        record.project_dir.clone(),
+                        arc.name.clone(),
+                        arc.created.clone().unwrap_or_default(),
+                    ))
+                    .or_default()
+                    .push((record.id.clone(), e.n));
+            }
+        }
+    }
+    records
+        .iter()
+        .filter_map(|record| {
+            let mut problems = chain_breaks(record);
+            for s in &record.sketches {
+                if find_sketch(paths, &s.id).is_empty() {
+                    problems.push(format!(
+                        "sketch {} ({}) is not in the sketch store",
+                        s.letter, s.id
+                    ));
+                }
+            }
+            for ((dir, arc, _), held) in &carriers {
+                if held.len() < 2 || *dir != record.project_dir {
+                    continue;
+                }
+                if !held.iter().any(|(id, _)| *id == record.id) {
+                    continue;
+                }
+                let all: Vec<String> = held
+                    .iter()
+                    .map(|(id, n)| format!("{id} entry {n}"))
+                    .collect();
+                problems.push(format!(
+                    "arc {arc} is carried by more than one entry: {}",
+                    all.join(", ")
+                ));
+            }
+            (!problems.is_empty()).then(|| ChainBreak {
+                id: record.id.clone(),
+                name: record.name.clone(),
+                project_dir: record.project_dir.clone(),
+                problems,
+            })
+        })
+        .collect()
 }
 
 /// The letter of the sketch at 0-based `index`: A … Z, then AA, AB, ….
@@ -743,6 +993,7 @@ mod tests {
         NewEntry {
             brief: brief.into(),
             waits: waits.to_vec(),
+            from: vec!["A".into()],
             ..NewEntry::default()
         }
     }
@@ -754,6 +1005,14 @@ mod tests {
         crate::sketch::record_arc_sketch(paths, repo, arc)
             .unwrap()
             .id
+    }
+
+    /// A cycle named `name` with one sketch, A, for its entries to come from.
+    fn sketched(paths: &Paths, repo: &Path, name: &str) -> String {
+        let id = create_cycle(paths, repo, name, None).unwrap().id;
+        let sketch = record_sketch(paths, repo, &format!("sketch-{id}"));
+        assert_eq!(add_sketch(paths, repo, &id, &sketch, None).unwrap(), "A");
+        id
     }
 
     #[test]
@@ -786,7 +1045,7 @@ mod tests {
     #[test]
     fn entries_number_in_order_and_waits_are_validated() {
         let (_t, repo, paths) = scratch();
-        let id = create_cycle(&paths, &repo, "C", None).unwrap().id;
+        let id = sketched(&paths, &repo, "C");
         assert_eq!(
             add_entry(&paths, &repo, &id, entry("briefs/a.md", &[])).unwrap(),
             1
@@ -801,6 +1060,21 @@ mod tests {
             (entry("briefs/c.md", &[9]), "missing"),
             (entry("", &[]), "no brief"),
             (entry("/abs/brief.md", &[]), "absolute"),
+            (
+                NewEntry {
+                    brief: "briefs/c.md".into(),
+                    ..NewEntry::default()
+                },
+                "no sketch",
+            ),
+            (
+                NewEntry {
+                    brief: "briefs/c.md".into(),
+                    from: vec!["  ".into()],
+                    ..NewEntry::default()
+                },
+                "a blank letter is no sketch",
+            ),
         ] {
             let err = add_entry(&paths, &repo, &id, bad).unwrap_err();
             assert!(matches!(err, ArcError::Refused(_)), "{why}: {err:?}");
@@ -847,15 +1121,15 @@ mod tests {
         let s1 = record_sketch(&paths, &repo, "one");
         let s2 = record_sketch(&paths, &repo, "two");
 
-        assert_eq!(add_sketch(&paths, &repo, &id, &s1).unwrap(), "A");
-        assert_eq!(add_sketch(&paths, &repo, &id, &s2).unwrap(), "B");
+        assert_eq!(add_sketch(&paths, &repo, &id, &s1, None).unwrap(), "A");
+        assert_eq!(add_sketch(&paths, &repo, &id, &s2, None).unwrap(), "B");
         assert_eq!(
-            add_sketch(&paths, &repo, &id, &s1).unwrap(),
+            add_sketch(&paths, &repo, &id, &s1, None).unwrap(),
             "A",
             "kept letter"
         );
         assert!(matches!(
-            add_sketch(&paths, &repo, &id, "00000000"),
+            add_sketch(&paths, &repo, &id, "00000000", None),
             Err(ArcError::Refused(_))
         ));
 
@@ -883,7 +1157,7 @@ mod tests {
     #[test]
     fn attach_links_the_current_generation_and_guards_an_open_one() {
         let (_t, repo, paths) = scratch();
-        let id = create_cycle(&paths, &repo, "C", None).unwrap().id;
+        let id = sketched(&paths, &repo, "C");
         add_entry(&paths, &repo, &id, entry("briefs/a.md", &[])).unwrap();
 
         assert!(
@@ -984,53 +1258,230 @@ mod tests {
     #[test]
     fn an_entry_is_found_by_its_brief_in_the_most_recent_cycle() {
         let (temp, repo, paths) = scratch();
-        let first = create_cycle(&paths, &repo, "first", None).unwrap().id;
+        let first = sketched(&paths, &repo, "first");
         add_entry(&paths, &repo, &first, entry("briefs/a.md", &[])).unwrap();
         add_entry(&paths, &repo, &first, entry("briefs/b.md", &[])).unwrap();
         assert_eq!(
-            find_entry_by_brief(&paths, &repo, "briefs/b.md"),
-            Some((first.clone(), 2))
+            find_by_brief(&paths, &repo, "briefs/b.md"),
+            Some(at_entry(&first, 2))
         );
         assert_eq!(
-            find_entry_by_brief(&paths, &repo, " ./briefs/a.md "),
-            Some((first.clone(), 1)),
+            find_by_brief(&paths, &repo, " ./briefs/a.md "),
+            Some(at_entry(&first, 1)),
             "one spelling of the path"
         );
-        assert_eq!(find_entry_by_brief(&paths, &repo, "briefs/none.md"), None);
-        assert_eq!(find_entry_by_brief(&paths, &repo, ""), None);
+        assert_eq!(find_by_brief(&paths, &repo, "briefs/none.md"), None);
+        assert_eq!(find_by_brief(&paths, &repo, ""), None);
 
         let mut older = find_cycle(&paths, &first).remove(0).1;
         older.updated = "2000-01-01T00:00:00Z".into();
         write_record(&older).unwrap();
-        let second = create_cycle(&paths, &repo, "second", None).unwrap().id;
+        let second = sketched(&paths, &repo, "second");
         add_entry(&paths, &repo, &second, entry("briefs/a.md", &[])).unwrap();
         assert_eq!(
-            find_entry_by_brief(&paths, &repo, "briefs/a.md"),
-            Some((second, 1)),
+            find_by_brief(&paths, &repo, "briefs/a.md"),
+            Some(at_entry(&second, 1)),
             "the most recently changed cycle answers"
         );
 
         let other = temp.path().join("other");
         fs::create_dir_all(&other).unwrap();
         assert_eq!(
-            find_entry_by_brief(&paths, &other, "briefs/a.md"),
+            find_by_brief(&paths, &other, "briefs/a.md"),
             None,
             "another checkout's entries are not found here"
         );
     }
 
+    fn at_entry(id: &str, n: u32) -> BriefFound {
+        BriefFound {
+            id: id.into(),
+            n: Some(n),
+            letter: None,
+        }
+    }
+
     #[test]
-    fn cycles_by_keeps_only_the_writers_cycles() {
+    fn a_sketch_carries_the_brief_that_wrote_it_up_and_find_reaches_it() {
         let (_t, repo, paths) = scratch();
-        let mine = create_cycle(&paths, &repo, "mine", Some("sess-1")).unwrap();
-        create_cycle(&paths, &repo, "theirs", Some("sess-2")).unwrap();
-        create_cycle(&paths, &repo, "nobody's", None).unwrap();
-        let names: Vec<String> = cycles_by(&paths, &repo, "sess-1")
-            .into_iter()
-            .map(|c| c.name)
-            .collect();
-        assert_eq!(names, vec![mine.name]);
-        assert!(cycles_by(&paths, &repo, "sess-3").is_empty());
+        let id = create_cycle(&paths, &repo, "C", None).unwrap().id;
+        let s1 = record_sketch(&paths, &repo, "one");
+        let s2 = record_sketch(&paths, &repo, "two");
+        assert_eq!(
+            add_sketch(&paths, &repo, &id, &s1, Some("./briefs/index.md")).unwrap(),
+            "A"
+        );
+        assert_eq!(add_sketch(&paths, &repo, &id, &s2, None).unwrap(), "B");
+        let record = &find_cycle(&paths, &id)[0].1;
+        assert_eq!(record.sketches[0].brief.as_deref(), Some("briefs/index.md"));
+        assert_eq!(record.sketches[1].brief, None);
+
+        // A sketch already on the cycle takes a brief it lacks, keeps the one
+        // it has, and refuses to trade it for another.
+        assert_eq!(
+            add_sketch(&paths, &repo, &id, &s2, Some("briefs/later.md")).unwrap(),
+            "B"
+        );
+        assert_eq!(
+            add_sketch(&paths, &repo, &id, &s1, Some("briefs/index.md")).unwrap(),
+            "A"
+        );
+        assert!(add_sketch(&paths, &repo, &id, &s1, Some("briefs/other.md")).is_err());
+        assert!(add_sketch(&paths, &repo, &id, &s1, Some("/abs/brief.md")).is_err());
+        let record = &find_cycle(&paths, &id)[0].1;
+        assert_eq!(record.sketches[0].brief.as_deref(), Some("briefs/index.md"));
+        assert_eq!(record.sketches[1].brief.as_deref(), Some("briefs/later.md"));
+
+        assert_eq!(
+            find_by_brief(&paths, &repo, "briefs/index.md"),
+            Some(BriefFound {
+                id: id.clone(),
+                n: None,
+                letter: Some("A".into()),
+            }),
+            "found through the sketch it wrote up"
+        );
+
+        // An entry holding the same brief answers before the sketch does.
+        add_entry(&paths, &repo, &id, entry("briefs/later.md", &[])).unwrap();
+        assert_eq!(
+            find_by_brief(&paths, &repo, "briefs/later.md"),
+            Some(at_entry(&id, 1))
+        );
+    }
+
+    #[test]
+    fn add_from_only_adds_letters_an_entry_came_from() {
+        let (_t, repo, paths) = scratch();
+        let id = sketched(&paths, &repo, "C");
+        let s2 = record_sketch(&paths, &repo, "two");
+        assert_eq!(add_sketch(&paths, &repo, &id, &s2, None).unwrap(), "B");
+        add_entry(&paths, &repo, &id, entry("briefs/a.md", &[])).unwrap();
+
+        assert_eq!(
+            add_from(&paths, &repo, &id, 1, vec!["b".into(), "A".into()]).unwrap(),
+            vec!["A", "B"],
+            "a letter already named keeps its place"
+        );
+        assert_eq!(
+            add_from(&paths, &repo, &id, 1, vec!["B".into()]).unwrap(),
+            vec!["A", "B"]
+        );
+        for (letters, n, why) in [
+            (vec!["C".to_string()], 1, "no sketch C"),
+            (vec![" ".to_string()], 1, "no letter"),
+            (Vec::new(), 1, "nothing named"),
+            (vec!["A".to_string()], 9, "no entry 9"),
+        ] {
+            assert!(add_from(&paths, &repo, &id, n, letters).is_err(), "{why}");
+        }
+        let record = &find_cycle(&paths, &id)[0].1;
+        assert_eq!(record.entry(1).unwrap().from, vec!["A", "B"]);
+        assert_eq!(record.entries.len(), 1, "nothing is renumbered or added");
+    }
+
+    #[test]
+    fn check_lists_every_cycle_on_the_machine_that_breaks_the_chain() {
+        let (temp, repo, paths) = scratch();
+        let whole = sketched(&paths, &repo, "Whole");
+        add_entry(&paths, &repo, &whole, entry("briefs/a.md", &[])).unwrap();
+        assert_eq!(check_cycles(&paths), Vec::new(), "a whole record is clean");
+
+        // An entry written before every entry had to name a sketch, in
+        // another checkout: the check reads the whole machine.
+        let other = temp.path().join("other");
+        fs::create_dir_all(&other).unwrap();
+        let old = create_cycle(&paths, &other, "Old", None).unwrap();
+        let mut written = old.clone();
+        written.entries.push(linked(1, &[], None));
+        written.entries.push(CycleEntry {
+            from: vec!["Q".into()],
+            ..linked(2, &[], None)
+        });
+        write_record(&written).unwrap();
+
+        // Two entries carrying one arc generation, on two cycles.
+        log_append(
+            &paths,
+            &repo,
+            "2026-11-01T00:00:00Z  aa  arc-start  brief.md",
+        );
+        attach(&paths, &repo, &whole, 1, "aa").unwrap();
+        let twin = sketched(&paths, &repo, "Twin");
+        add_entry(&paths, &repo, &twin, entry("briefs/b.md", &[])).unwrap();
+        let mut doubled = find_cycle(&paths, &twin).remove(0).1;
+        doubled.entries[0].arc = find_cycle(&paths, &whole)[0].1.entries[0].arc.clone();
+        write_record(&doubled).unwrap();
+
+        let breaks = check_cycles(&paths);
+        let by_id = |id: &str| {
+            breaks
+                .iter()
+                .find(|b| b.id == id)
+                .map(|b| b.problems.clone())
+        };
+        assert_eq!(
+            by_id(&old.id).unwrap(),
+            vec![
+                "entry 1 names no sketch".to_string(),
+                "entry 2 names sketch Q, which the cycle does not have".to_string(),
+            ]
+        );
+        for id in [&whole, &twin] {
+            let problems = by_id(id).unwrap();
+            assert_eq!(problems.len(), 1, "{problems:?}");
+            assert!(problems[0].starts_with("arc aa is carried by more than one entry"));
+        }
+        assert_eq!(breaks.len(), 3);
+
+        // The repair verb mends the old record, and only what it was told.
+        let s = record_sketch(&paths, &other, "old-sketch");
+        assert_eq!(add_sketch(&paths, &other, &old.id, &s, None).unwrap(), "A");
+        add_from(&paths, &other, &old.id, 1, vec!["A".into()]).unwrap();
+        assert_eq!(
+            by_id(&old.id).map(|p| p.len()),
+            Some(2),
+            "the earlier reading is unchanged"
+        );
+        let after = check_cycles(&paths);
+        let old_after = after.iter().find(|b| b.id == old.id).unwrap();
+        assert_eq!(
+            old_after.problems,
+            vec!["entry 2 names sketch Q, which the cycle does not have".to_string()]
+        );
+    }
+
+    #[test]
+    fn chain_breaks_reads_one_record_alone() {
+        let mut record = of(vec![linked(1, &[], None)]);
+        assert_eq!(chain_breaks(&record), vec!["entry 1 names no sketch"]);
+        record.sketches.push(CycleSketch {
+            letter: "A".into(),
+            id: "0000aaaa".into(),
+            brief: None,
+            added: String::new(),
+        });
+        record.entries[0].from = vec!["A".into()];
+        assert!(chain_breaks(&record).is_empty());
+        record.entries[0].brief = " ".into();
+        assert_eq!(chain_breaks(&record), vec!["entry 1 has no brief"]);
+    }
+
+    #[test]
+    fn find_by_sketch_reads_the_record_not_the_session() {
+        let (_t, repo, paths) = scratch();
+        let one = create_cycle(&paths, &repo, "one", Some("sess-1")).unwrap();
+        create_cycle(&paths, &repo, "two", Some("sess-2")).unwrap();
+        let a = record_sketch(&paths, &repo, "first");
+        let b = record_sketch(&paths, &repo, "second");
+        add_sketch(&paths, &repo, &one.id, &a, None).unwrap();
+        add_sketch(&paths, &repo, &one.id, &b, None).unwrap();
+        let found = find_by_sketch(&paths, &repo, &b).unwrap();
+        assert_eq!(found.id, one.id);
+        assert_eq!(found.letter.as_deref(), Some("B"));
+        assert_eq!(found.n, None);
+        assert!(find_by_sketch(&paths, &repo, "0000cccc").is_none());
+        assert!(find_by_sketch(&paths, &repo, " ").is_none());
     }
 
     fn linked(n: u32, waits: &[u32], arc: Option<(&str, &str)>) -> CycleEntry {
@@ -1196,7 +1647,7 @@ mod tests {
     #[test]
     fn view_reads_the_cycles_own_log_and_its_arcs_stages() {
         let (_t, repo, paths) = scratch();
-        let id = create_cycle(&paths, &repo, "C", None).unwrap().id;
+        let id = sketched(&paths, &repo, "C");
         add_entry(&paths, &repo, &id, entry("briefs/a.md", &[])).unwrap();
         add_entry(&paths, &repo, &id, entry("briefs/b.md", &[1])).unwrap();
         log_append(
@@ -1239,8 +1690,8 @@ mod tests {
     #[test]
     fn several_cycles_view_from_one_log_text() {
         let (_t, repo, paths) = scratch();
-        let first = create_cycle(&paths, &repo, "First", None).unwrap().id;
-        let second = create_cycle(&paths, &repo, "Second", None).unwrap().id;
+        let first = sketched(&paths, &repo, "First");
+        let second = sketched(&paths, &repo, "Second");
         add_entry(&paths, &repo, &first, entry("briefs/a.md", &[])).unwrap();
         add_entry(&paths, &repo, &second, entry("briefs/b.md", &[])).unwrap();
         add_entry(&paths, &repo, &second, entry("briefs/c.md", &[1])).unwrap();

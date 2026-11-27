@@ -4,8 +4,8 @@
  * The golden frame holds one cycle of four entries, one in each state, with a
  * sketch; a live arc its running entry names; and two branchless arcs no
  * entry names. The rules pinned here: an arc is drawn once, a cycle of one is
- * a single row, every sketch has a row, and a frame with no cycles projects
- * exactly the rows the card drew before it knew of cycles.
+ * a section like any other, every sketch has a row, and a frame with no
+ * cycles projects exactly the rows the card drew before it knew of cycles.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -28,10 +28,8 @@ import {
   NO_CYCLE_VIEW,
   pressCycleMap,
   pressCycleRow,
-  pressCycleSingle,
   projectArcsCard,
   type CycleSection,
-  type CycleSingle,
 } from "../arcs-projection";
 
 const DATA = golden as WorkspacesChangesetSnapshot;
@@ -60,12 +58,6 @@ function cycleWith(
 function sectionOf(snapshot: WorkspacesChangesetSnapshot, followed: string | null = null): CycleSection {
   const item = projectArcsCard(snapshot, followed).cycles[0]!;
   if (item.kind !== "section") throw new Error("expected a section");
-  return item;
-}
-
-function singleOf(snapshot: WorkspacesChangesetSnapshot): CycleSingle {
-  const item = projectArcsCard(snapshot, null).cycles[0]!;
-  if (item.kind !== "single") throw new Error("expected a single row");
   return item;
 }
 
@@ -332,19 +324,30 @@ describe("projectArcsCard — rows and tiles", () => {
 });
 
 describe("projectArcsCard — a cycle of one", () => {
-  test("is a single row, with no section around it", () => {
+  test("is a section like any other: its name, its map and its sketch", () => {
     const solo = cycleWith([GOLDEN_CYCLE.entries[1]!]);
-    const single = singleOf(withCycles([solo]));
-    expect(single.id).toBe(GOLDEN_CYCLE.id);
-    expect(single.row.title).toBe("fix-join");
-    expect(single.row.arc?.ownerId).toBe(RUNNING_KEY);
+    const section = sectionOf(withCycles([solo]));
+    expect(section.id).toBe(GOLDEN_CYCLE.id);
+    expect(section.name).toBe(GOLDEN_CYCLE.name);
+    expect(section.landedText).toBe("0 of 1 landed");
+    expect(section.tiles.map((t) => t.n)).toEqual([GOLDEN_CYCLE.entries[1]!.n]);
+    expect(section.sketches.length).toBe(GOLDEN_CYCLE.sketches?.length ?? 0);
+    expect(section.assets.filter((a) => a.kind === "sketch").length).toBe(section.sketches.length);
+    const entry = section.assets.find((a) => a.kind === "entry");
+    expect(entry?.kind === "entry" && entry.row.title).toBe("fix-join");
+    expect(entry?.kind === "entry" && entry.row.arc?.ownerId).toBe(RUNNING_KEY);
     // Its arc is still drawn once.
     expect(
       projectArcsCard(withCycles([solo]), null).arcs.map((r) => r.ownerId),
     ).not.toContain(RUNNING_KEY);
   });
 
-  test("becomes a section at its second entry", () => {
+  test("at rest, it counts one arc", () => {
+    const landed = cycleWith([GOLDEN_CYCLE.entries[0]!]);
+    expect(sectionOf(withCycles([landed])).landedText).toBe("At rest · 1 arc");
+  });
+
+  test("a second entry makes it a cycle of two, in the same shape", () => {
     const two = cycleWith(GOLDEN_CYCLE.entries.slice(0, 2));
     expect(sectionOf(withCycles([two])).landedText).toBe("1 of 2 landed");
   });
@@ -358,7 +361,7 @@ describe("projectArcsCard — a cycle of one", () => {
     const first = cycleWith([GOLDEN_CYCLE.entries[0]!], { id: "aaaaaaaa" });
     const projection = projectArcsCard(withCycles([first, GOLDEN_CYCLE]), null);
     expect(projection.cycles.map((c) => [c.kind, c.id])).toEqual([
-      ["single", "aaaaaaaa"],
+      ["section", "aaaaaaaa"],
       ["section", "3f9a1c2e"],
     ]);
   });
@@ -466,16 +469,17 @@ describe("listArcsCard — the rows the arrows walk", () => {
     expect(open.map((i) => i.id)).toEqual([`cycle:bbbbbbbb:${entryKey(1)}`]);
   });
 
-  test("a cycle of one is one row that a press opens and closes", () => {
+  test("a cycle of one lists its pin and its assets, and a press opens its entry", () => {
     const solo = withCycles([cycleWith([GOLDEN_CYCLE.entries[0]!])]);
     const soloProjection = projectArcsCard(solo, null);
-    const single = singleOf(solo);
-    const closed = listArcsCard(soloProjection, NO_CYCLE_VIEW)[0]!;
-    expect(closed.kind).toBe("cycle-single");
-    expect(closed.kind === "cycle-single" && closed.open).toBe(false);
-    const opened = pressCycleSingle(NO_CYCLE_VIEW, single);
-    const row = listArcsCard(soloProjection, opened)[0]!;
-    expect(row.kind === "cycle-single" && row.open).toBe(true);
-    expect(pressCycleSingle(opened, single).chosen.size).toBe(0);
+    const id = GOLDEN_CYCLE.id;
+    // A cycle at rest starts folded, as any cycle does; unfold it to list its assets.
+    const unfolded = { ...NO_CYCLE_VIEW, folded: new Map([[id, false]]) };
+    const rows = listArcsCard(soloProjection, unfolded);
+    expect(rows[0]!.kind).toBe("cycle-pin");
+    const key = entryKey(GOLDEN_CYCLE.entries[0]!.n);
+    const opened = pressCycleRow(unfolded, id, key);
+    const entry = listArcsCard(soloProjection, opened).find((i) => i.kind === "cycle-asset" && i.asset.key === key);
+    expect(entry?.kind === "cycle-asset" && entry.open).toBe(true);
   });
 });

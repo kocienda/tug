@@ -340,13 +340,17 @@ body[data-tug-motion="off"] .session-cycle-shade-list {
   min-width: 0;
 }
 
+/* "N more in", then a chip for each session that work runs in. */
 /* @tug-renders-on: --tug7-surface-global-primary-normal-raised-rest */
 .session-cycle-shade-footer-else {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-2xs);
   color: var(--tugx-cycle-shade-text-muted);
 }
 
-/* What the footer gives up as the card narrows: the other sessions' count. */
+/* What the footer gives up as the card narrows: the other sessions. */
 @container session-cycle-shade (max-width: 520px) {
   .session-cycle-shade-footer-else {
     display: none;

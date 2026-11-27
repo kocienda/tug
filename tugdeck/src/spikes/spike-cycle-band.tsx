@@ -70,6 +70,7 @@ import { SessionArcPanels, type SessionArcPanel } from "@/components/tugways/car
 import { SessionIdentityView } from "@/components/tugways/cards/session-identity";
 import { recordPanel } from "@/components/tugways/cards/session-arc-shade-content";
 import { SessionTelemetryCell } from "@/components/tugways/cards/session-telemetry-cell";
+import { tileProgress } from "@/components/tugways/cycle-map-layout";
 import { TugArcAtom } from "@/components/tugways/tug-arc-atom";
 import { arcTrackModel, type ArcTrackModel } from "@/components/tugways/tug-arc-track";
 import { TugAtomRef } from "@/components/tugways/tug-atom-ref";
@@ -471,8 +472,19 @@ function CycleMapView({
                     <Check size={14} aria-hidden />
                   ) : state === "ready" ? (
                     <Play size={12} aria-hidden />
+                  ) : state === "running" &&
+                    tileProgress(compact ? "compact" : "full", node.n, entry.steps.length) === "bar" ? (
+                    <span className="sp-cycle-bar" aria-hidden>
+                      <span style={{ width: `${((100 * done) / Math.max(1, entry.steps.length)).toFixed(1)}%` }} />
+                    </span>
                   ) : state === "running" ? (
-                    <span className="sp-cycle-pips" aria-hidden>
+                    <span
+                      className="sp-cycle-pips"
+                      data-dense={
+                        tileProgress(compact ? "compact" : "full", node.n, entry.steps.length) === "dense" || undefined
+                      }
+                      aria-hidden
+                    >
                       {entry.steps.map((_, i) => (
                         <span key={i} data-pip={i < done ? "done" : i === done ? "now" : "todo"} />
                       ))}
@@ -667,7 +679,7 @@ function EntryAsset({
       />
       {state === "running" ? (
         <div className="sp-cycle-steps">
-          <TugPopupListFrame kind="item">
+          <TugPopupListFrame kind="item" layout="inline">
             <TugPopupListScroller>
               <ArcStepItems steps={stepsOf(entry, doneOf(entry, reading.runs))} live />
             </TugPopupListScroller>
@@ -1234,7 +1246,7 @@ function SidebarEntry({
             <>
               {state === "running" ? (
                 <span className="sp-cycle-side-steps">
-                  <TugPopupListFrame kind="item">
+                  <TugPopupListFrame kind="item" layout="inline">
                     <TugPopupListScroller>
                       <ArcStepItems steps={stepsOf(entry, doneOf(entry, reading.runs))} live />
                     </TugPopupListScroller>

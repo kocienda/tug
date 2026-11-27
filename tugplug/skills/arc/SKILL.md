@@ -107,7 +107,7 @@ The copy is what makes the arc self-contained — every stage reads the arc's ow
 
 - **The source is the conversation that shaped the work.** When this session still holds it, write from it, and take the turn numbers from `tugtool session show <uuid>`.
 - **When this session no longer holds it**, because it was compacted or because the work was shaped in another session, read that session's transcript from disk, read-only, with `tugtool session show <uuid>`, narrowed with `--grep`, `--turn` or `--last`. A session reference in the invocation, or one the brief names, says where to look.
-- **When no source can be found**, as with a brief written by hand, write no record. Never compose one from the brief: a sketch made up from the document it stands behind is invented, and the panel that shows the record says plainly that nothing was recorded.
+- **When no source can be found**, as with a brief written by hand, ask whether the brief is on a cycle already, with `tugtool cycle find --brief <the path they handed you> --json`. When `data` names one, write no record: the cycle's own sketches say where the work came from. When it is `null`, **write the sketch from the brief**, because every entry comes from a sketch and the record refuses one that does not: the want and the shape in the sketch's ordinary shape, in the user's words as the brief carries them, never in the brief's own headings or labels, and a `Source:` line naming the brief's path in place of a session, `Source: brief <path>`. It becomes the cycle's sketch A (step 6).
 - **On a continuation of an arc that already has one**, rewrite the record when the conversation has changed what it says, or when it is not in the doctrine's shape.
 
 `tugtool plan lint` exits 2 on a brief — "not a plan document" — and that is correct rather than a failure. A brief is detected as a non-plan by having no `{#execution-steps}` section, which is the same mechanism that routes it.
@@ -193,13 +193,20 @@ With the receipt confirmed, run `tugtool sketch record <name> --json`, which giv
   tugtool cycle find --brief <the path they handed you> --json
   ```
 
-  When `data` names a cycle, attach this arc to that entry, and do nothing more: the cycle's own sketches already say where the entry came from, so this arc's sketch is not added to it.
+  When `data.n` names an entry, attach this arc to it, and do nothing more: the cycle's own sketches already say where the entry came from, so this arc's sketch is not added to it.
 
   ```bash
   tugtool cycle attach <data.id> <data.n> <name> --json
   ```
 
-- **Anything else becomes a cycle of one**: a bare idea, a brief on no cycle, a brief written before cycles were kept. Name it by the rule below, create it, add this arc's sketch as A when one was recorded, add entry 1, and attach it:
+  When `data` names a cycle by a sketch's letter instead (`data.letter`), the brief was recorded on that sketch as the one that led to more briefs; add this arc as the cycle's next entry from that letter, and attach it to the number `add-entry` prints:
+
+  ```bash
+  tugtool cycle add-entry <data.id> --brief <the path they handed you> --from <data.letter> --json
+  tugtool cycle attach <data.id> <n> <name> --json
+  ```
+
+- **Anything else becomes a cycle of one**: a bare idea, a brief on no cycle, a brief written before cycles were kept. Name it by the rule below, create it, add this arc's sketch as A, add entry 1, and attach it:
 
   ```bash
   tugtool cycle create --name "<name by the rule>" --json
@@ -208,9 +215,9 @@ With the receipt confirmed, run `tugtool sketch record <name> --json`, which giv
   tugtool cycle attach <cycle> 1 <name> --json
   ```
 
-  `<path>` is the path you were handed, or the arc's own brief, `.tug/arcs/<name>/brief.md`, when nothing was handed in. With no sketch recorded, skip `add-sketch` and `--from`.
+  `<path>` is the path you were handed, or the arc's own brief, `.tug/arcs/<name>/brief.md`, when nothing was handed in. There is always a sketch to add: the conversation's, or for a handed-in brief with no source, the one written from the brief (step 3). The record refuses an entry with no sketch, so an arc is never put on a cycle without one.
 
-**The naming rule.** A cycle is named once, when it is created, from the opening sentence of its sketch A: the want that opens the sketch you just recorded. When no sketch was recorded, the brief's `**Purpose:**` line stands in. The name is the thing the work changes, as a noun phrase of two to four words in sentence case. It has no verb, uses the source's own plain words, and keeps proper nouns. It never carries an arc name, kebab-case, an id, a date, the project's name, or the words "cycle" or "work".
+**The naming rule.** A cycle is named once, when it is created, from the opening sentence of its sketch A: the want that opens the sketch you just recorded. The name is the thing the work changes, as a noun phrase of two to four words in sentence case. It has no verb, uses the source's own plain words, and keeps proper nouns. It never carries an arc name, kebab-case, an id, a date, the project's name, or the words "cycle" or "work".
 
 | Sketch A opens… | Name | What it shows |
 |---|---|---|

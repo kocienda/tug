@@ -284,6 +284,26 @@ The test: *is this crossing a declaration in the host registry?* If it is anythi
 
 ---
 
+## Work Records
+
+### L40. A record's rule is refused by the record's one writer. {#l40}
+
+A durable record has one module that writes it, and every rule about what the record may hold is kept there: the writer refuses a write that breaks the rule and says which rule it broke. A skill, a door or a surface may state the rule, and none of them keeps it, because a skill is prose a model follows and a model that forgets a sentence leaves no trace. A rule that only a skill keeps is a rule the record can break. The cycle record is the worked example: `add_entry` in `tugrust/crates/tugarc-core/src/cycle.rs` refuses an entry that names no brief and one that names no sketch, and a check verb reads every record already written against the same rules, so a record written before a rule existed is found rather than drawn around. A surface that meets a broken record draws what is there; it does not invent the missing part, and the break is a defect to repair at the writer.
+
+This law was written from an incident: the cycle writer refused an entry with no brief and accepted one with no sketch, the arc door added a sketch only when it had written one itself, and the first real cycle reached the surfaces with no sketch to draw. The rule "every entry names a sketch" was true in every skill and false in the record.
+
+The test: *if every skill forgot this rule tomorrow, could the record still break it?* If it could, the rule is in the wrong place. [L31]
+
+### L41. A session works on records and never owns one. {#l41}
+
+Sketches, briefs, arcs and cycles are found through each other, never through the session that wrote or touched them: a brief finds its cycle through the sketch it came from or the brief it was written from, an arc through the entry that carries it. A session is only loosely associated with any of them, and work crosses sessions freely: one sketch, briefed in a second session, carried by arcs walked in a third and fourth, is one piece of work. A record may name a session as a fact, such as who created a cycle, and a surface may use that fact to decide what to show a session first; the fact never routes a write and never decides which record a lookup finds.
+
+This law was written from an incident: the brief skill chose a cycle by "this session's most recent cycle", and three briefs of one rollout, each written in its own session, landed on three separate cycles of one.
+
+The test: *if the same work had been done in a different session, would any write land on a different record?* If it would, the session is acting as an owner. [L40]
+
+---
+
 ## Licensing
 
 ### L21. Third-party code and patterns require license compliance before use. {#l21}

@@ -75,6 +75,15 @@ export interface TugPopupListFrameProps
    * {@link TugPopupListFooter}. Omitted, no footer chrome renders.
    */
   footer?: React.ReactNode;
+  /**
+   * Where the list is laid out. `popup` caps its height and scrolls the
+   * rest, as a popover must. `inline` is a list set into a surface that
+   * already scrolls, such as an asset in a shade's list: it is laid out in
+   * full and scrolls nothing, so the surface keeps its one vertical scroller.
+   * @selector [data-layout="popup"] | [data-layout="inline"]
+   * @default "popup"
+   */
+  layout?: "popup" | "inline";
 }
 
 /**
@@ -88,7 +97,7 @@ export const TugPopupListFrame = React.forwardRef<
   HTMLDivElement,
   TugPopupListFrameProps
 >(function TugPopupListFrame(
-  { title, icon, kind = "log", footer, className, children, ...rest },
+  { title, icon, kind = "log", footer, layout = "popup", className, children, ...rest },
   ref,
 ) {
   return (
@@ -96,6 +105,7 @@ export const TugPopupListFrame = React.forwardRef<
       ref={ref}
       data-slot="tug-popup-list"
       data-kind={kind}
+      data-layout={layout}
       className={cn("tug-popup-list", className)}
       {...rest}
     >

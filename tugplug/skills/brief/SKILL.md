@@ -70,14 +70,27 @@ SKETCH
 
 ### 2. Choose the cycle
 
-Take the first that applies:
+A cycle is found through the records the brief comes from, never through the session writing it: a session works on records and never owns one, and work that crosses several sessions is still one cycle. Take the first that applies:
 
 1. **A cycle the user named**, by its id, in this conversation.
-2. **This session's most recent cycle in this checkout**: the first row of `tugtool cycle list --mine --json`.
-3. **A new cycle**, named by the rule below from the sketch just recorded:
+2. **The cycle that holds the sketch the brief comes from.** When the sketch was kept as a new version of one already recorded, it is on a cycle already:
 
    ```bash
-   tugtool cycle create --name "<name>" --json
+   tugtool cycle find --sketch <sketch> --json
+   ```
+
+   When `data` names a cycle, that is the one.
+3. **The cycle that holds the brief this one was written from.** When the conversation started from another brief, the user handing it in or citing it, ask for that brief's path:
+
+   ```bash
+   tugtool cycle find --brief <the brief it was written from> --json
+   ```
+
+   When `data` names a cycle, whether by an entry (`data.n`) or by a sketch that brief wrote up (`data.letter`), that is the one.
+4. **A new cycle**, named by the rule below from the sketch just recorded:
+
+   ```bash
+   tugtool cycle create --name "<name by the rule>" --json
    ```
 
    `data.id` is the cycle's id.
@@ -89,6 +102,14 @@ tugtool cycle add-sketch <cycle> <sketch> --json
 ```
 
 `data.letter` is the sketch's letter. A sketch already on the cycle keeps the letter it has, so this is safe to run every time.
+
+**A brief that leads to more briefs is recorded on its sketch, not as an entry.** When the brief this one was written from is on no cycle and has no arc of its own, because it was written to be split into the briefs that follow it, it is the link between the sketch and them. Record it on the sketch as you add it, and the entries reach the sketch through it:
+
+```bash
+tugtool cycle add-sketch <cycle> <sketch> --brief <the brief it was written from> --json
+```
+
+It never becomes an entry: an entry with no arc would read as ready forever.
 
 **The naming rule.** A cycle is named once, when it is created, from the opening sentence of its sketch A. The name is the thing the work changes, as a noun phrase of two to four words in sentence case. It has no verb, uses the sketch's own plain words, and keeps proper nouns. It never carries an arc name, kebab-case, an id, a date, the project's name, or the words "cycle" or "work". It is what a header and a sidebar row show, so it has to read at a glance as the subject.
 
@@ -106,7 +127,7 @@ tugtool cycle add-sketch <cycle> <sketch> --json
 tugtool cycle add-entry <cycle> --brief <path> --from <letter> [--wait <n>]… [--note "<gate>"] --json
 ```
 
-`<path>` is the brief you wrote, relative to the project root; `--from` is the letter of the sketch it came from. `data.n` is the entry's number.
+`<path>` is the brief you wrote, relative to the project root; `--from` is the letter of the sketch it came from, and it is required: the record refuses an entry that names no sketch. `data.n` is the entry's number.
 
 Add a `--wait` for each earlier entry whose work must land before this one's, and a `--note` for a gate that is not an entry ("after you approve the spike") — **only when the conversation or the brief states it**. Never infer a wait from the files two briefs touch: a wait changes whether an entry reads as ready, and the order of the work is the user's statement to make.
 
@@ -132,7 +153,7 @@ If `tugtool commit` fails, say so with its output and still hand off; a written 
 
 ## Hand off
 
-Name the path you wrote, the sha it landed as — the bare sha in backticks, `` `63de5762a` ``, never `commit 63de5762a` — and the entry it became, by number and cycle name ("entry 3 of *Dockets of many briefs*"), then print the command below, and stop. When a cycle write refused, say that instead of the entry. What happens to the brief next — an arc opened on it by `/arc`, a spike, or nothing at all — is the user's call, and the document is what makes it theirs to make. Whether that arc walks a task list or devises a plan first is the door's decision, made from the brief's content when it is handed over; this skill does not pre-empt it, and the brief's Exit section names an arc rather than a plan for that reason.
+Name the path you wrote, the sha it landed as — the bare sha in backticks, `` `63de5762a` ``, never `commit 63de5762a` — and the entry it became, by number and cycle name ("entry 3 of *Dockets of many briefs*"), then name the next link of the chain, an arc opened on the brief, by printing the command below, and stop. When a cycle write refused, say that instead of the entry. What happens to the brief next — an arc opened on it by `/arc`, a spike, or nothing at all — is the user's call, and the document is what makes it theirs to make. Whether that arc walks a task list or devises a plan first is the door's decision, made from the brief's content when it is handed over; this skill does not pre-empt it, and the brief's Exit section names an arc rather than a plan for that reason.
 
 **The command goes last, on its own line, written as inline code:**
 

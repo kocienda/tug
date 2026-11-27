@@ -3,10 +3,11 @@
  * snapshot and the session the card follows.
  *
  * Three lists, in the order the card shows them: the cycles, then the arcs no
- * cycle names, then the waiting paperwork. A cycle of two or more entries is a
- * section with a map over one row per asset; a cycle of one entry is that one
- * row. An arc is drawn once: a live arc or a branchless one whose owner key a
- * cycle's entry carries is drawn in its cycle and left out of the loose lists.
+ * cycle names, then the waiting paperwork. Every cycle is a section with a
+ * map over one row per asset, a cycle of one entry the same as any other: a
+ * surface draws what the record holds. An arc is drawn once: a live arc or a
+ * branchless one whose owner key a cycle's entry carries is drawn in its
+ * cycle and left out of the loose lists.
  *
  * Everything here is pure. It reads no store and holds no React; the card
  * memoizes one pass per snapshot.
@@ -257,7 +258,7 @@ export type CycleAsset =
   | { kind: "sketch"; key: string; sketch: CycleSketchRow }
   | { kind: "entry"; key: string; row: CycleEntryRow };
 
-/** A cycle of two or more entries: a pinned header and map over its assets. */
+/** A cycle: a pinned header and map over its assets, whatever its number of entries. */
 export interface CycleSection {
   kind: "section";
   /** The cycle's id: the key its fold and its selection are held under. */
@@ -276,15 +277,7 @@ export interface CycleSection {
   strip: readonly CycleEntryState[];
 }
 
-/** A cycle of one entry: that entry's row, with no header, map, number or sketch row. */
-export interface CycleSingle {
-  kind: "single";
-  id: string;
-  cycle: CycleWire;
-  row: CycleEntryRow;
-}
-
-export type CycleItem = CycleSection | CycleSingle;
+export type CycleItem = CycleSection;
 
 /** Everything the card draws, in the order it draws it. */
 export interface ArcsCardProjection {
@@ -468,9 +461,6 @@ function cycleItem(
   );
   // A cycle with no entry names no work yet, so there is nothing to draw.
   if (rows.length === 0) return null;
-  if (rows.length === 1) {
-    return { kind: "single", id: cycle.id, cycle, row: rows[0]! };
-  }
   const sketches = sketchRows(cycle);
   const landed = rows.filter((r) => r.entry.state === "joined").length;
   const atRest = landed === rows.length;
@@ -480,7 +470,7 @@ function cycleItem(
     cycle,
     name: cycle.name,
     landedText: atRest
-      ? `At rest · ${rows.length} arcs`
+      ? `At rest · ${rows.length} ${rows.length === 1 ? "arc" : "arcs"}`
       : `${landed} of ${rows.length} landed`,
     atRest,
     tiles: rows.map(tileOf),
@@ -605,12 +595,6 @@ export function pressCycleRow(view: CycleViewState, id: string, key: string): Cy
   return withChosen(view, id, new Set([key]));
 }
 
-/** The view after a press on a cycle of one: its row opens, or closes. */
-export function pressCycleSingle(view: CycleViewState, single: CycleSingle): CycleViewState {
-  const open = cycleChosen(view, single.id).has(single.row.key);
-  return withChosen(view, single.id, open ? NO_PICKS : new Set([single.row.key]));
-}
-
 /** One row of the card's list. */
 export type ArcsCardItem =
   | {
@@ -621,14 +605,13 @@ export type ArcsCardItem =
       chosen: ReadonlySet<string>;
     }
   | { kind: "cycle-asset"; id: string; section: CycleSection; asset: CycleAsset; open: boolean }
-  | { kind: "cycle-single"; id: string; single: CycleSingle; open: boolean }
   | { kind: "arc"; id: string; row: ArcRow }
   | { kind: "plan"; id: string; row: DocumentArcRow };
 
 /**
  * The card's rows, in the order the arrows walk them: each cycle's pin and
- * the assets showing under it, each cycle of one, then the loose arcs, then
- * the waiting paperwork.
+ * the assets showing under it, then the loose arcs, then the waiting
+ * paperwork.
  *
  * A folded cycle lists no assets. With two or more assets selected only those
  * are listed; a selected asset is open.
@@ -644,15 +627,6 @@ export function listArcsCard(
   const items: ArcsCardItem[] = [];
   for (const cycle of projection.cycles) {
     const chosen = cycleChosen(view, cycle.id);
-    if (cycle.kind === "single") {
-      items.push({
-        kind: "cycle-single",
-        id: `cycle:${cycle.id}`,
-        single: cycle,
-        open: chosen.has(cycle.row.key),
-      });
-      continue;
-    }
     const folded = cycleIsFolded(view, cycle);
     items.push({ kind: "cycle-pin", id: `cycle:${cycle.id}`, section: cycle, folded, chosen });
     if (folded) continue;

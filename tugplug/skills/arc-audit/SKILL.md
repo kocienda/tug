@@ -170,7 +170,7 @@ tugtool arc mark <name> audited --note "<one line: what was checked, and what wa
 
 **The mark is the stage's whole product**, exactly as the stamp is the review's. It is the one fact that says the audit ran, it is read from the arc's own record rather than from anything you say about yourself, and an audit that ends without it has answered nothing — the wheel stops the arc there and says the audit did not mark. So it is the last thing you do, after every round is committed and the fit is verified — and verified on this exact tree, because the mark is refused when the last verify ran at another head or onto another base. A mark that goes stale before the wheel reads it is not a missing one: the wheel seats the audit again, or, with no card idle to seat it on, stops the arc as `audit went stale`, which the re-audit reopens.
 
-Then report what you found and what you changed, in a few lines, and **stop. Do not join.** Landing is the user's act, always.
+Then report what you found and what you changed, in a few lines, end on the next link of the chain, which is landing the arc from the Changes shade, and **stop. Do not join.** Landing is the user's act, always.
 
 ### 8. The join is the user's gesture
 

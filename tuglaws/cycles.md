@@ -2,9 +2,23 @@
 
 *What a cycle is, how its state is read, how it is numbered and named, and how the two surfaces that show one behave. Each rule names the module that holds it. Where an alternative was tried and rejected, it is recorded in one line beside the rule it lost to, so that it is not proposed again. The arc itself is [arc-lifecycle.md](arc-lifecycle.md); the vocabulary is [work-grammar.md](work-grammar.md).*
 
+## The chain
+
+**The process is sketch, then brief, then arc, then landed.** Work always starts at a sketch and always ends at a landed arc, with a brief in the middle. A cycle is the collection of arcs that belong together, each linked to its brief and its sketch.
+
+**Every link is required.** An arc is carried by exactly one entry on exactly one cycle. An entry has exactly one brief. An entry names at least one sketch on its cycle. A missing link is a defect in Tug, never a state a surface draws around, and the record's writer refuses it ([L40]): `add_entry` in `tugrust/crates/tugarc-core/src/cycle.rs` refuses an entry with no brief or no sketch, a verb adds a sketch to an entry already on record without removing or renumbering anything, and a check verb lists every cycle on the machine that breaks the chain.
+
+**One brief may be carried by more than one entry**, each with its own arc. It is rare and allowed, because a brief's work is sometimes split, and it is drawn as what it is: two entries that name the same brief. *Rejected: requiring a second brief before a second arc.*
+
+**A brief that led to more briefs is a link, not an entry.** When a sketch is written up as a brief that spawns further briefs and never has an arc of its own, that first brief is recorded on the sketch it wrote up, and the arcs reach the sketch through it. It is not an entry, because an entry with no arc would read as ready forever. *Rejected: a third kind of asset on the map for such a brief.*
+
+**A record is found through other records, never through the session** ([L41]). The brief skill finds its cycle by the sketch the brief comes from, or by the brief it was written from, and starts a new cycle when neither is on one. The arc door, handed a brief on no cycle, writes a sketch from that brief and adds it as A before the entry. *Rejected: choosing "this session's most recent cycle", which split one rollout across three cycles.*
+
+**The user is always told what comes next.** Each skill that ends a link names the next one: after a sketch, brief it; after a brief, open an arc on it; after an arc finishes, land it. Each surface says the same for every item it shows. Naming the next step is not starting it; starting things from the surfaces stays [deferred](#drawn-and-deferred).
+
 ## What a cycle is
 
-A **cycle** is a container of related work. It holds numbered **entries** and lettered **sketches**. An entry is one brief and the one arc that carries it once that arc opens; brief to arc is always one to one. A sketch says where entries came from, and one sketch may head several entries, and one entry may come from several sketches.
+A **cycle** is a container of related work. It holds numbered **entries** and lettered **sketches**. An entry is one brief and the one arc that carries it once that arc opens; an entry has one arc, and a brief may be carried by more than one entry ([the chain](#the-chain)). A sketch says where entries came from, and one sketch may head several entries, and one entry may come from several sketches. A sketch may also carry the brief that wrote it up when that brief has no arc of its own, and `tugtool cycle find --brief` finds a cycle through that brief as it does through an entry's.
 
 **Every arc is on a cycle.** A bare `/arc` writes a real cycle of one, because that arc may turn out to be the first stage of work that later gains another brief and another arc.
 
@@ -55,6 +69,7 @@ The map draws a cycle as a graph, and both surfaces compose the one component: `
 - **A sketch is a seal**, wired to the entries it heads and seated in the column just before them, so a sketch added late stands beside what it added.
 - **A wire is solid once what it leaves has landed.** Until then the wire is dashed.
 - **Waiting is solid gray.** The border of a waiting tile and an unmet wait chip are solid gray. *Rejected: dashed borders for waiting.*
+- **A tile's steps stay inside the tile.** The pips share the width the tile has left after its number, and an arc with more steps than readable pips fit draws one bar filled to the same fraction, at both sizes.
 
 The map is presentational: it reads no store and derives no state. The host holds the selection and paints the well around the map.
 
@@ -79,25 +94,29 @@ Selection is one set, and the rule is the same on both surfaces because both app
 
 ## One scrollbar per surface
 
-No surface has more than one vertical scroller. In the shade it is the asset list, and the shade itself does not scroll. In the sidebar it is the card. The map's own sideways overflow is the only other scrolling.
+No surface has more than one vertical scroller, and nothing inside it is an exception. In the shade it is the asset list, and the shade itself does not scroll; the running entry's steps are laid out in full inside that list, never in a capped scroller of their own. In the sidebar it is the card. The map's own sideways overflow is the only other scrolling.
 
-## The CYCLE cell
+## The CYCLE & ARC cell
 
-The Session card's status row has an ordinary cell labelled `CYCLE`. Pressed, it raises and lowers the cycle shade. Its value is the landed fraction only when the cycle has two or more entries; with one entry, or an arc on no cycle, it reads the arc exactly as the arc cell did (`cycleCellReading` in `tugdeck/src/components/tugways/cards/session-cycle-shade-model.ts`). *Rejected: a separate expand control on the status row's edge.*
+The Session card's status row has an ordinary cell labelled `CYCLE & ARC`. Pressed, it raises and lowers the cycle shade. It shows two fractions: the cycle's entries landed over its entries, and this session's arc's steps done over its steps. A cycle of one reads 0/1 or 1/1 like any other. A session bound to no arc shows the cycle's fraction alone, and an arc that is not walking steps (devising, reviewing, auditing) shows that stage's mark in the second place, as the arc cell did (`cycleCellReading` in `tugdeck/src/components/tugways/cards/session-cycle-shade-model.ts`). *Rejected: a separate expand control on the status row's edge.*
+
+*Reversed, 2026-11-26: the cell first read the cycle or the arc, never both: the landed fraction for two or more entries, and the arc's reading for one. The user wanted both numbers at once.*
 
 ## A cycle of one
 
-In the Session card, a cycle with one entry is drawn as a cycle: the same header, map, asset list and footer as any other (`cycleShadeForm`). The entry for the arc the session is bound to holds that arc's own steps and verbs (`ArcPopoverContent`) and its brief's headings, so stopping and landing an arc happen in its entry. Only an arc that no cycle holds keeps the three panels. In the sidebar card a cycle of one is still one row with no header, no map and no number (`projectArcsCard` in `tugdeck/src/components/arcs/arcs-projection.ts`).
+A cycle of one is a cycle, on every surface: a surface draws what the record holds and adds no special case. In the Session card it has the same header, map, asset list and footer as any other (`cycleShadeForm`), in the Cycles & Arcs card the same name, map and sketch (`projectArcsCard` in `tugdeck/src/components/arcs/arcs-projection.ts`), and in the status row the same two fractions. The entry for the arc the session is bound to holds that arc's own steps and verbs (`ArcPopoverContent`) and its brief's headings, so stopping and landing an arc happen in its entry.
 
-*Reversed, 2026-11-26: the shade first kept the arc's three panels for a cycle of one. The user saw the first real cycle, a cycle of one, drawn as the old arc shade and asked for the one design everywhere.*
+Only an arc that no cycle holds is drawn alone, and since [every link is required](#the-chain) that is a defect to repair by putting the arc on a cycle, not a form to keep. The check verb reads the cycle records, so it finds a broken entry, but an arc on no cycle at all is not in any record for it to read.
+
+*Reversed, 2026-11-26: the shade first kept the arc's three panels for a cycle of one, and the sidebar a plain row with no header, map or number. The user saw the first real cycles drawn that way and asked for the one design everywhere.*
 
 ## The cycle shade
 
-With two or more entries the shade is a header, the map, the asset list and a footer (`tugdeck/src/components/tugways/cards/session-cycle-shade.tsx`). The header has the lowering control, the cycle's name and how much has landed. The footer is two lines: what this session is doing now, and what is ready next. Under 520 px of card width the footer gives up its count of other sessions.
+The shade is a header, the map, the asset list and a footer (`tugdeck/src/components/tugways/cards/session-cycle-shade.tsx`). The header has the lowering control, the cycle's name and how much has landed. The footer is two lines: what this session is doing now, and what is ready next. Work running in other sessions is named with each session's chip, which goes to that session. Under 520 px of card width the footer gives up its count of other sessions.
 
 **Other shades stand over the cycle shade and do not lower it.** A Changes or History shade presents over a raised cycle shade, Find opens beside it, and the cycle shade is there when they leave (`tugdeck/src/lib/arc-shade-controller.ts`). Only share mode lowers it, because share mode selects the transcript turns the shade would cover.
 
-**A lowered cycle shade leaves nothing standing.** The CYCLE cell carries the fraction and the way back. *Rejected: a footer left standing under a lowered shade.*
+**A lowered cycle shade leaves nothing standing.** The CYCLE & ARC cell carries the fractions and the way back. *Rejected: a footer left standing under a lowered shade.*
 
 ## The Cycles & Arcs card
 

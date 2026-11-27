@@ -366,10 +366,31 @@
 }
 
 .arcs-cycle-sketch-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
   max-inline-size: 100%;
   font-size: 12px;
-  white-space: pre-wrap;
+  line-height: 1.45;
   overflow-wrap: anywhere;
+}
+
+/* Open, a sketch is drawn as the record it is, as the shade draws it: what is
+   wanted in the row's ink, then the approach and its parts, quieter. */
+.arcs-cycle-sketch-text > p,
+.arcs-cycle-sketch-text > ul {
+  margin: 0;
+}
+
+.arcs-cycle-sketch-text > ul {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-inline-start: 1.2em;
+}
+
+.arcs-cycle-sketch-text > :not(:first-child) {
+  color: var(--tug7-element-global-text-normal-subtle-rest);
 }
 
 /* The arc's own parts, inside an entry row: the row's content column is

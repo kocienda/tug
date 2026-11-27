@@ -1,4 +1,4 @@
-//! `tugtool cycle create|rename|add-entry|add-sketch|attach|find|list|show`:
+//! `tugtool cycle create|rename|add-entry|add-from|add-sketch|attach|find|list|show|check`:
 //! a cycle's record written in a scratch checkout, and every entry's state
 //! read back from the arc log; and an arc-less sketch recorded on stdin, the
 //! way a skill with no arc records one.
@@ -119,14 +119,32 @@ fn a_cycle_is_written_and_its_entries_read_from_the_arc_log() {
         absolute.to_str().unwrap(),
         "--wait",
         "1",
+        "--from",
+        "A",
         "--note",
         "after the release",
     ]);
     assert_eq!(second["n"], 2);
     assert!(
-        !s.out(&["cycle", "add-entry", &id, "--brief", "b.md", "--wait", "9"])
+        !s.out(&["cycle", "add-entry", &id, "--brief", "b.md"])
             .status
             .success(),
+        "an entry that names no sketch is refused"
+    );
+    assert!(
+        !s.out(&[
+            "cycle",
+            "add-entry",
+            &id,
+            "--brief",
+            "b.md",
+            "--from",
+            "A",
+            "--wait",
+            "9"
+        ])
+        .status
+        .success(),
         "a wait on no entry is refused"
     );
 
@@ -269,6 +287,8 @@ fn a_skill_records_a_free_sketch_finds_its_entry_and_renames_by_hand() {
         "briefs/two.md",
         "--wait",
         "1",
+        "--from",
+        "A",
     ]);
     assert_eq!(
         s.ok(&["cycle", "find", "--brief", "briefs/two.md"]),
@@ -284,19 +304,26 @@ fn a_skill_records_a_free_sketch_finds_its_entry_and_renames_by_hand() {
             .is_null()
     );
 
-    // `--mine` is the writer's, and nobody else's.
-    let mine = s.json(&["cycle", "list", "--mine"]);
-    assert_eq!(mine.as_array().unwrap().len(), 1);
-    assert_eq!(mine[0]["id"], id.as_str());
-    let theirs = s
+    // The cycle is found from its sketch, whichever session asks.
+    assert_eq!(
+        s.ok(&["cycle", "find", "--sketch", &sketch_id]),
+        format!("{id}  A")
+    );
+    let other = s
         .tug_in(&s.root)
         .env("TUG_SESSION_ID", "sess-other")
-        .args(["cycle", "list", "--mine", "--json"])
+        .args(["cycle", "find", "--sketch", &sketch_id, "--json"])
         .output()
         .unwrap();
-    assert!(theirs.status.success(), "{theirs:?}");
-    let theirs: serde_json::Value = serde_json::from_slice(&theirs.stdout).unwrap();
-    assert_eq!(theirs["data"], serde_json::json!([]));
+    assert!(other.status.success(), "{other:?}");
+    let other: serde_json::Value = serde_json::from_slice(&other.stdout).unwrap();
+    assert_eq!(other["data"]["id"], id.as_str());
+    assert_eq!(other["data"]["letter"], "A");
+    assert_eq!(s.ok(&["cycle", "find", "--sketch", "00000000"]), "");
+    assert!(
+        !s.out(&["cycle", "list", "--mine"]).status.success(),
+        "no cycle is found by the session"
+    );
     assert_eq!(s.json(&["cycle", "list"]).as_array().unwrap().len(), 1);
 
     // A rename by hand keeps the id.
@@ -313,5 +340,110 @@ fn a_skill_records_a_free_sketch_finds_its_entry_and_renames_by_hand() {
             .status
             .success(),
         "an empty name is refused"
+    );
+}
+
+#[test]
+fn an_old_entry_is_repaired_and_the_check_reads_the_whole_machine() {
+    let s = Scratch::new();
+    let check = |s: &Scratch| {
+        s.tug_in(&s.state)
+            .args(["cycle", "check"])
+            .output()
+            .unwrap()
+    };
+    let clean = check(&s);
+    assert!(clean.status.success(), "{clean:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&clean.stdout).trim(),
+        "every cycle on this machine is whole"
+    );
+
+    // A record written before every entry had to name a sketch.
+    let id = s.ok(&["cycle", "create", "--name", "Old"]);
+    let record_path = tugtool_core::paths::project_state_dir_at(&Paths::under(&s.state), &s.root)
+        .join("cycles")
+        .join(&id)
+        .join("cycle.json");
+    let mut record: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&record_path).unwrap()).unwrap();
+    record["entries"] = serde_json::json!([
+        {"n": 1, "brief": "briefs/index.md", "waits": [], "added": "2026-11-01T00:00:00Z"}
+    ]);
+    std::fs::write(&record_path, serde_json::to_string_pretty(&record).unwrap()).unwrap();
+
+    let broken = check(&s);
+    assert_eq!(broken.status.code(), Some(1), "{broken:?}");
+    let text = String::from_utf8_lossy(&broken.stdout);
+    assert!(text.contains(&format!("{id}  Old")), "{text}");
+    assert!(text.contains("  entry 1 names no sketch"), "{text}");
+    let report = s
+        .tug_in(&s.state)
+        .args(["cycle", "check", "--json"])
+        .output()
+        .unwrap();
+    assert_eq!(report.status.code(), Some(1));
+    let report: serde_json::Value = serde_json::from_slice(&report.stdout).unwrap();
+    assert_eq!(report["data"]["clean"], false);
+    assert_eq!(report["data"]["breaks"][0]["id"], id.as_str());
+
+    // A sketch written from the brief, carrying it, then named by the entry.
+    let sketch = record_on_stdin(&s, &[], "# Sketch\n\nWant the index.\n")["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        !s.out(&["cycle", "add-from", &id, "1", "--from", "A"])
+            .status
+            .success(),
+        "no sketch A yet"
+    );
+    assert_eq!(
+        s.ok(&[
+            "cycle",
+            "add-sketch",
+            &id,
+            &sketch,
+            "--brief",
+            "briefs/index.md"
+        ]),
+        "A"
+    );
+    let from = s.json(&["cycle", "add-from", &id, "1", "--from", "a"]);
+    assert_eq!(from["from"], serde_json::json!(["A"]));
+    assert_eq!(s.ok(&["cycle", "add-from", &id, "1", "--from", "A"]), "A");
+    assert!(
+        !s.out(&["cycle", "add-from", &id, "1"]).status.success(),
+        "a letter is required"
+    );
+    assert!(check(&s).status.success(), "the record is whole again");
+
+    // The brief is found through its entry; a brief only a sketch carries is
+    // found through the sketch.
+    let found = s.json(&["cycle", "find", "--brief", "briefs/index.md"]);
+    assert_eq!(found["n"], 1);
+    assert!(found.get("letter").is_none(), "{found}");
+    let other = record_on_stdin(&s, &[], "# Sketch\n\nWant more.\n")["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        s.ok(&[
+            "cycle",
+            "add-sketch",
+            &id,
+            &other,
+            "--brief",
+            "briefs/umbrella.md"
+        ]),
+        "B"
+    );
+    let found = s.json(&["cycle", "find", "--brief", "briefs/umbrella.md"]);
+    assert_eq!(found["id"], id.as_str());
+    assert_eq!(found["letter"], "B");
+    assert!(found.get("n").is_none(), "{found}");
+    assert_eq!(
+        s.ok(&["cycle", "find", "--brief", "briefs/umbrella.md"]),
+        format!("{id}  B")
     );
 }

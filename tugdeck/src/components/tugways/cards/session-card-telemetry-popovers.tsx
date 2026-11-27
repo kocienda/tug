@@ -2256,6 +2256,7 @@ export function ArcPopoverContent({
   verbs,
   onVerb,
   verbLabels = "shown",
+  layout = "popup",
 }: {
   fact: ArcSessionFact;
   tasks: TaskListState["tasks"];
@@ -2266,6 +2267,8 @@ export function ArcPopoverContent({
   onVerb: (kind: ArcSurfaceVerbKind, anchor: HTMLElement | null) => void;
   /** How the verb row words its verbs; the row's own `labels`. */
   verbLabels?: "shown" | "on-hover" | "lead-only";
+  /** The frame's layout: `inline` where it is set into a surface that scrolls, as the cycle shade's entry is. */
+  layout?: "popup" | "inline";
 }): React.ReactElement {
   // Everything this placard draws comes off the fact already derived, by the
   // builder the arc's own shape calls for. There is no wire entry to reach
@@ -2290,6 +2293,7 @@ export function ArcPopoverContent({
     <TugPopupListFrame
       kind="item"
       className="session-arc-popover"
+      layout={layout}
       footer={
         // No summary word: the lifecycle block at the top of this placard
         // already says the phase, and the git stage under it was the same

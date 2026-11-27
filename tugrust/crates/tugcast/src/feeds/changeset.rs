@@ -5616,13 +5616,14 @@ Some context.
 
     /// A scratch cycle on `root` under `paths`: entry 1 tied to `aa`, which
     /// joins, entry 2 tied to `bb`, which is open, entry 3 waiting on 2 and
-    /// entry 4 waiting on 1 alone. Entry 1's brief is on disk; the rest are not.
+    /// entry 4 waiting on 1 alone, every entry from sketch A. Entry 1's brief
+    /// is on disk; the rest are not.
     fn scratch_cycle(paths: &Paths, root: &Path) -> String {
-        use tugarc_core::cycle::{NewEntry, add_entry, attach, create_cycle};
+        use tugarc_core::cycle::{NewEntry, add_entry, add_sketch, attach, create_cycle};
         let entry = |brief: &str, waits: &[u32]| NewEntry {
             brief: brief.to_owned(),
             waits: waits.to_vec(),
-            from: Vec::new(),
+            from: vec!["A".into()],
             note: None,
         };
         std::fs::create_dir_all(root.join("briefs")).unwrap();
@@ -5630,6 +5631,15 @@ Some context.
         let id = create_cycle(paths, root, "Cycle", Some("sess-writer"))
             .unwrap()
             .id;
+        let sketch = tugarc_core::sketch::record_free_sketch(
+            paths,
+            root,
+            "# Sketch\n\nShow the cycle.\n\nSource: session s, turns 1–1\n",
+            None,
+        )
+        .unwrap()
+        .id;
+        add_sketch(paths, root, &id, &sketch, None).unwrap();
         add_entry(paths, root, &id, entry("briefs/a.md", &[])).unwrap();
         add_entry(paths, root, &id, entry("briefs/b.md", &[])).unwrap();
         add_entry(paths, root, &id, entry("briefs/c.md", &[2])).unwrap();
@@ -5743,7 +5753,7 @@ Some context.
         let sketch = record_free_sketch(&paths, &root, first, None).unwrap().id;
         let second = "# Sketch\n\nShow related arcs together.\n\nOne group per run.\n\n- A map\n- A row per part\n\nSource: session s, turns 1–2\n";
         record_free_sketch(&paths, &root, second, Some(&sketch)).unwrap();
-        assert_eq!(add_sketch(&paths, &root, &id, &sketch).unwrap(), "A");
+        assert_eq!(add_sketch(&paths, &root, &id, &sketch, None).unwrap(), "A");
 
         let none = HashMap::new();
         let cycles = cycle_entries_in(&paths, &root, &none, &none);

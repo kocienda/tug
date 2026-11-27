@@ -184,6 +184,7 @@ export function SessionArcShadeContent({
         verbs={arcVerbs.verbs}
         onVerb={arcVerbs.onVerb}
         verbLabels="lead-only"
+        layout="inline"
       />
     ) : undefined;
   const hereBrief =

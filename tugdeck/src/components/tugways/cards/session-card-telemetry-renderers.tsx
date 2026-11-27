@@ -132,7 +132,7 @@ import {
   arcCellWord,
 } from "@/components/tugways/tug-arc-track";
 import { useArcForSession } from "@/lib/arc-session-index";
-import { cycleCellReading } from "./session-cycle-shade-model";
+import { CYCLE_CELL_WIDEST_FRACTION, cycleCellReading } from "./session-cycle-shade-model";
 import { useSessionCycle } from "./use-session-cycle";
 import { arcCellReadingWord, reauditCellReading } from "@/lib/reaudit-row";
 import { useSessionGaps } from "@/lib/report-gaps-store";
@@ -1220,19 +1220,17 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // cheap even before the popover opens.
   const stateChangeSnap = useSessionStateChanges(snap.tugSessionId);
 
-  // ── The CYCLE reading ────────────────────────────────────────────────
-  // The fourth cell reads CYCLE, always. For a cycle of several entries its
-  // value is how many have landed of how many there are; for a cycle of one
-  // entry, or an arc no cycle holds, it is the reading of the one arc this
-  // session drives; with neither it is a dimmed `None`. The label, the box
-  // and the construction are the same in all three, so a cycle or an arc
-  // arriving or leaving changes the reading and nothing else in the row. The
-  // dots beside it are always the state of this session's own arc.
+  // ── The CYCLE & ARC reading ──────────────────────────────────────────
+  // The fourth cell reads CYCLE & ARC, always, and shows two readings side by
+  // side: the cycle's entries landed over its entries, and this session's
+  // arc's reading, its steps done over its steps or its stage's word when it
+  // is not walking steps. A cycle of one reads 0/1 or 1/1 like any other. A
+  // session with an arc and no cycle shows the arc's reading alone, one with a
+  // cycle and no arc the cycle's fraction alone, and one with neither a dimmed
+  // `None`. The dots beside the readings are always the state of this
+  // session's own arc.
   const arcFact = useArcForSession(snap.tugSessionId);
-  const cycleReading = cycleCellReading(
-    useSessionCycle(snap.tugSessionId, arcFact?.ownerId ?? null),
-    arcFact !== null,
-  );
+  const cycleReading = cycleCellReading(useSessionCycle(snap.tugSessionId, arcFact?.ownerId ?? null));
   // The session's dark calls, read afresh each time the JOBS placard opens.
   const darkCalls = useSessionGaps(snap.tugSessionId, placard?.key === "jobs");
   // The same call, in the same argument order, the masthead's identity row
@@ -1307,14 +1305,13 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // A cycle's fraction names the cycle and how much of it has landed, then
   // the session's own arc, whose state the dots beside the fraction paint.
   const arcCellLabel =
-    cycleReading.kind === "fraction"
-      ? arcFact === null
+    cycleReading === null
+      ? ownArcLabel
+      : arcFact === null
         ? cycleReading.label
-        : `${cycleReading.label}; ${ownArcLabel}`
-      : ownArcLabel;
-  // The cell is empty, and reads the dimmed `None`, with no arc and no cycle
-  // fraction to show.
-  const arcCellEmpty = arcFact === null && cycleReading.kind !== "fraction";
+        : `${cycleReading.label}; ${ownArcLabel}`;
+  // The cell is empty, and reads the dimmed `None`, with no arc and no cycle.
+  const arcCellEmpty = arcFact === null && cycleReading === null;
   // The placard's one exit: this card's own Changes shade, where every decision
   // about an arc already lives ([D152]). The content scope, not the bare card
   // id — `sendToTarget` walks upward from its target and the session card's
@@ -1497,14 +1494,12 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // whole first half of an arc's life. A direct arc that wrote a task list has
   // a fraction while it walks it, and the phase word once it stops walking.
   const arcReading =
-    cycleReading.kind === "fraction"
-      ? // A cycle of several entries: landed of total, whatever this
-        // session's own arc is doing.
-        cycleReading.text
-      : arcFact === null
+    arcFact === null
       ? // No arc running in the session: the one word, dimmed by the cell's
         // `valueEmpty`, in the same span the arc's reading takes.
-        ARC_CELL_NONE_WORD
+        cycleReading === null
+        ? ARC_CELL_NONE_WORD
+        : ""
       : arcModel === null
         ? ""
       : // While a join offer stands the cell reads the REGISTER's word rather
@@ -1846,7 +1841,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
       </SessionTelemetryCell>
       <SessionTelemetryCell
         priority="arc"
-        label="CYCLE"
+        label="CYCLE & ARC"
         onActivate={toggleArcShade}
         pressed={arcShadeRaised}
         valueEmpty={arcCellEmpty}
@@ -1918,10 +1913,32 @@ export const SessionTelemetryStatusRow = React.forwardRef<
                   : "session-telemetry-arc-value"
               }
               aria-label={arcCellLabel}
-              data-widest={ARC_CELL_WIDEST_WORD}
-              data-widest-alt={ARC_CELL_WIDEST_FRACTION}
+              // With a cycle the box is sized for two readings, the cycle's
+              // fraction beside the arc's widest word or fraction, so the
+              // arc's reading changing never moves it.
+              data-widest={
+                cycleReading === null
+                  ? ARC_CELL_WIDEST_WORD
+                  : `${CYCLE_CELL_WIDEST_FRACTION} ${ARC_CELL_WIDEST_WORD}`
+              }
+              data-widest-alt={
+                cycleReading === null
+                  ? ARC_CELL_WIDEST_FRACTION
+                  : `${CYCLE_CELL_WIDEST_FRACTION} ${ARC_CELL_WIDEST_FRACTION}`
+              }
             >
-              {arcReading}
+              {cycleReading === null ? (
+                arcReading
+              ) : (
+                // Two readings in one row: the cycle's, then the arc's. Each
+                // has its own slot, so a reader can ask for either alone.
+                <span className="session-telemetry-cycle-arc-pair">
+                  <span data-slot="session-telemetry-cycle-fraction">{cycleReading.text}</span>
+                  {arcReading !== "" ? (
+                    <span data-slot="session-telemetry-arc-reading">{arcReading}</span>
+                  ) : null}
+                </span>
+              )}
             </span>
             <TugProgressIndicator
               variant="pulsing-dot"

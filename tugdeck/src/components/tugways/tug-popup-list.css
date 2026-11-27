@@ -198,6 +198,23 @@
   padding-right: var(--tugx-popup-list-scroll-gutter);
 }
 
+/* Inline: a list set into a surface that scrolls on its own. It is laid out
+   in full, so the surface keeps its one vertical scroller; neither the
+   viewport guard nor the row cap applies, and no gutter is held for a
+   scrollbar that never comes. */
+.tug-popup-list[data-layout="inline"] {
+  max-height: none;
+}
+
+.tug-popup-list[data-layout="inline"] > .tug-popup-list-scroller {
+  max-height: none;
+  /* `visible` beside a `hidden` axis computes to `auto`, which is a
+     scroller; `clip` keeps the sideways cut and lets the rows stand. */
+  overflow-x: clip;
+  overflow-y: visible;
+  padding-right: 0;
+}
+
 /* ============================================================================
    Log grid — subgrid-shared four columns (label / preview / annotation
    / value) across the scrolling rows AND the summary block, so the

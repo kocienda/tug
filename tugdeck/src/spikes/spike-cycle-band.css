@@ -317,13 +317,17 @@
 }
 
 .sp-cycle-tile-number {
+  flex: none;
   font-size: 16px;
   font-weight: var(--tug-font-weight-semibold);
   line-height: 1;
 }
 
 .sp-cycle-tile-mark {
-  display: inline-flex;
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  justify-content: flex-end;
   align-items: center;
 }
 
@@ -370,12 +374,18 @@
 }
 
 .sp-cycle-pips {
-  display: inline-flex;
+  display: flex;
+  min-width: 0;
   gap: 2px;
 }
 
+.sp-cycle-pips[data-dense] {
+  gap: 1px;
+}
+
 .sp-cycle-pips > span {
-  width: 4px;
+  flex: 0 1 4px;
+  min-width: 2px;
   height: 10px;
   border-radius: 1px;
   background: var(--tugx-block-hairline);
@@ -387,6 +397,23 @@
 
 .sp-cycle-pips > span[data-pip="now"] {
   background: var(--tug7-element-tone-fill-normal-active-rest);
+}
+
+/* Too many steps for pips: one bar, filled to the same fraction. */
+.sp-cycle-bar {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 24px;
+  height: 10px;
+  border-radius: 1px;
+  overflow: hidden;
+  background: var(--tugx-block-hairline);
+}
+
+.sp-cycle-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--tug7-element-tone-fill-normal-success-rest);
 }
 
 /* A sketch's seal: a wire runs from it to each entry it heads. */
@@ -765,7 +792,12 @@
 }
 
 .sp-cycle-map-scroll[data-compact] .sp-cycle-pips > span {
-  width: 2px;
+  flex-basis: 2px;
+  height: 8px;
+}
+
+.sp-cycle-map-scroll[data-compact] .sp-cycle-bar {
+  max-width: 14px;
   height: 8px;
 }
 

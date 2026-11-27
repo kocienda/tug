@@ -405,7 +405,11 @@ fn swift_name_patterns(command: &[String]) -> (Vec<String>, Vec<String>) {
     let mut args = command.iter();
     while let Some(a) = args.next() {
         if a == "--filter" || a == "--skip" {
-            let into = if a == "--filter" { &mut keep } else { &mut skip };
+            let into = if a == "--filter" {
+                &mut keep
+            } else {
+                &mut skip
+            };
             if let Some(v) = args.next() {
                 into.push(v.clone());
             }
@@ -2258,7 +2262,10 @@ mod tests {
         let argv =
             |words: &[&str]| -> Vec<String> { words.iter().map(|s| s.to_string()).collect() };
         let listed = "Kit.AffineTests/testClips\nKit.AffineTests/testMirrors\nKit.FrameTests/testWhole\nKit.Modern/modern()\n";
-        assert_eq!(count_swift_listed(listed, &argv(&["swift", "test"])), Some(4));
+        assert_eq!(
+            count_swift_listed(listed, &argv(&["swift", "test"])),
+            Some(4)
+        );
         assert_eq!(
             count_swift_listed(listed, &argv(&["swift", "test", "--filter", "Affine"])),
             Some(2)
@@ -2266,7 +2273,15 @@ mod tests {
         assert_eq!(
             count_swift_listed(
                 listed,
-                &argv(&["swift", "test", "--filter=Affine", "--filter", "modern\\(", "--skip", "Clips"])
+                &argv(&[
+                    "swift",
+                    "test",
+                    "--filter=Affine",
+                    "--filter",
+                    "modern\\(",
+                    "--skip",
+                    "Clips"
+                ])
             ),
             Some(2)
         );

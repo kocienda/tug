@@ -1,15 +1,16 @@
-//! `tugtool cycle create|rename|add-entry|add-sketch|attach|find|list|show` —
+//! `tugtool cycle create|rename|add-entry|add-from|add-sketch|attach|find|list|show|check` —
 //! a cycle's record, written and read back.
 //!
 //! A cycle is a container of related arcs, briefs and sketches. The writing
 //! verbs act on this checkout's cycles; `show` reads a cycle by id from any
-//! checkout's store on this machine, so it needs no repository. Every entry's
-//! state is derived from the arc log as it is read, never stored.
+//! checkout's store on this machine, so it needs no repository, and `check`
+//! reads every cycle on the machine for a broken chain. Every entry's state
+//! is derived from the arc log as it is read, never stored.
 
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use tugarc_core::cycle::{self, CycleArc, CycleView, EntryState, NewEntry};
+use tugarc_core::cycle::{self, ChainBreak, CycleArc, CycleView, EntryState, NewEntry};
 use tugcore::instance::Paths;
 
 use crate::changes::AppError;
@@ -34,9 +35,12 @@ pub fn dispatch(cmd: CycleCommands, json: bool) -> ExitCode {
             "cycle add-entry",
             run_add_entry(&paths, &id, &brief, wait, from, note, json),
         ),
-        CycleCommands::AddSketch { id, sketch } => (
+        CycleCommands::AddFrom { id, n, from } => {
+            ("cycle add-from", run_add_from(&paths, &id, n, from, json))
+        }
+        CycleCommands::AddSketch { id, sketch, brief } => (
             "cycle add-sketch",
-            run_add_sketch(&paths, &id, &sketch, json),
+            run_add_sketch(&paths, &id, &sketch, brief.as_deref(), json),
         ),
         CycleCommands::Attach { id, n, arc } => {
             ("cycle attach", run_attach(&paths, &id, n, &arc, json))
@@ -44,9 +48,13 @@ pub fn dispatch(cmd: CycleCommands, json: bool) -> ExitCode {
         CycleCommands::Rename { id, name } => {
             ("cycle rename", run_rename(&paths, &id, &name, json))
         }
-        CycleCommands::Find { brief } => ("cycle find", run_find(&paths, &brief, json)),
-        CycleCommands::List { mine } => ("cycle list", run_list(&paths, mine, json)),
+        CycleCommands::Find { brief, sketch } => (
+            "cycle find",
+            run_find(&paths, brief.as_deref(), sketch.as_deref(), json),
+        ),
+        CycleCommands::List => ("cycle list", run_list(&paths, json)),
         CycleCommands::Show { id } => return run_show(&paths, &id, json),
+        CycleCommands::Check => return run_check(&paths, json),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -66,7 +74,8 @@ struct CreatePayload {
 
 /// The calling session's live segment, through the one reader of the
 /// variable ([P01]); with no instance to ask, the posted id is the answer.
-/// `create` records it and `list --mine` filters by it, so the two agree.
+/// `create` records it as the cycle's author, which nothing reads to find a
+/// cycle: a session works on records and never owns one ([L41]).
 fn writer() -> Option<String> {
     crate::session_identity::resolve_soft(None).map(|r| r.session_id)
 }
@@ -105,14 +114,26 @@ fn run_rename(paths: &Paths, id: &str, name: &str, json: bool) -> Result<(), App
     Ok(())
 }
 
-fn run_find(paths: &Paths, brief: &str, json: bool) -> Result<(), AppError> {
+fn run_find(
+    paths: &Paths,
+    brief: Option<&str>,
+    sketch: Option<&str>,
+    json: bool,
+) -> Result<(), AppError> {
     let repo = repo()?;
-    let found = cycle::find_entry_by_brief(paths, &repo, &brief_path(&repo, brief))
-        .map(|(id, n)| EntryPayload { id, n });
+    let found = match (brief, sketch) {
+        (Some(brief), _) => cycle::find_by_brief(paths, &repo, &brief_path(&repo, brief)),
+        (None, Some(sketch)) => cycle::find_by_sketch(paths, &repo, sketch),
+        (None, None) => None,
+    };
     if json {
         print_ok("cycle find", found);
-    } else if let Some(entry) = found {
-        println!("{}  {}", entry.id, entry.n);
+    } else if let Some(found) = found {
+        match (found.n, found.letter) {
+            (Some(n), _) => println!("{}  {n}", found.id),
+            (None, Some(letter)) => println!("{}  {letter}", found.id),
+            (None, None) => println!("{}", found.id),
+        }
     }
     Ok(())
 }
@@ -180,9 +201,47 @@ struct SketchPayload {
     letter: String,
 }
 
-fn run_add_sketch(paths: &Paths, id: &str, sketch: &str, json: bool) -> Result<(), AppError> {
+#[derive(Serialize)]
+struct FromPayload {
+    id: String,
+    n: u32,
+    from: Vec<String>,
+}
+
+fn run_add_from(
+    paths: &Paths,
+    id: &str,
+    n: u32,
+    letters: Vec<String>,
+    json: bool,
+) -> Result<(), AppError> {
     let repo = repo()?;
-    let letter = cycle::add_sketch(paths, &repo, id, sketch)?;
+    let from = cycle::add_from(paths, &repo, id, n, letters)?;
+    if json {
+        print_ok(
+            "cycle add-from",
+            FromPayload {
+                id: id.to_string(),
+                n,
+                from,
+            },
+        );
+    } else {
+        println!("{}", from.join(","));
+    }
+    Ok(())
+}
+
+fn run_add_sketch(
+    paths: &Paths,
+    id: &str,
+    sketch: &str,
+    brief: Option<&str>,
+    json: bool,
+) -> Result<(), AppError> {
+    let repo = repo()?;
+    let brief = brief.map(|b| brief_path(&repo, b));
+    let letter = cycle::add_sketch(paths, &repo, id, sketch, brief.as_deref())?;
     if json {
         print_ok(
             "cycle add-sketch",
@@ -233,16 +292,9 @@ struct ListRow {
     total: usize,
 }
 
-fn run_list(paths: &Paths, mine: bool, json: bool) -> Result<(), AppError> {
+fn run_list(paths: &Paths, json: bool) -> Result<(), AppError> {
     let repo = repo()?;
-    let records = if mine {
-        // With no session to ask, no cycle is this session's.
-        writer()
-            .map(|w| cycle::cycles_by(paths, &repo, &w))
-            .unwrap_or_default()
-    } else {
-        cycle::cycles(paths, &repo)
-    };
+    let records = cycle::cycles(paths, &repo);
     let rows: Vec<ListRow> = records
         .iter()
         .map(|record| {
@@ -296,6 +348,36 @@ fn run_show(paths: &Paths, id: &str, json: bool) -> ExitCode {
         print!("{}", render(&view));
     }
     ExitCode::SUCCESS
+}
+
+#[derive(Serialize)]
+struct CheckPayload {
+    clean: bool,
+    breaks: Vec<ChainBreak>,
+}
+
+/// `cycle check`: every cycle on the machine that breaks the chain. Exits 1
+/// when any does, so the verb is a check a script can branch on.
+fn run_check(paths: &Paths, json: bool) -> ExitCode {
+    let breaks = cycle::check_cycles(paths);
+    let clean = breaks.is_empty();
+    if json {
+        print_ok("cycle check", CheckPayload { clean, breaks });
+    } else if clean {
+        println!("every cycle on this machine is whole");
+    } else {
+        for b in &breaks {
+            println!("{}  {}  {}", b.id, b.name, b.project_dir);
+            for problem in &b.problems {
+                println!("  {problem}");
+            }
+        }
+    }
+    if clean {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    }
 }
 
 fn state_word(state: EntryState) -> &'static str {

@@ -556,31 +556,32 @@ describe("the cycle verbs the brief skill and the door call, from the bundle alo
     expect(grown.version).toBe(2);
     expect(run(["git", "status", "--porcelain", ".tug"]).out.trim()).toBe("");
 
-    // No cycle is this session's yet, so the skill creates one.
-    expect(data(["cycle", "list", "--mine"], writer)).toEqual([]);
+    // The sketch is on no cycle yet, so the skill creates one.
+    expect(data(["cycle", "find", "--sketch", sketch.id], writer)).toBeNull();
     const cycle = data(["cycle", "create", "--name", "Dockets of many briefs"], writer);
     expect(data(["cycle", "add-sketch", cycle.id, sketch.id], writer).letter).toBe("A");
     expect(data(["cycle", "add-entry", cycle.id, "--brief", "briefs/smoke-brief.md", "--from", "A"], writer).n).toBe(1);
 
-    // A second brief finds the cycle through --mine and states its wait.
-    const mine = data(["cycle", "list", "--mine"], writer);
-    expect(mine.map((c: { id: string }) => c.id)).toEqual([cycle.id]);
-    expect(data(["cycle", "add-sketch", cycle.id, sketch.id], writer).letter).toBe("A");
+    // A second brief, written in another session, finds the cycle through
+    // the sketch it comes from and states its wait.
+    const elsewhere = { TUG_SESSION_ID: "sess-elsewhere" };
+    expect(data(["cycle", "find", "--sketch", sketch.id], elsewhere)).toEqual({ id: cycle.id, letter: "A" });
+    expect(data(["cycle", "add-sketch", cycle.id, sketch.id], elsewhere).letter).toBe("A");
     const second = data(
       ["cycle", "add-entry", cycle.id, "--brief", "briefs/second-brief.md", "--from", "A", "--wait", "1", "--note", "after the spike"],
-      writer,
+      elsewhere,
     );
     expect(second.n).toBe(2);
-    expect(data(["cycle", "list", "--mine"], { TUG_SESSION_ID: "sess-elsewhere" })).toEqual([]);
+    expect(tugtool(["cycle", "list", "--mine"], writer).code, "no cycle is found by the session").not.toBe(0);
 
     // A rename by hand keeps the id.
     expect(data(["cycle", "rename", cycle.id, "--name", "Dockets"], writer)).toEqual({ id: cycle.id, name: "Dockets" });
   });
 
   test("the door: a handed-in brief's entry found and attached, and a cycle of one", () => {
-    const cycle = data(["cycle", "list", "--mine"], writer)[0];
     const found = data(["cycle", "find", "--brief", "briefs/smoke-brief.md"], writer);
-    expect(found).toEqual({ id: cycle.id, n: 1 });
+    const cycle = { id: found.id as string };
+    expect(found.n).toBe(1);
     expect(data(["cycle", "find", "--brief", join(realpathSync(project), "briefs/smoke-brief.md")], writer)).toEqual(found);
     expect(data(["cycle", "find", "--brief", "briefs/none-brief.md"], writer)).toBeNull();
 

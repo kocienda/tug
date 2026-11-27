@@ -382,6 +382,16 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* The CYCLE & ARC cell's two readings, the cycle's fraction and then the
+   arc's, side by side in one row inside the value's column of sizing faces.
+   The gap is a space's width, which is what the sizing faces declare
+   between the two. */
+.session-telemetry-cycle-arc-pair {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.5ch;
+}
+
 /* The widest reading, as a hidden sizing face under the live one.
 
    A word-bearing value declares its widest possible reading in `data-widest`
