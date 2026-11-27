@@ -46,11 +46,46 @@ The background is the rollout in `briefs/cycle-rollout-brief.md`. Its seven stag
 
 **[F08] The sidebar still draws a cycle of one as a plain row.** `tuglaws/cycles.md`, under "A cycle of one", says so and names `projectArcsCard` in `tugdeck/src/components/arcs/arcs-projection.ts`. The user's sidebar screenshot shows `liven-cast-fill-bigger-ui`, which is entry 1 of the cycle "Cast grid and UI size" with sketch A, as a loose row with no cycle name, no map and no sketch. The shade drew a cycle of one as a cycle from `acb8850fc` on. **(verified for the law and the record; the row is in the screenshot)**
 
-**[F09] The shade's screenshot shows two vertical scrollbars.** The running entry's steps sit in their own scroller inside the asset list, which also scrolls. `tuglaws/cycles.md` says no surface has more than one vertical scroller. The cause in the code was not traced; the running entry's body is `ArcPopoverContent`, passed in from `tugdeck/src/components/tugways/cards/session-arc-shade-content.tsx`. **(seen in the screenshot, not traced)**
+**[F09] The shade's screenshot shows two vertical scrollbars.** The running entry's steps sit in their own scroller inside the asset list, which also scrolls. `tuglaws/cycles.md` says no surface has more than one vertical scroller. The steps are drawn inside `TugPopupListScroller`, whose rule in `tugdeck/src/components/tugways/tug-popup-list.css` caps its height and scrolls past it. **(seen in the screenshot; the cap read in the code)**
 
-**[F10] The sidebar's joined entry says "Joined" twice.** The user's screenshot shows the Joined badge at the right of entry 1 and the word "Joined" again under the arc name. **(seen in the screenshot, not traced)**
+**[F10] The sidebar's joined entry says "Joined" twice.** The user's screenshot shows the Joined badge at the right of entry 1 and the word "Joined" again under the arc name. The second is the entry's `sentence` from `sentenceOf` in `tugdeck/src/components/arcs/arcs-projection.ts`, drawn when the row is open. **(verified)**
 
-**[F11] The shipped surfaces have not been compared with the spike part by part.** The spike is `tugdeck/src/spikes/spike-cycle-band.tsx` with its CSS and layout file, restored in `d8c53c2e0`. In it each sketch is an asset in the list with its letter, the entries it heads and its text; each entry is one row with its arc, session, brief, waits, note and state; and a running entry shows its steps. [F06], [F08], [F09] and [F10] were found from three screenshots. A full comparison has not been done, so more differences are likely.
+**[F11] The shipped surfaces were compared with the spike part by part, in the code.** The spike is `tugdeck/src/spikes/spike-cycle-band.tsx` with `spike-cycle-band.css`, restored in `d8c53c2e0`. It was read whole against `tugdeck/src/components/tugways/cycle-map.tsx`, `tugdeck/src/components/tugways/cards/session-cycle-shade.tsx` with its model and CSS, and the cycle parts of `tugdeck/src/components/arcs/arcs-card.tsx` with `arcs-projection.ts`. Neither was seen rendered by the model. **(verified by reading)**
+
+What matches the spike:
+
+| Part | Spike | Shipped |
+|---|---|---|
+| Map: tiles, seals, wires, held seats, solid wire once landed, lit wires on point, dimming when narrowed, tooltips, corner dot for another session | `CycleMapView` | `CycleMap`, the same at both sizes |
+| Shade header: lowering control, CYCLE, name, landed count | `ShadeHeader` | the same |
+| Shade sketch asset: seal, "Sketch A", Heads chips, the sketch's text | `SketchAsset` | the same |
+| Shade entry row: number, arc atom, "this session" or the session chip, brief atom, waits chips, note, state mark | `EntryAsset` | the same |
+| Selection, the Back bar and its wording, the list as the one scroller, the tail that lets the last asset reach the top | `CardFrame` | the same |
+| Footer wording for Now and Next | `ShadeFooter` | the same |
+| Sidebar: pinned head and map, fold cue, strip when folded, "At rest · N arcs", entry row closed and open, sketch row with its want closed, Heads chips | `SidebarCycle`, `SidebarEntry`, `SidebarSketch` | `CyclePin`, `CycleEntryView`, `CycleSketchRowView` |
+
+What differs:
+
+| # | Part | Spike | Shipped |
+|---|---|---|---|
+| 1 | Shade footer, work in other sessions | "N more in" followed by the session chip, which goes to that session | the words "1 more in another session", with no chip and no way there |
+| 2 | Sidebar, a joined entry opened | "Landed on main. Its rounds and commit stay on record." | the word "Joined", which the badge on the same row already says ([F10]) |
+| 3 | Sidebar, a sketch opened | the sketch drawn as a record: its want, its approach, its bullets | the same text as plain wrapped lines |
+| 4 | Shade, the entry this session runs | the arc's steps | the arc's steps and its verbs, and the brief's headings; added in `acb8850fc` so an arc can be stopped and landed from its entry |
+| 5 | Start, Start in a new session, New Cycle, Bind | drawn | not built; deferred by the user |
+| 6 | A cycle of one in the shade | the arc shade's three panels, and a header reading "One arc" | drawn as a cycle since `acb8850fc`, at the user's direction |
+| 7 | A cycle of one in the sidebar | one row with no map and no number | the same as the spike ([F08]); the user now wants it drawn as a cycle |
+| 8 | The status cell | CYCLE, with the fraction for two or more entries and the arc's mark for one | the same as the spike ([F07]); the user now wants CYCLE & ARC with two fractions |
+
+Flaws the spike has too, hidden by its sample data:
+
+| # | Flaw | Why the spike never showed it |
+|---|---|---|
+| 9 | Pips overflow the tile ([F06]) | its arcs have two or five steps |
+| 10 | A running entry's steps scroll inside the list, giving two scrollbars ([F09]): both the spike and the shade put the steps in `TugPopupListScroller`, which has its own height cap | five steps fit under the cap |
+| 11 | No sketch on the map | its fixture always has one; the real record did not ([F02]) |
+
+So rows 1 to 3 are places the shipped surfaces fell short of the spike, rows 4 to 8 are differences the user has decided, and rows 9 to 11 are flaws in the design itself that real data exposed.
 
 **[F12] The laws in `tuglaws/tuglaws.md` run to L39.** The file groups numbered laws under headings; none is about work records or sessions. `tuglaws/cycles.md` holds the cycle rules and `tuglaws/arc-lifecycle.md` the arc's. **(verified)**
 
@@ -86,7 +121,15 @@ The background is the rollout in `briefs/cycle-rollout-brief.md`. Its seven stag
 
 **[B11] A surface draws what the record holds and adds no special case.** A cycle of one is a cycle in the shade, in the sidebar and in the cell. The sidebar's plain row for a cycle of one ([F08]) goes, as the shade's did. Only an arc that no cycle holds is drawn alone, and after [B02] and [B09] that is a defect to fix, not a form to keep.
 
-**[B12] The spike is the reference, and each difference is decided, not drifted into.** The shade and the sidebar card are compared with the spike part by part ([F11]): the map, the sketch asset, the entry row, the running entry's steps, the header, the footer, selection, pinning and scrolling. Where a shipped surface differs, it changes to match, unless this brief or the user says otherwise. The two differences decided here are the cell ([B14]) and the deferred Start controls.
+**[B12] The spike is the reference, and each difference is decided, not drifted into.** The comparison is done ([F11]) and every row of it has an answer here:
+
+- **Rows 1 to 3 change to match the spike.** The shade's footer names the other session with its chip. An opened joined entry in the sidebar says it landed and that its rounds and commit stay on record. An opened sketch in the sidebar is drawn as a record, as the shade draws it.
+- **Row 4 stays.** The entry this session runs keeps the arc's verbs and the brief's headings, because that is where the arc is stopped and landed.
+- **Row 5 stays deferred.**
+- **Rows 6 to 8 follow the user, not the spike:** [B11] and [B14].
+- **Rows 9 to 11 are fixed in the product and in the spike:** [B13], [B15] and [B06].
+
+Anything the arc finds that this table missed is matched to the spike the same way, and named in its report.
 
 **[B13] A tile's steps stay inside the tile.** The pips share the width the tile has left after its number. When an arc has too many steps for each pip to stay readable, the tile draws one bar filled to the same fraction. This holds at both sizes and goes into the shared map, so both surfaces get it at once. The spike is corrected the same way, since it has the same latent flaw ([F06]).
 
@@ -125,7 +168,7 @@ The background is the rollout in `briefs/cycle-rollout-brief.md`. Its seven stag
 3. The skills matching: the brief skill finding its cycle through records, the door writing a sketch for a brief with none, and both naming the next step.
 4. The records on this machine repaired and the check run clean.
 5. The shared map: pips held inside the tile, in the component and in the spike.
-6. The comparison with the spike, written as a list of differences, and each one fixed in the shade and the sidebar card, including the cycle of one in the sidebar, the single scroller and the duplicate Joined.
+6. The differences in [F11] fixed as [B12] says: the footer's session chip, the sidebar's landed line and its sketch drawn as a record, the cycle of one in the sidebar, and the single scroller.
 7. The CYCLE & ARC cell.
 
 It ends with the spike still in the tree and the user checking the built app against it.
