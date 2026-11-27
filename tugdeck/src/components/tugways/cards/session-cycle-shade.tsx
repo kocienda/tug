@@ -19,6 +19,11 @@
  * its note. The brief's contents are not listed here: its file link opens
  * it. Nothing here starts an arc.
  *
+ * Every kind is named in the one small-cap label the header names the cycle
+ * with (`-eyebrow`): `Cycle` before its name, `Sketch` before a sketch's
+ * letter, `Arc` before an entry's title, and the words that introduce a run
+ * of numbers or a footer line, `Heads`, `Waits on`, `Now` and `Next`.
+ *
  * The selection is this component's, and the selected assets are the open
  * ones: a press on a row, a tile or a seal opens that asset alone and a
  * second press closes it, a shift-press on the map adds or removes one, and
@@ -147,7 +152,7 @@ function Waits({ read }: { read: CycleShadeEntry }): React.ReactElement | null {
   if (entry.waits.length === 0 || entry.state === "joined" || entry.state === "dropped") return null;
   return (
     <span className="session-cycle-shade-waits" data-slot="session-cycle-shade-waits">
-      <span>Waits on</span>
+      <span className="session-cycle-shade-eyebrow">Waits on</span>
       {entry.waits.map((n) => {
         const met = !openWaits.includes(n);
         return (
@@ -187,7 +192,12 @@ function SketchAsset({
       <TugListRow
         selected={selected}
         leading={<span className="session-cycle-shade-seal">{sketch.letter}</span>}
-        title={<span className="session-cycle-shade-sketch-label">{`Sketch ${sketch.letter}`}</span>}
+        title={
+          <span className="session-cycle-shade-title">
+            <span className="session-cycle-shade-eyebrow">Sketch</span>
+            <span className="session-cycle-shade-sketch-label">{sketch.letter}</span>
+          </span>
+        }
         description={
           !selected && want !== "" ? (
             <span className="session-cycle-shade-sketch-want session-cycle-shade-quiet">{want}</span>
@@ -196,7 +206,7 @@ function SketchAsset({
         trailing={
           heads.length > 0 ? (
             <span className="session-cycle-shade-waits">
-              <span>Heads</span>
+              <span className="session-cycle-shade-eyebrow">Heads</span>
               {heads.map((n) => (
                 <span key={n} className="session-cycle-shade-wait" data-met>
                   {n}
@@ -261,6 +271,7 @@ function EntryAsset({
         leading={<span className="session-cycle-shade-number">{entry.n}</span>}
         title={
           <span className="session-cycle-shade-title">
+            <span className="session-cycle-shade-eyebrow">Arc</span>
             <span className="session-cycle-shade-headline" data-slot="session-cycle-shade-headline">
               {read.headline}
             </span>
@@ -331,7 +342,7 @@ function Footer({ summary }: { summary: CycleShadeSummary }): React.ReactElement
   return (
     <div className="session-cycle-shade-footer" data-slot="session-cycle-shade-footer">
       <div className="session-cycle-shade-footer-line" data-line="now">
-        <span className="session-cycle-shade-footer-word">Now</span>
+        <span className="session-cycle-shade-eyebrow session-cycle-shade-footer-word">Now</span>
         {now.kind === "entry" ? (
           <span className="session-cycle-shade-footer-what">
             <span className="session-cycle-shade-headline" data-slot="session-cycle-shade-headline">
@@ -370,7 +381,7 @@ function Footer({ summary }: { summary: CycleShadeSummary }): React.ReactElement
         ) : null}
       </div>
       <div className="session-cycle-shade-footer-line" data-line="next">
-        <span className="session-cycle-shade-footer-word">Next</span>
+        <span className="session-cycle-shade-eyebrow session-cycle-shade-footer-word">Next</span>
         {next.kind === "entry" ? (
           <span className="session-cycle-shade-footer-what">
             <span className="session-cycle-shade-headline" data-slot="session-cycle-shade-headline">

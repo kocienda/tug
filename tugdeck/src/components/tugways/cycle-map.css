@@ -7,8 +7,6 @@
   --tug7-element-tone-border-normal-active-rest        | --tug7-surface-global-primary-normal-raised-rest | decorative
   --tug7-element-tone-border-normal-success-rest       | --tug7-surface-global-primary-normal-raised-rest | informational
   --tug7-element-tone-border-normal-data-rest          | --tug7-surface-global-primary-normal-raised-rest | informational
-  --tug7-element-tone-fill-normal-success-rest         | --tug7-surface-global-primary-normal-raised-rest | informational
-  --tug7-element-tone-fill-normal-active-rest          | --tug7-surface-global-primary-normal-raised-rest | decorative
   --tug7-element-tone-fill-normal-agent-rest           | --tug7-surface-card-primary-normal-well-rest     | decorative
   --tug7-element-global-text-normal-muted-rest         | --tug7-surface-card-primary-normal-well-rest     | informational
   --tug7-element-tone-border-normal-success-rest       | --tug7-surface-card-primary-normal-well-rest     | informational
@@ -28,9 +26,6 @@
  * | --tug7-element-tone-border-normal-active-rest  | --tug7-surface-global-primary-normal-raised-rest | decorative    | [data-state="running"] tile (border-color)                      |
  * | --tug7-element-tone-border-normal-success-rest | --tug7-surface-global-primary-normal-raised-rest | informational | [data-state="joined"] tile (border-color)                       |
  * | --tug7-element-tone-border-normal-data-rest    | --tug7-surface-global-primary-normal-raised-rest | informational | .tug-cycle-map-seal (border, outline)                           |
- * | --tug7-element-tone-fill-normal-success-rest   | --tug7-surface-global-primary-normal-raised-rest | informational | .tug-cycle-map-pips > [data-pip="done"] (background)            |
- * | --tug7-element-tone-fill-normal-active-rest    | --tug7-surface-global-primary-normal-raised-rest | decorative    | .tug-cycle-map-pips > [data-pip="now"] (background)             |
- * | --tug7-element-tone-fill-normal-success-rest   | --tug7-surface-global-primary-normal-raised-rest | informational | .tug-cycle-map-bar > span (background)                          |
  * | --tug7-element-tone-fill-normal-agent-rest     | --tug7-surface-card-primary-normal-well-rest     | decorative    | .tug-cycle-map-tile[data-elsewhere]::after (background)         |
  * | --tug7-element-global-text-normal-muted-rest   | --tug7-surface-card-primary-normal-well-rest     | informational | .tug-cycle-map-wire-line (stroke), -wire-head (fill)            |
  * | --tug7-element-tone-border-normal-success-rest | --tug7-surface-card-primary-normal-well-rest     | informational | .tug-cycle-map-wire[data-met] (stroke, fill)                    |
@@ -66,10 +61,6 @@
   --tugx-cycle-map-tile-radius: 6px;
   --tugx-cycle-map-number-size: 12px;
   --tugx-cycle-map-seal-size: 11px;
-  --tugx-cycle-map-pip-gap: 1px;
-  --tugx-cycle-map-pip-width: 2px;
-  --tugx-cycle-map-pip-height: 8px;
-  --tugx-cycle-map-bar-width: 14px;
   --tugx-cycle-map-dot-offset: -4px;
   --tugx-cycle-map-dot-size: 7px;
 }
@@ -161,7 +152,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--tugx-cycle-map-tile-gap, 4px);
+  gap: var(--tugx-cycle-map-tile-gap, 6px);
   padding: 0 var(--tugx-cycle-map-tile-pad, 8px);
   border: 1.5px solid var(--tugx-block-hairline);
   border-radius: var(--tugx-cycle-map-tile-radius, 8px);
@@ -248,51 +239,22 @@
   background: var(--tug7-element-tone-fill-normal-agent-rest);
 }
 
-/* How far a running entry has got: one pip a step, sharing the mark's room.
-   Dense pips shrink toward the least readable pip, 2 px wide and 1 px apart;
-   past that the tile draws a bar instead (`tileProgress`). */
-.tug-cycle-map-pips {
-  display: flex;
-  min-width: 0;
-  gap: var(--tugx-cycle-map-pip-gap, 2px);
+/* How far a running entry has got: the arc's own track, the strip every
+   surface whose subject is the arc draws, with the phase or step in hand
+   breathing. A tile sets only the track's knobs, at the full tile's scale
+   here and the compact one's above (`CYCLE_MAP_TRACK`); the tile's width is
+   sized to hold a planned arc's track beside a two-digit number. */
+.tug-cycle-map-tile {
+  --tugx-arc-track-cell-w: 6px;
+  --tugx-arc-track-steps-w: 36px;
+  --tugx-arc-track-cell-h: 9px;
+  --tugx-arc-track-out: 0px;
 }
 
-.tug-cycle-map-pips[data-dense] {
-  gap: 1px;
-}
-
-.tug-cycle-map-pips > span {
-  flex: 0 1 var(--tugx-cycle-map-pip-width, 4px);
-  min-width: 2px;
-  height: var(--tugx-cycle-map-pip-height, 10px);
-  border-radius: 1px;
-  background: var(--tugx-block-hairline);
-}
-
-.tug-cycle-map-pips > span[data-pip="done"] {
-  background: var(--tug7-element-tone-fill-normal-success-rest);
-}
-
-.tug-cycle-map-pips > span[data-pip="now"] {
-  background: var(--tug7-element-tone-fill-normal-active-rest);
-}
-
-/* Too many steps for pips: one bar, filled to the same fraction. */
-.tug-cycle-map-bar {
-  flex: 1 1 auto;
-  min-width: 0;
-  max-width: var(--tugx-cycle-map-bar-width, 24px);
-  height: var(--tugx-cycle-map-pip-height, 10px);
-  border-radius: 1px;
-  overflow: hidden;
-  background: var(--tugx-block-hairline);
-}
-
-/* @tug-renders-on: --tug7-surface-global-primary-normal-raised-rest */
-.tug-cycle-map-bar > span {
-  display: block;
-  height: 100%;
-  background: var(--tug7-element-tone-fill-normal-success-rest);
+.tug-cycle-map[data-size="compact"] .tug-cycle-map-tile {
+  --tugx-arc-track-cell-w: 4px;
+  --tugx-arc-track-steps-w: 26px;
+  --tugx-arc-track-cell-h: 6px;
 }
 
 /* ---- Seals -------------------------------------------------------------- */

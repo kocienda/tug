@@ -15,7 +15,6 @@ import { describe, expect, it } from "bun:test";
 
 import {
   CYCLE_MAP_MEASURES,
-  LEAST_PIP,
   NO_PICKS,
   cycleMapGeometry,
   entryKey,
@@ -26,7 +25,8 @@ import {
   sealCycleMap,
   sketchKey,
   tileMarkRoom,
-  tileProgress,
+  tileTrackTicks,
+  tileTrackWidth,
   type CycleMapEntry,
   type CycleMapLayout,
   type CycleMapSeat,
@@ -344,11 +344,11 @@ describe("cycle-map-layout — sketches as seals", () => {
 describe("cycle-map-layout — geometry", () => {
   const layout = layoutCycleMap(sealCycleMap(EIGHT).entries);
 
-  it("draws the eight-entry cycle at 516 × 236 full and 328 × 154 compact", () => {
+  it("draws the eight-entry cycle at 784 × 236 full and 548 × 154 compact", () => {
     const full = cycleMapGeometry(layout, "full");
     const compact = cycleMapGeometry(layout, "compact");
-    expect([full.width, full.height]).toEqual([516, 236]);
-    expect([compact.width, compact.height]).toEqual([328, 154]);
+    expect([full.width, full.height]).toEqual([784, 236]);
+    expect([compact.width, compact.height]).toEqual([548, 154]);
   });
 
   for (const size of ["full", "compact"] as const) {
@@ -392,55 +392,20 @@ describe("cycle-map-layout — geometry", () => {
 });
 
 describe("cycle-map-layout — a tile's steps stay inside the tile", () => {
-  /** Every step count from 1 to 30, as `tileProgress` draws it. */
-  const shapes = (size: "full" | "compact", n: number) =>
-    Array.from({ length: 30 }, (_, i) => tileProgress(size, n, i + 1));
-
-  it("full, a one-digit entry: 5 pips at their pitch, 10 shrunk, a bar from 11", () => {
-    expect(tileMarkRoom("full", 3)).toBe(31);
-    expect(tileProgress("full", 3, 5)).toBe("pips");
-    expect(tileProgress("full", 3, 6)).toBe("dense");
-    expect(tileProgress("full", 3, 10)).toBe("dense");
-    expect(tileProgress("full", 3, 11)).toBe("bar");
-    expect(tileProgress("full", 3, 13)).toBe("bar");
-  });
-
-  it("full, a two-digit entry: 3 pips, 7 shrunk, a bar from 8", () => {
-    expect(tileMarkRoom("full", 12)).toBe(21);
-    expect(tileProgress("full", 12, 3)).toBe("pips");
-    expect(tileProgress("full", 12, 7)).toBe("dense");
-    expect(tileProgress("full", 12, 8)).toBe("bar");
-  });
-
-  it("compact, whose pips are already the least readable: 7 for one digit, 4 for two, then a bar", () => {
-    expect(tileMarkRoom("compact", 3)).toBe(21);
-    expect(tileProgress("compact", 3, 7)).toBe("pips");
-    expect(tileProgress("compact", 3, 8)).toBe("bar");
-    expect(tileMarkRoom("compact", 12)).toBe(13);
-    expect(tileProgress("compact", 12, 4)).toBe("pips");
-    expect(tileProgress("compact", 12, 5)).toBe("bar");
-    expect(shapes("compact", 3)).not.toContain("dense");
-  });
-
+  // A running tile draws the arc's own track, never a mark of its own: the
+  // track's whole width fits beside a two-digit number, and its ticks fit the
+  // implement cell for as many steps as a plan ordinarily holds.
   for (const size of ["full", "compact"] as const) {
-    for (const n of [1, 12]) {
-      it(`${size}, entry ${n}: the shape only ever moves from pips to dense to a bar as steps grow`, () => {
-        const order = { pips: 0, dense: 1, bar: 2 } as const;
-        const seen = shapes(size, n).map((s) => order[s]);
-        expect(seen).toEqual([...seen].sort((a, b) => a - b));
-        expect(seen[seen.length - 1]).toBe(order.bar);
-      });
-
-      it(`${size}, entry ${n}: whatever draws pips fits them at the least readable pip`, () => {
-        const room = tileMarkRoom(size, n);
-        shapes(size, n).forEach((shape, i) => {
-          if (shape === "bar") return;
-          const total = i + 1;
-          expect(total * LEAST_PIP.width + (total - 1) * LEAST_PIP.gap).toBeLessThanOrEqual(room);
-        });
-      });
-    }
+    it(`${size}: a planned arc's track fits beside a two-digit number`, () => {
+      expect(tileTrackWidth(size, true)).toBeLessThanOrEqual(tileMarkRoom(size, 99));
+      expect(tileTrackWidth(size, false)).toBeLessThan(tileTrackWidth(size, true));
+    });
   }
+
+  it("full holds 18 ticks in its implement cell, compact 13", () => {
+    expect(tileTrackTicks("full")).toBe(18);
+    expect(tileTrackTicks("compact")).toBe(13);
+  });
 });
 
 describe("cycle-map-layout — selection", () => {

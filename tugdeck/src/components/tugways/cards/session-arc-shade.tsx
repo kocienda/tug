@@ -165,7 +165,12 @@ export function SessionArcShade({
     manager.place(
       cardId,
       { kind: "focus-key", focusKey: `${focusGroup}:${landingOrder}` },
-      { modality: "keyboard" },
+      // The cycle's lowering control holds the key view as a plain ghost
+      // button: a keyboard placement would promote it to the filled role
+      // style, and a chevron that rises filled reads as the shade's default
+      // act. Tab from it paints the ring as any keyboard move does. Done is
+      // the default act, so it lands with its ring.
+      { modality: several ? "pointer" : "keyboard" },
     );
     // The shade took the keyboard when it rose, so it owes it back when it
     // lowers. The trap's pop, which runs before this cleanup, restores the key
@@ -194,7 +199,7 @@ export function SessionArcShade({
         else onReturnKeyboardRef.current?.();
       });
     };
-  }, [live, manager, cardId, focusGroup, landingOrder, controller]);
+  }, [live, manager, cardId, focusGroup, landingOrder, several, controller]);
 
   // The strip of transcript left showing is seen and not operated.
   useLayoutEffect(() => {

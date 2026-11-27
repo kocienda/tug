@@ -99,6 +99,9 @@
      around a row of ticks would read as a sixth cell. */
   box-shadow: none;
   border-radius: 0;
+  /* A plan longer than the box holds at a tick a pixel wide keeps its ticks
+     inside it, rather than drawing them over the cell after it. */
+  overflow: hidden;
 }
 
 /* Ticks divide whatever box the implement cell holds — never a width of their

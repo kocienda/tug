@@ -22,6 +22,8 @@ import type {
 import { entryKey, NO_PICKS, pickOnMap, sketchKey } from "@/components/tugways/cycle-map-layout";
 import { cycleEntryHeadline, cycleTileLabel } from "@/components/tugways/cards/session-cycle-shade-model";
 import { compareArcEntries } from "@/lib/arc-order";
+import { arcTrackModelFromEntry, type ArcTrackModel } from "@/lib/arc-track-model";
+import { documentArcTrackModel } from "@/lib/document-arc-entry";
 import type {
   ArcChangesetEntry,
   CycleEntryState,
@@ -237,8 +239,8 @@ export interface CycleEntryRow {
   plan: DocumentArcRow | null;
   /** Running, and not in the session the card follows. */
   elsewhere: boolean;
-  /** How far a running entry has got, when its arc's ledger says. */
-  steps: { done: number; total: number } | null;
+  /** A running entry's arc track: its arc row's, else its paperwork's. */
+  track: ArcTrackModel | null;
 }
 
 /** One sketch of a cycle, as its row reads it. */
@@ -288,27 +290,6 @@ export interface ArcsCardProjection {
   plans: readonly DocumentArcRow[];
   /** Nothing at all to draw: the card shows its one `None` line. */
   empty: boolean;
-}
-
-/**
- * How far an arc's ledger has got: rows reading `done` over the rows the arc
- * will walk. A withdrawn row is not walked, so it is in neither number. Null
- * when the arc carries no ledger.
- */
-function stepsOfArc(entry: ArcChangesetEntry): { done: number; total: number } | null {
-  const walked = (entry.steps ?? []).filter((s) => s.status !== "withdrawn");
-  if (walked.length === 0) return null;
-  return {
-    done: walked.filter((s) => s.status === "done").length,
-    total: walked.length,
-  };
-}
-
-/** The same reading off a branchless arc's counters. */
-function stepsOfPlan(entry: DocumentArcEntry): { done: number; total: number } | null {
-  return entry.step_total > 0
-    ? { done: entry.steps_done, total: entry.step_total }
-    : null;
 }
 
 /**
@@ -372,12 +353,12 @@ function entryRow(
     plan,
     elsewhere:
       running && followedSession !== null && entry.bound_session !== followedSession,
-    steps: !running
+    track: !running
       ? null
       : arc !== null
-        ? stepsOfArc(arc.entry)
+        ? arcTrackModelFromEntry(arc.entry)
         : plan !== null
-          ? stepsOfPlan(plan.entry)
+          ? documentArcTrackModel(plan.entry)
           : null,
   };
 }
@@ -389,7 +370,7 @@ function tileOf(row: CycleEntryRow): CycleMapTile {
     from: row.entry.from ?? [],
     state: row.entry.state,
     ...(row.elsewhere ? { elsewhere: true } : {}),
-    ...(row.steps !== null ? { steps: row.steps } : {}),
+    ...(row.track !== null ? { track: row.track } : {}),
     label: cycleTileLabel(row.title, row.sentence),
   };
 }

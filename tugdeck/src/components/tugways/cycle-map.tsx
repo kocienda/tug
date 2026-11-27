@@ -3,7 +3,8 @@
  * what each waits on, at a surface's size or a sidebar's.
  *
  * The map is presentational. A host gives it each entry's number, waits,
- * sketches, state and sentence, and each sketch's letter and want; the map
+ * sketches, state, sentence and, while it runs, its arc's track model, and
+ * each sketch's letter and want; the map
  * lays them out with `layoutCycleMap`, sizes them with `cycleMapGeometry`,
  * and draws. It reads no store and derives no state. A wire is met when the
  * tile it leaves has joined.
@@ -17,7 +18,7 @@
  * Laws: [L06] hover lights wires by writing `data-hot` on the DOM, never
  *       through React state; state, size and selection are `data-*` the CSS
  *       paints; [L19] component authoring guide; [L20] composes `TugTooltip`
- *       and owns `--tugx-cycle-map-*`
+ *       and `TugArcTrack`, sets the track's knobs, and owns `--tugx-cycle-map-*`
  *
  * @module components/tugways/cycle-map
  */
@@ -35,9 +36,9 @@ import {
   layoutCycleMap,
   sealCycleMap,
   sketchKey,
-  tileProgress,
   type CycleMapSize,
 } from "./cycle-map-layout";
+import { TugArcTrack, type ArcTrackModel } from "./tug-arc-track";
 import { TugTooltip } from "./tug-tooltip";
 
 /** How an entry stands: the cycle record's five words. */
@@ -57,8 +58,12 @@ export interface CycleMapTile {
    * @selector .tug-cycle-map-tile[data-elsewhere]
    */
   elsewhere?: boolean;
-  /** How far a running entry has got: pips that share the tile's room, or one bar when they would not fit. */
-  steps?: { done: number; total: number };
+  /**
+   * A running entry's arc, as the track every surface whose subject is the
+   * arc draws: its phases, its steps as ticks, and the one it is in
+   * breathing. Absent when the entry is not running or its arc has no row.
+   */
+  track?: ArcTrackModel;
   /**
    * The tile's tooltip and, after its number, its accessible name: the brief's
    * title, then ` · `, then the sentence saying where the entry stands.
@@ -208,7 +213,7 @@ export const CycleMap = React.forwardRef<HTMLDivElement, CycleMapProps>(function
               >
                 <span className="tug-cycle-map-tile-number">{tile.n}</span>
                 <span className="tug-cycle-map-tile-mark">
-                  <TileMark tile={tile} size={size} />
+                  <TileMark tile={tile} />
                 </span>
               </button>
             </TugTooltip>
@@ -225,32 +230,14 @@ export const CycleMap = React.forwardRef<HTMLDivElement, CycleMapProps>(function
 
 /**
  * Beside a tile's number: a check once joined, a play mark when ready, a
- * cross when dropped, and while running, a pip a step in the room the number
- * leaves, or one bar filled to the same fraction when the pips would pass
- * the tile's edge.
+ * cross when dropped, and while running, the arc's own track at the tile's
+ * scale (`cycle-map.css` sets its knobs; `tileTrackWidth` is what the tile's
+ * width is sized to hold).
  */
-function TileMark({ tile, size }: { tile: CycleMapTile; size: CycleMapSize }): React.ReactElement | null {
+function TileMark({ tile }: { tile: CycleMapTile }): React.ReactElement | null {
   if (tile.state === "joined") return <Check size={14} aria-hidden />;
   if (tile.state === "ready") return <Play size={12} aria-hidden />;
   if (tile.state === "dropped") return <X size={12} aria-hidden />;
-  if (tile.state === "running" && tile.steps !== undefined) {
-    const { done, total } = tile.steps;
-    const progress = tileProgress(size, tile.n, total);
-    if (progress === "bar") {
-      const fill = total > 0 ? Math.min(1, Math.max(0, done / total)) : 0;
-      return (
-        <span className="tug-cycle-map-bar" aria-hidden>
-          <span style={{ width: `${(fill * 100).toFixed(1)}%` }} />
-        </span>
-      );
-    }
-    return (
-      <span className="tug-cycle-map-pips" data-dense={progress === "dense" || undefined} aria-hidden>
-        {Array.from({ length: total }, (_, i) => (
-          <span key={i} data-pip={i < done ? "done" : i === done ? "now" : "todo"} />
-        ))}
-      </span>
-    );
-  }
+  if (tile.state === "running" && tile.track !== undefined) return <TugArcTrack model={tile.track} />;
   return null;
 }

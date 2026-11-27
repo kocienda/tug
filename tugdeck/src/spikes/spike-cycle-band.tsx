@@ -71,9 +71,9 @@ import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-
 import { SessionIdentityView } from "@/components/tugways/cards/session-identity";
 import { recordBody } from "@/components/tugways/cards/session-arc-record";
 import { SessionTelemetryCell } from "@/components/tugways/cards/session-telemetry-cell";
-import { tileProgress } from "@/components/tugways/cycle-map-layout";
+import { CYCLE_MAP_MEASURES } from "@/components/tugways/cycle-map-layout";
 import { TugArcAtom } from "@/components/tugways/tug-arc-atom";
-import { arcTrackModel, type ArcTrackModel } from "@/components/tugways/tug-arc-track";
+import { arcTrackModel, TugArcTrack, type ArcTrackModel } from "@/components/tugways/tug-arc-track";
 import { TugAtomRef } from "@/components/tugways/tug-atom-ref";
 import { TugBadge } from "@/components/tugways/tug-badge";
 import { TugChoiceGroup, type TugChoiceItem } from "@/components/tugways/tug-choice-group";
@@ -308,8 +308,9 @@ interface MapDims {
   pad: number;
 }
 
-const MAP_FULL: MapDims = { colW: 108, rowH: 58, tileW: 64, tileH: 42, pad: 10 };
-const MAP_COMPACT: MapDims = { colW: 68, rowH: 38, tileW: 44, tileH: 28, pad: 6 };
+// The shipped map's measures, whose tiles are sized to hold the arc's track.
+const MAP_FULL: MapDims = CYCLE_MAP_MEASURES.full;
+const MAP_COMPACT: MapDims = CYCLE_MAP_MEASURES.compact;
 
 const xOf = (d: MapDims, seat: CycleMapSeat): number => d.pad + seat.col * d.colW;
 const yOf = (d: MapDims, seat: CycleMapSeat): number => d.pad + seat.row * d.rowH + d.tileH / 2;
@@ -475,23 +476,8 @@ function CycleMapView({
                     <Check size={14} aria-hidden />
                   ) : state === "ready" ? (
                     <Play size={12} aria-hidden />
-                  ) : state === "running" &&
-                    tileProgress(compact ? "compact" : "full", node.n, entry.steps.length) === "bar" ? (
-                    <span className="sp-cycle-bar" aria-hidden>
-                      <span style={{ width: `${((100 * done) / Math.max(1, entry.steps.length)).toFixed(1)}%` }} />
-                    </span>
                   ) : state === "running" ? (
-                    <span
-                      className="sp-cycle-pips"
-                      data-dense={
-                        tileProgress(compact ? "compact" : "full", node.n, entry.steps.length) === "dense" || undefined
-                      }
-                      aria-hidden
-                    >
-                      {entry.steps.map((_, i) => (
-                        <span key={i} data-pip={i < done ? "done" : i === done ? "now" : "todo"} />
-                      ))}
-                    </span>
+                    <TugArcTrack model={runningModel(entry, done).model} />
                   ) : null}
                 </span>
               </button>

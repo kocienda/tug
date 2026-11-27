@@ -129,8 +129,8 @@ describe("projectArcsCard — an arc is drawn once", () => {
     const running = sectionOf(snapshot).assets.find((a) => a.key === entryKey(2));
     if (running?.kind !== "entry") throw new Error("expected the entry");
     expect(running.row.plan?.entry.owner_id).toBe(planKey);
-    // Its pips come from the paperwork's counters.
-    expect(running.row.steps).toEqual({ done: 1, total: 5 });
+    // Its track comes from the paperwork's counters.
+    expect(running.row.track?.steps).toMatchObject({ done: 1, total: 5 });
   });
 
   test("a cycle carried by two projects is one section", () => {
@@ -295,9 +295,10 @@ describe("projectArcsCard — rows and tiles", () => {
     expect(sectionOf(DATA, "sess-other").tiles.filter((t) => t.elsewhere).length).toBe(1);
   });
 
-  test("a running tile's pips are its arc row's ledger, withdrawn rows left out", () => {
-    // The golden arc carries no ledger, so its tile draws no pips.
-    expect(sectionOf(DATA).tiles[1]!.steps).toBeUndefined();
+  test("a running tile's track is its arc row's", () => {
+    // The golden arc carries no ledger: its tile draws the track's phases
+    // with no ticks.
+    expect(sectionOf(DATA).tiles[1]!.track?.steps).toBeNull();
 
     const stepped: WorkspacesChangesetSnapshot = {
       ...DATA,
@@ -322,9 +323,10 @@ describe("projectArcsCard — rows and tiles", () => {
       ],
     };
     const tiles = sectionOf(stepped).tiles;
-    expect(tiles[1]!.steps).toEqual({ done: 1, total: 3 });
-    // Only a running entry draws pips.
-    expect(tiles.filter((t) => t.steps !== undefined).length).toBe(1);
+    // The track's own reading of the ledger: a withdrawn row is a tick of its own.
+    expect(tiles[1]!.track?.steps).toMatchObject({ done: 2, total: 4 });
+    // Only a running entry draws a track.
+    expect(tiles.filter((t) => t.track !== undefined).length).toBe(1);
   });
 });
 

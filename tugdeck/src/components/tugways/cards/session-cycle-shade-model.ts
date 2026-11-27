@@ -27,8 +27,9 @@
  *     entry included. A press on its row or on its mark on the map opens it
  *     alone, and a second press on the one open asset closes it; a shift-press
  *     on the map adds or removes one. The selected assets are the open ones.
- *   - **Steps.** A running entry's steps are its arc row's, found by the
- *     owner key both wear in one frame. The cycle wire carries none.
+ *   - **Steps.** A running entry's track, its phases and its steps, is its
+ *     arc row's, found by the owner key both wear in one frame. The cycle
+ *     wire carries none.
  *
  * @module components/tugways/cards/session-cycle-shade-model
  */
@@ -37,7 +38,7 @@ import type { CycleMapSketch, CycleMapTile } from "@/components/tugways/cycle-ma
 import { entryKey, NO_PICKS, pickOnMap, sketchKey } from "@/components/tugways/cycle-map-layout";
 
 import { parseArcRecord } from "@/lib/arc-record-text";
-import { arcTrackModelFromEntry } from "@/lib/arc-track-model";
+import { arcTrackModelFromEntry, type ArcTrackModel } from "@/lib/arc-track-model";
 import type {
   ArcChangesetEntry,
   ArcDocuments,
@@ -226,8 +227,8 @@ export interface CycleShadeEntry {
   where: CycleEntryWhere | null;
   /** The waits not yet met, by number. */
   openWaits: readonly number[];
-  /** How far a running entry has got, from its arc row; null without one. */
-  steps: { done: number; total: number } | null;
+  /** A running entry's arc track, from its arc row; null without one. */
+  track: ArcTrackModel | null;
   /** The running entry's arc row, for a surface that draws its steps. */
   row: ArcChangesetEntry | null;
   /** What the entry is called: its brief's title, else its file name. */
@@ -278,13 +279,12 @@ export function cycleShadeEntries(cycle: CycleWire, ctx: CycleShadeContext): Cyc
       const openWaits = entry.waits.filter((n) => !joined.has(n));
       const row =
         entry.state === "running" && entry.owner_id !== undefined ? (ctx.arcRows.get(entry.owner_id) ?? null) : null;
-      const track = row === null ? null : arcTrackModelFromEntry(row).steps;
       return {
         entry,
         key: entryKey(entry.n),
         where,
         openWaits,
-        steps: track === null ? null : { done: track.done, total: track.total },
+        track: row === null ? null : arcTrackModelFromEntry(row),
         row,
         headline: cycleEntryHeadline(entry),
         sentence: sentenceOf(entry, where, openWaits),
@@ -298,13 +298,13 @@ export function cycleShadeEntries(cycle: CycleWire, ctx: CycleShadeContext): Cyc
 
 /** The map's tiles: one per entry. */
 export function cycleMapTiles(entries: readonly CycleShadeEntry[]): CycleMapTile[] {
-  return entries.map(({ entry, where, steps, headline, sentence }) => ({
+  return entries.map(({ entry, where, track, headline, sentence }) => ({
     n: entry.n,
     waits: entry.waits,
     from: entry.from ?? [],
     state: entry.state,
     ...(where === "elsewhere" ? { elsewhere: true } : {}),
-    ...(steps !== null ? { steps } : {}),
+    ...(track !== null ? { track } : {}),
     label: cycleTileLabel(headline, sentence),
   }));
 }

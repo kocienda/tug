@@ -373,47 +373,12 @@
   background: var(--tug7-element-tone-fill-normal-agent-rest);
 }
 
-.sp-cycle-pips {
-  display: flex;
-  min-width: 0;
-  gap: 2px;
-}
-
-.sp-cycle-pips[data-dense] {
-  gap: 1px;
-}
-
-.sp-cycle-pips > span {
-  flex: 0 1 4px;
-  min-width: 2px;
-  height: 10px;
-  border-radius: 1px;
-  background: var(--tugx-block-hairline);
-}
-
-.sp-cycle-pips > span[data-pip="done"] {
-  background: var(--tug7-element-tone-fill-normal-success-rest);
-}
-
-.sp-cycle-pips > span[data-pip="now"] {
-  background: var(--tug7-element-tone-fill-normal-active-rest);
-}
-
-/* Too many steps for pips: one bar, filled to the same fraction. */
-.sp-cycle-bar {
-  flex: 1 1 auto;
-  min-width: 0;
-  max-width: 24px;
-  height: 10px;
-  border-radius: 1px;
-  overflow: hidden;
-  background: var(--tugx-block-hairline);
-}
-
-.sp-cycle-bar > span {
-  display: block;
-  height: 100%;
-  background: var(--tug7-element-tone-fill-normal-success-rest);
+/* A running tile draws the arc's own track, at the shipped map's scale. */
+.sp-cycle-tile {
+  --tugx-arc-track-cell-w: 6px;
+  --tugx-arc-track-steps-w: 36px;
+  --tugx-arc-track-cell-h: 9px;
+  --tugx-arc-track-out: 0px;
 }
 
 /* A sketch's seal: a wire runs from it to each entry it heads. */
@@ -783,18 +748,10 @@
   height: 10px;
 }
 
-.sp-cycle-map-scroll[data-compact] .sp-cycle-pips {
-  gap: 1px;
-}
-
-.sp-cycle-map-scroll[data-compact] .sp-cycle-pips > span {
-  flex-basis: 2px;
-  height: 8px;
-}
-
-.sp-cycle-map-scroll[data-compact] .sp-cycle-bar {
-  max-width: 14px;
-  height: 8px;
+.sp-cycle-map-scroll[data-compact] .sp-cycle-tile {
+  --tugx-arc-track-cell-w: 4px;
+  --tugx-arc-track-steps-w: 26px;
+  --tugx-arc-track-cell-h: 6px;
 }
 
 .sp-cycle-map-scroll[data-compact] .sp-cycle-sketch-seal {

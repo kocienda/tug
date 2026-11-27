@@ -15,7 +15,7 @@
  * | Element                                          | Surface                                           | Role          | Context                                                              |
  * |--------------------------------------------------|---------------------------------------------------|---------------|----------------------------------------------------------------------|
  * | --tug7-element-global-text-normal-muted-rest     | --tug7-surface-global-primary-normal-raised-rest  | informational | -eyebrow, -landed, -footer-word, -footer-else, footer -quiet (color) |
- * | --tug7-element-global-text-normal-muted-rest     | --tug7-surface-global-primary-normal-content-rest | informational | -quiet, -asset-line, -wait (color, border-color)                     |
+ * | --tug7-element-global-text-normal-muted-rest     | --tug7-surface-global-primary-normal-content-rest | informational | -quiet, -asset-line, -wait, an entry's -eyebrow (color, border-color) |
  * | --tug7-element-global-text-normal-default-rest   | --tug7-surface-global-primary-normal-content-rest | content       | .session-arc-record-text, an open sketch's want (color)              |
  * | --tug7-element-global-text-normal-caution-rest   | --tug7-surface-global-primary-normal-content-rest | informational | -note in an entry's row (color)                                      |
  * | --tug7-element-global-text-normal-caution-rest   | --tug7-surface-global-primary-normal-raised-rest  | informational | -note on the footer's Next line (color)                              |
@@ -83,12 +83,23 @@ body {
   border-bottom: 1px solid var(--tugx-cycle-shade-rule);
 }
 
+/* The one small-cap label the shade names a kind with: `Cycle` in the
+   header, `Sketch` and `Arc` on the list's rows, the words that introduce a
+   run of numbers (`Heads`, `Waits on`), and the footer's `Now` and `Next`. */
 /* @tug-renders-on: --tug7-surface-global-primary-normal-raised-rest */
 .session-cycle-shade-eyebrow {
+  flex: none;
   font-size: var(--tug-font-size-2xs);
   font-weight: var(--tug-font-weight-semibold);
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--tugx-cycle-shade-text-muted);
+}
+
+/* An entry's row stands on the content surface, not the raised one. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-cycle-shade-asset[data-kind="entry"] .session-cycle-shade-eyebrow {
   color: var(--tugx-cycle-shade-text-muted);
 }
 
@@ -258,7 +269,7 @@ body[data-tug-motion="off"] .session-cycle-shade-list {
 .session-cycle-shade-title {
   display: inline-flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: baseline;
   gap: var(--tug-space-sm);
 }
 
@@ -378,17 +389,10 @@ body[data-tug-motion="off"] .session-cycle-shade-list {
   min-width: 0;
 }
 
-/* The line's word, in a column of its own so the two lines' content starts on
-   one edge. */
-/* @tug-renders-on: --tug7-surface-global-primary-normal-raised-rest */
+/* The line's word, an eyebrow, in a column of its own so the two lines'
+   content starts on one edge. */
 .session-cycle-shade-footer-word {
-  flex: none;
   width: 3.2em;
-  font-size: var(--tug-font-size-2xs);
-  font-weight: var(--tug-font-weight-semibold);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--tugx-cycle-shade-text-muted);
 }
 
 .session-cycle-shade-footer-what {

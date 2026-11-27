@@ -24,7 +24,12 @@
  * What the evolved shade changes, each a small step from the shipped one:
  *
  *   - **The map wraps.** A run of entries that each wait on the one before is
- *     one long line. The same tiles and wires are drawn six to a row.
+ *     one long line. The same tiles and wires are drawn five to a row.
+ *   - **A running tile draws its arc's track**, the strip every surface whose
+ *     subject is the arc draws, with the step in hand breathing, as the
+ *     shipped map now does.
+ *   - **Every kind is named in the header's small caps**: `Sketch`, `Arc`,
+ *     and `Arcs` on the landed fold, as the shipped shade now does.
  *   - **An entry is headed by its own part of the brief.** Twelve entries
  *     share one brief, so the brief's title heads all twelve alike. The entry
  *     is headed by what the list called it, with the brief's title beside it.
@@ -426,10 +431,10 @@ function SessionChip({ session, presses }: { session: string; presses: Presses }
 }
 
 /** How many tiles the wrapped map draws to a row. */
-const MAP_ROW = 6;
+const MAP_ROW = 5;
 
 /**
- * The shipped map, wrapped: the same tiles and wires, six entries to a row. A
+ * The shipped map, wrapped: the same tiles and wires, five entries to a row. A
  * row after the first keeps only the waits and the sketches that are in it,
  * so its first tile starts the row instead of reaching back for its wire.
  */
@@ -573,7 +578,12 @@ function SketchAsset({
       <TugListRow
         selected={selected}
         leading={<span className="session-cycle-shade-seal">{sketch.letter}</span>}
-        title={<span className="session-cycle-shade-sketch-label">{`Sketch ${sketch.letter}`}</span>}
+        title={
+          <span className="session-cycle-shade-title">
+            <span className="session-cycle-shade-eyebrow">Sketch</span>
+            <span className="session-cycle-shade-sketch-label">{sketch.letter}</span>
+          </span>
+        }
         description={
           !selected ? (
             <span className="session-cycle-shade-sketch-want session-cycle-shade-quiet">{sketch.want}</span>
@@ -582,7 +592,7 @@ function SketchAsset({
         trailing={
           heads.length > 0 ? (
             <span className="session-cycle-shade-waits">
-              <span>Heads</span>
+              <span className="session-cycle-shade-eyebrow">Heads</span>
               {heads.map((n) => (
                 <span key={n} className="session-cycle-shade-wait" data-met>
                   {n}
@@ -666,6 +676,7 @@ function EntryAsset({
         leading={<span className="session-cycle-shade-number">{entry.n}</span>}
         title={
           <span className="session-cycle-shade-title">
+            <span className="session-cycle-shade-eyebrow">Arc</span>
             <span className="session-cycle-shade-headline">{item.label}</span>
             <span className="session-cycle-shade-quiet sp-prog-of">{BRIEFS[item.brief].title}</span>
           </span>
@@ -765,6 +776,7 @@ function LandedFold({
         }
         title={
           <span className="session-cycle-shade-title">
+            <span className="session-cycle-shade-eyebrow">Arcs</span>
             <span className="session-cycle-shade-headline">{`${first} to ${last}`}</span>
             <span className="session-cycle-shade-quiet sp-prog-of">
               {reads.map((r) => items.get(r.entry.n)?.label ?? "").join(", ")}
@@ -872,7 +884,7 @@ function Footer({
   return (
     <div className="session-cycle-shade-footer">
       <div className="session-cycle-shade-footer-line" data-line="now">
-        <span className="session-cycle-shade-footer-word">Now</span>
+        <span className="session-cycle-shade-eyebrow session-cycle-shade-footer-word">Now</span>
         {runs.length === 0 ? (
           <span className="session-cycle-shade-quiet">No arc is running</span>
         ) : (
@@ -890,7 +902,7 @@ function Footer({
         )}
       </div>
       <div className="session-cycle-shade-footer-line" data-line="next">
-        <span className="session-cycle-shade-footer-word">Next</span>
+        <span className="session-cycle-shade-eyebrow session-cycle-shade-footer-word">Next</span>
         {next !== undefined ? (
           <span className="session-cycle-shade-footer-what">
             <span className="session-cycle-shade-headline">{next.label}</span>
@@ -904,7 +916,7 @@ function Footer({
       </div>
       {captured ? (
         <div className="session-cycle-shade-footer-line" data-line="list">
-          <span className="session-cycle-shade-footer-word">List</span>
+          <span className="session-cycle-shade-eyebrow session-cycle-shade-footer-word">List</span>
           <span className="session-cycle-shade-footer-what">
             <SessionChip session={STEWARD} presses={presses} />
             <span className="session-cycle-shade-quiet">{`stated it ${moment.stated}`}</span>
@@ -958,10 +970,11 @@ function EvolvedShade({
   );
   const tiles = useMemo(
     () =>
-      cycleMapTiles(reads).map((tile) =>
-        tile.state === "running" ? { ...tile, steps: { done, total: STEPS.length } } : tile,
-      ),
-    [reads, done],
+      cycleMapTiles(reads).map((tile) => {
+        const item = items.get(tile.n);
+        return tile.state === "running" && item !== undefined ? { ...tile, track: trackOf(item, done) } : tile;
+      }),
+    [reads, items, done],
   );
   const keys = useMemo(() => cycleAssetKeys(cycle), [cycle]);
   const sources = useMemo(() => cycle.entries.map((e) => ({ n: e.n, waits: e.waits, from: e.from ?? [] })), [cycle]);

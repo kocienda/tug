@@ -258,12 +258,13 @@ describe("entries and tiles", () => {
     ]);
   });
 
-  test("a running entry's steps are its arc row's, found by owner key", () => {
-    // The golden's row declares no steps, so the tile draws no pips.
+  test("a running entry's track is its arc row's, found by owner key", () => {
+    // The golden's row declares no steps: its tile draws the track's phases
+    // with no ticks.
     const bare = cycleShadeEntries(GOLDEN, ctx());
     expect(bare[1]!.row?.owner_id).toBe(OWNER);
-    expect(bare[1]!.steps).toBeNull();
-    expect(cycleMapTiles(bare)[1]!.steps).toBeUndefined();
+    expect(bare[1]!.track?.steps).toBeNull();
+    expect(cycleMapTiles(bare)[1]!.track).toBe(bare[1]!.track!);
 
     const row: ArcChangesetEntry = {
       ...(ROWS.get(OWNER) as ArcChangesetEntry),
@@ -275,12 +276,13 @@ describe("entries and tiles", () => {
       ],
     };
     const stepped = cycleShadeEntries(GOLDEN, ctx({ arcRows: new Map([[OWNER, row]]) }));
-    expect(stepped[1]!.steps).toEqual({ done: 2, total: 4 });
-    expect(cycleMapTiles(stepped)[1]!.steps).toEqual({ done: 2, total: 4 });
+    expect(stepped[1]!.track?.steps).toMatchObject({ done: 2, total: 4 });
+    expect(cycleMapTiles(stepped)[1]!.track?.steps).toMatchObject({ done: 2, total: 4 });
     // Only a running entry reads a row.
     expect(stepped[0]!.row).toBeNull();
-    // A running entry whose row is not in the frame has no steps.
-    expect(cycleShadeEntries(GOLDEN, ctx({ arcRows: new Map() }))[1]!.steps).toBeNull();
+    expect(stepped[0]!.track).toBeNull();
+    // A running entry whose row is not in the frame has no track.
+    expect(cycleShadeEntries(GOLDEN, ctx({ arcRows: new Map() }))[1]!.track).toBeNull();
   });
 
   test("a seal's want is the sketch's, or its letter when the sketch was not read", () => {
