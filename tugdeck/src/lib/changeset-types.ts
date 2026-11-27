@@ -485,6 +485,10 @@ export interface ArcChangesetEntry {
    *  `current` is false. Absent when nothing has verified this arc. It says;
    *  it gates nothing. */
   fit?: ArcFitWire;
+  /** The checks the last verify left red at the arc's head — sent only while
+   *  the arc is stopped on its question, for the line the asking card shows
+   *  toward the join. Absent for every other arc, and for an ask with none. */
+  red_checks?: string[];
   /** Paths the last replay attempt stopped on, when it conflicted. */
   replay_conflict_paths?: string[];
   /** The engine's quiet re-stamp on this arc: a job running now and its

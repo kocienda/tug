@@ -1252,6 +1252,7 @@ async fn a_stop_on_a_busy_session_interrupts_then_hands_back() {
             reason: tugarc_core::arc::ArcStopReason::StoppedByUser,
             question: None,
             choices: &[],
+            detail: None,
             halt: true,
         },
     )
@@ -1297,6 +1298,7 @@ async fn a_stop_on_an_idle_session_sends_no_interrupt() {
             reason: tugarc_core::arc::ArcStopReason::StoppedByUser,
             question: None,
             choices: &[],
+            detail: None,
             halt: true,
         },
     )
@@ -1321,6 +1323,13 @@ async fn an_ask_never_interrupts() {
     entry.lock().await.stage_turn_active(true);
     answer_the_teardown(&sup, "claude-1");
 
+    let detail = tugarc_core::AskDetail {
+        does: vec![("that one".to_owned(), "starts over".to_owned())],
+        recommended: Some("this one".to_owned()),
+        found: vec!["this one is green".to_owned()],
+        guessed: Vec::new(),
+        tried: Some("both".to_owned()),
+    };
     sup.stop_arc_now(
         "claude-1",
         root,
@@ -1330,6 +1339,7 @@ async fn an_ask_never_interrupts() {
             reason: tugarc_core::arc::ArcStopReason::NeedsDecision,
             question: Some("which of the two?"),
             choices: &["this one".to_owned(), "that one".to_owned()],
+            detail: Some(&detail),
             halt: false,
         },
     )
@@ -1355,6 +1365,7 @@ async fn an_ask_never_interrupts() {
         vec!["this one", "that one"],
         "and its choices ride beside it",
     );
+    assert_eq!(record.asked, detail, "with the rest of the decision");
 }
 
 /// **A stop that did not happen answers `_err`** ([L31]). With no wheel
@@ -1378,6 +1389,7 @@ async fn a_stop_with_no_wheel_answers_err_not_ok() {
                 reason: tugarc_core::arc::ArcStopReason::StoppedByUser,
                 question: None,
                 choices: &[],
+                detail: None,
                 halt: true,
             },
         )
@@ -1535,6 +1547,7 @@ async fn a_stop_after_a_rotation_interrupts_the_card() {
             reason: tugarc_core::arc::ArcStopReason::StoppedByUser,
             question: None,
             choices: &[],
+            detail: None,
             halt: true,
         },
     )
@@ -1581,6 +1594,7 @@ async fn a_stop_after_a_rotation_delivers_its_receipt_to_the_card() {
             reason: tugarc_core::arc::ArcStopReason::StoppedByUser,
             question: None,
             choices: &[],
+            detail: None,
             halt: true,
         },
     )
@@ -1629,6 +1643,7 @@ async fn a_stop_on_a_segment_no_card_wears_is_refused() {
                 reason: tugarc_core::arc::ArcStopReason::StoppedByUser,
                 question: None,
                 choices: &[],
+                detail: None,
                 halt: true,
             },
         )
@@ -1701,6 +1716,7 @@ fn spawn_stop(
                 reason: tugarc_core::arc::ArcStopReason::StoppedByUser,
                 question: None,
                 choices: &[],
+                detail: None,
                 halt,
             },
         )
@@ -1974,6 +1990,7 @@ async fn an_ask_quiesces_without_interrupting() {
             reason: tugarc_core::arc::ArcStopReason::NeedsDecision,
             question: Some("which of the two?"),
             choices: &[],
+            detail: None,
             halt: false,
         },
     )

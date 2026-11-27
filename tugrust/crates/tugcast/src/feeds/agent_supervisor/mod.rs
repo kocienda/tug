@@ -1090,6 +1090,9 @@ pub(crate) struct StopTerms<'a> {
     /// The answers the stage offered beside its question, written as
     /// `arc-choice` lines straight after the question's note.
     pub choices: &'a [String],
+    /// The rest of the ask's decision, written around its choices. `None` for
+    /// every stop that is not an ask.
+    pub detail: Option<&'a tugarc_core::AskDetail>,
     /// Whether a running turn on the bound session is interrupted first. True
     /// for a user's Stop ([B06]), false for a stage's own `arc ask` ([P03]).
     pub halt: bool,

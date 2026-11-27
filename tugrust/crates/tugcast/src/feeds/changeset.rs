@@ -2430,7 +2430,8 @@ async fn arc_entries(
                     .arcs
                     .remove(&detail.name)
                     .map(|t| wire_timeline(t, timelines.typical_audit_ms));
-                (detail, review, steps, task_list, join, timeline)
+                let red_checks = asked_red_checks(&detail);
+                (detail, review, steps, task_list, join, timeline, red_checks)
             })
             .collect::<Vec<_>>()
     })
@@ -2441,82 +2442,121 @@ async fn arc_entries(
 
     details
         .into_iter()
-        .map(|(detail, review, steps, task_list, join, timeline)| {
-            // Read before the literal, because the literal moves
-            // `detail.owner_key` into `owner_id` above the `arc` field. Same
-            // `bound_by_arc` lookup the `bound_session` field makes ([P02]).
-            let waiting = bound_by_arc
-                .get(&detail.owner_key)
-                .map(String::as_str)
-                .and_then(crate::feeds::arc_runner::waiting_for)
-                .map(|fact| fact.sentence());
-            ChangesetEntry::Arc {
-                join: Some(join),
-                task_list,
-                holders_busy: holders_busy(
-                    &busy_sessions,
-                    holder_line_of(&holder_lines, &detail.owner_key),
-                ),
-                bound_session: bound_by_arc.get(&detail.owner_key).cloned(),
-                bound_callsign: callsign_by_arc.get(&detail.owner_key).cloned(),
-                // Whether an *attempt* to replay conflicted is knowledge only the
-                // engine that attempted it has; the library composes everything
-                // else. Empty when no engine is running, which is the truth then.
-                replay_conflict_paths: crate::feeds::base_motion::conflict_paths_for(
-                    &detail.owner_key,
-                ),
-                restamp: crate::feeds::base_motion::quiet_fact_for(&detail.owner_key)
-                    .and_then(wire_restamp),
-                audit_staleness: detail.audit_staleness.map(|kind| kind.as_str().to_string()),
-                owner_id: detail.owner_key,
-                display_name: detail.name,
-                branch: Some(detail.branch),
-                // The recorded kind, spelled as the log spells it. `None`
-                // stays `None`: the wire never invents a kind ([B01]).
-                arc_kind: detail.kind.map(|k| k.as_str().to_owned()),
-                stage: Some(detail.stage),
-                step_current: detail.step_current,
-                step_total: detail.step_total,
-                run_position: detail.run_position,
-                run_length: detail.run_length,
-                run_complete: detail.run_complete,
-                step_title: detail.step_title,
-                last_activity: detail.last_activity,
-                arc: detail.arc.map(|arc| tugcast_core::types::ArcRunState {
-                    stage: arc.stage,
-                    stopped: arc.stopped,
-                    stopped_stage: arc.stopped_stage,
-                    stopped_why: arc.stopped_why,
-                    done: arc.done,
-                    note: arc.note,
-                    waiting,
-                }),
-                documents: arc_documents(detail.documents),
-                review,
-                steps,
-                timeline,
-                base: detail.base,
-                rounds: detail.rounds,
-                worktree: detail.worktree_abs,
-                worktree_dirty: detail.worktree_dirty,
-                files: detail.files.into_iter().map(arc_file_row).collect(),
-                round_subjects: detail.round_subjects,
-                draft: None,
-                base_ahead: detail.base_ahead,
-                // The wire carries the paths; the relations behind them are
-                // the blockers' business and ride `join.blockers[].overlap`.
-                base_overlap: detail.base_overlap.into_iter().map(|o| o.path).collect(),
-                last_replay: detail.last_replay,
-                fit: detail.fit.map(|f| tugcast_core::types::ArcFit {
-                    head: f.head,
-                    base: f.base,
-                    current: f.current,
-                    head_moved: f.head_moved,
-                    base_moved: f.base_moved,
-                }),
-            }
-        })
+        .map(
+            |(detail, review, steps, task_list, join, timeline, red_checks)| {
+                // Read before the literal, because the literal moves
+                // `detail.owner_key` into `owner_id` above the `arc` field. Same
+                // `bound_by_arc` lookup the `bound_session` field makes ([P02]).
+                let waiting = bound_by_arc
+                    .get(&detail.owner_key)
+                    .map(String::as_str)
+                    .and_then(crate::feeds::arc_runner::waiting_for)
+                    .map(|fact| fact.sentence());
+                ChangesetEntry::Arc {
+                    join: Some(join),
+                    task_list,
+                    holders_busy: holders_busy(
+                        &busy_sessions,
+                        holder_line_of(&holder_lines, &detail.owner_key),
+                    ),
+                    bound_session: bound_by_arc.get(&detail.owner_key).cloned(),
+                    bound_callsign: callsign_by_arc.get(&detail.owner_key).cloned(),
+                    // Whether an *attempt* to replay conflicted is knowledge only the
+                    // engine that attempted it has; the library composes everything
+                    // else. Empty when no engine is running, which is the truth then.
+                    replay_conflict_paths: crate::feeds::base_motion::conflict_paths_for(
+                        &detail.owner_key,
+                    ),
+                    restamp: crate::feeds::base_motion::quiet_fact_for(&detail.owner_key)
+                        .and_then(wire_restamp),
+                    audit_staleness: detail.audit_staleness.map(|kind| kind.as_str().to_string()),
+                    owner_id: detail.owner_key,
+                    display_name: detail.name,
+                    branch: Some(detail.branch),
+                    // The recorded kind, spelled as the log spells it. `None`
+                    // stays `None`: the wire never invents a kind ([B01]).
+                    arc_kind: detail.kind.map(|k| k.as_str().to_owned()),
+                    stage: Some(detail.stage),
+                    step_current: detail.step_current,
+                    step_total: detail.step_total,
+                    run_position: detail.run_position,
+                    run_length: detail.run_length,
+                    run_complete: detail.run_complete,
+                    step_title: detail.step_title,
+                    last_activity: detail.last_activity,
+                    arc: detail.arc.map(|arc| tugcast_core::types::ArcRunState {
+                        stage: arc.stage,
+                        stopped: arc.stopped,
+                        stopped_stage: arc.stopped_stage,
+                        stopped_why: arc.stopped_why,
+                        done: arc.done,
+                        note: arc.note,
+                        waiting,
+                    }),
+                    documents: arc_documents(detail.documents),
+                    review,
+                    steps,
+                    timeline,
+                    base: detail.base,
+                    rounds: detail.rounds,
+                    worktree: detail.worktree_abs,
+                    worktree_dirty: detail.worktree_dirty,
+                    files: detail.files.into_iter().map(arc_file_row).collect(),
+                    round_subjects: detail.round_subjects,
+                    draft: None,
+                    base_ahead: detail.base_ahead,
+                    // The wire carries the paths; the relations behind them are
+                    // the blockers' business and ride `join.blockers[].overlap`.
+                    base_overlap: detail.base_overlap.into_iter().map(|o| o.path).collect(),
+                    last_replay: detail.last_replay,
+                    fit: detail.fit.map(|f| tugcast_core::types::ArcFit {
+                        head: f.head,
+                        base: f.base,
+                        current: f.current,
+                        head_moved: f.head_moved,
+                        base_moved: f.base_moved,
+                    }),
+                    red_checks,
+                }
+            },
+        )
         .collect()
+}
+
+/// The checks the last verify left red at an asked arc's head, for the line
+/// the asking card shows toward the join; empty for every arc that is not
+/// stopped on its question. Read only then, because it costs a `rev-parse`
+/// and a ledger read per arc and no other face counts them. Advisory: no
+/// ledger, no head, or a read that fails is no red.
+fn asked_red_checks(detail: &tugarc_core::ops::ArcDetail) -> Vec<String> {
+    let asked = detail.arc.as_ref().is_some_and(|arc| {
+        !arc.done
+            && arc.stopped.as_deref()
+                == Some(tugarc_core::arc::ArcStopReason::NeedsDecision.as_str())
+    });
+    if !asked {
+        return Vec::new();
+    }
+    let ledger = Paths::from_env().test_results_db;
+    if !ledger.is_file() {
+        return Vec::new();
+    }
+    let Some(head) = tugcore::git_command()
+        .arg("-C")
+        .arg(&detail.worktree_abs)
+        .args(["rev-parse", &detail.branch])
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+    else {
+        return Vec::new();
+    };
+    tugtool_core::test_ledger::open_ledger(&ledger)
+        .and_then(|conn| {
+            tugtool_core::test_ledger::red_checks_at(&conn, Path::new(&detail.worktree_abs), &head)
+        })
+        .unwrap_or_default()
 }
 
 /// Commit exactly `files` (repo-relative) in `repo_dir` with `message`
@@ -6101,6 +6141,7 @@ Some context.
             base_overlap: Vec::new(),
             last_replay: None,
             fit: None,
+            red_checks: Vec::new(),
             replay_conflict_paths: Vec::new(),
             restamp: None,
             audit_staleness: None,
@@ -6199,6 +6240,7 @@ Some context.
                     base_overlap: Vec::new(),
                     last_replay: None,
                     fit: None,
+                    red_checks: Vec::new(),
                     replay_conflict_paths: Vec::new(),
                     restamp: None,
                     audit_staleness: None,
@@ -7190,6 +7232,7 @@ Some context.
             ],
             notes: Vec::new(),
             asked_choices: Vec::new(),
+            asked: Default::default(),
             answer: None,
             stopped: None,
             last_stop: None,

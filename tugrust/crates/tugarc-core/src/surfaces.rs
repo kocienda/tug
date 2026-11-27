@@ -277,6 +277,15 @@ pub struct VerifyReport {
     /// rather than failing a verify over its memo.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub record_note: Option<String>,
+    /// On a red verify, each failing test its checks recorded and what the
+    /// records hold of it on the arc's base branch. Advice beside the red: it
+    /// turns nothing green and leaves no check out. Empty on any other
+    /// verdict, and when neither ledger recorded a failure.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub reds: Vec<tugtool_core::red_history::RedTest>,
+    /// The arc's base branch the `reds` were read against.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_branch: Option<String>,
     /// The closing `TUG-VERIFY-RECEIPT:` line, verbatim, so the text output
     /// and the JSON cannot say different things.
     pub receipt: String,
@@ -877,6 +886,12 @@ fn verify_run(
 ) -> Result<VerifyReport, ArcError> {
     let repo = crate::ops::main_repo_root(repo_root);
     let branch = crate::ops::branch_name(name);
+    // Runs recorded from here on are this verify's; a red one's failures are
+    // read back from the ledgers by this bound.
+    let since = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
     if crate::ops::git_stdout(
         &repo,
         &["rev-parse", "--verify", &format!("{branch}^{{commit}}")],
@@ -905,10 +920,8 @@ fn verify_run(
     // cross-checked against; a `--base` override narrows which paths ran, not
     // which base the head stands on, so recording the override would write a
     // pair no mark could ever match. The scope rides the line's tail instead.
-    let fork = {
-        let base_branch = crate::ops::arc_base(&repo, name)?;
-        crate::ops::git_stdout(&repo, &["merge-base", &base_branch, &head])?
-    };
+    let base_branch = crate::ops::arc_base(&repo, name)?;
+    let fork = crate::ops::git_stdout(&repo, &["merge-base", &base_branch, &head])?;
     let base = match base_override {
         Some(b) => crate::ops::git_stdout(&repo, &["rev-parse", b])?,
         None => fork.clone(),
@@ -941,6 +954,8 @@ fn verify_run(
             claimed_unchecked: 0,
             relied: 0,
             record_note: None,
+            reds: Vec::new(),
+            base_branch: None,
         },
         Resolution::DeclaresNone => VerifyReport {
             base,
@@ -952,6 +967,8 @@ fn verify_run(
             claimed_unchecked: 0,
             relied: 0,
             record_note: None,
+            reds: Vec::new(),
+            base_branch: None,
             receipt: "TUG-VERIFY-RECEIPT: this project declares no surfaces".to_string(),
         },
         Resolution::Unclaimed(paths) => VerifyReport {
@@ -965,6 +982,8 @@ fn verify_run(
             claimed_unchecked: 0,
             relied: 0,
             record_note: None,
+            reds: Vec::new(),
+            base_branch: None,
         },
         Resolution::Planned(plans) => {
             let mut record_note = None;
@@ -1058,6 +1077,22 @@ fn verify_run(
                 )
                 .map_err(|e| ArcError::arc_log(paths, &repo, e))?;
             }
+            let red_tests = if reds.is_empty() {
+                Vec::new()
+            } else {
+                let ledger = hooks
+                    .memo
+                    .map(|memo| memo.ledger.clone())
+                    .unwrap_or_else(|| paths.test_results_db.clone());
+                red_history_of(
+                    &ledger,
+                    &paths.apptest_results_db,
+                    &worktree,
+                    &base_branch,
+                    &head,
+                    since,
+                )
+            };
             VerifyReport {
                 base,
                 head,
@@ -1075,10 +1110,47 @@ fn verify_run(
                 claimed_unchecked,
                 relied,
                 record_note,
+                base_branch: (!red_tests.is_empty()).then(|| base_branch.clone()),
+                reds: red_tests,
                 receipt,
             }
         }
     })
+}
+
+/// What the records hold, on the base branch, of each test a red verify's
+/// checks failed — read from the test ledger at `test_ledger` and the app-test
+/// ledger at `apptest_ledger`. A ledger file that does not exist is not
+/// created, and one that cannot be opened answers nothing: this is advice
+/// beside a red, never a reason for the verify to fail.
+fn red_history_of(
+    test_ledger: &Path,
+    apptest_ledger: &Path,
+    worktree: &Path,
+    base_branch: &str,
+    head: &str,
+    since: i64,
+) -> Vec<tugtool_core::red_history::RedTest> {
+    let tests = test_ledger
+        .is_file()
+        .then(|| test_ledger::open_ledger(test_ledger).ok())
+        .flatten();
+    let apptests = apptest_ledger
+        .is_file()
+        .then(|| tugtool_core::apptest_ledger::open_ledger(apptest_ledger).ok())
+        .flatten();
+    let base_root =
+        tugtool_core::apptest_ledger::resolve_base_root(&test_ledger::run_root_for(worktree));
+    tugtool_core::red_history::attribute(
+        tests.as_ref(),
+        apptests.as_ref(),
+        tugtool_core::red_history::Scope {
+            base_root: &base_root,
+            base_branch,
+            head,
+            since,
+        },
+    )
 }
 
 /// Each red surface's first failing check, as a report names it.
@@ -2056,6 +2128,88 @@ mod fit_tests {
         git(&worktree, &["commit", "-m", "broken again"]);
         let again = memo_verify(&paths, &root, &ledger, false);
         assert_eq!(again.verdict, "red", "a red key is never relied on");
+    }
+
+    /// A red verify says, of each failing test its checks recorded, what the
+    /// base branch's record holds; a green one says nothing of the kind.
+    #[test]
+    fn a_red_verify_says_whose_red_each_failure_is() {
+        let state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(state.path());
+        let ledger = state.path().join("test_results.db");
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("repo");
+        std::fs::create_dir_all(&root).unwrap();
+        let config = "[[tugtool.arc.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"grep -q good src/a.rs\"]\n";
+        let worktree = project(&root, config, &[("src/a.rs", "bad\n")]);
+        let head = git(&worktree, &["rev-parse", "HEAD"]).trim().to_string();
+        let base_branch = git(&root, &["rev-parse", "--abbrev-ref", "HEAD"])
+            .trim()
+            .to_string();
+
+        // What the check's runner would have recorded: the base failed the
+        // test two runs ago and still does, and this verify's run failed it.
+        // The verify's run is stamped after the verify begins, as a real
+        // child's is.
+        let mut conn = test_ledger::open_ledger(&ledger).unwrap();
+        let record = |conn: &mut rusqlite::Connection, branch: &str, sha: &str, at: i64| {
+            let run = test_ledger::TestRun {
+                started_at: at,
+                ended_at: at,
+                run_root: worktree.to_string_lossy().into_owned(),
+                branch: branch.to_string(),
+                head_sha: sha.to_string(),
+                dirty: false,
+                suite: "rust".to_string(),
+                session_id: None,
+                tool_use_id: None,
+                input_key: None,
+                command: "cargo nextest run".to_string(),
+                exit_code: 1,
+                wall_secs: 1.0,
+            };
+            let doc = test_ledger::JunitRun {
+                tests: 1,
+                failed: 1,
+                skipped: 0,
+                files: Vec::new(),
+                failures: vec![test_ledger::JunitFailure {
+                    file: "crate".to_string(),
+                    name: "t::typed_keys".to_string(),
+                    classname: String::new(),
+                    message: "noResponder".to_string(),
+                    detail: String::new(),
+                }],
+            };
+            test_ledger::record_run(conn, &run, Some(&doc)).unwrap();
+        };
+        record(&mut conn, &base_branch, "base1", 1_000);
+        record(&mut conn, &base_branch, "base2", 2_000);
+        record(&mut conn, "tugarc/demo", &head, i64::MAX / 2);
+        drop(conn);
+
+        let red = memo_verify(&paths, &root, &ledger, false);
+        assert_eq!(red.verdict, "red");
+        assert_eq!(red.base_branch.as_deref(), Some(base_branch.as_str()));
+        assert_eq!(red.reds.len(), 1);
+        assert_eq!(red.reds[0].name, "t::typed_keys");
+        assert_eq!(
+            red.reds[0].base,
+            tugtool_core::red_history::BaseRecord::Red {
+                since_sha: "base1".to_string(),
+                since_date: "1970-01-01".to_string(),
+                runs: 2,
+            }
+        );
+        let json = serde_json::to_value(&red).unwrap();
+        assert_eq!(json["reds"][0]["onBase"], "red");
+
+        std::fs::write(worktree.join("src/a.rs"), "good\n").unwrap();
+        git(&worktree, &["add", "-A"]);
+        git(&worktree, &["commit", "-m", "the fix"]);
+        let green = memo_verify(&paths, &root, &ledger, false);
+        assert_eq!(green.verdict, "verified");
+        assert!(green.reds.is_empty() && green.base_branch.is_none());
     }
 
     /// `--fresh` runs every check whatever the record says, and still

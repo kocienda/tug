@@ -477,8 +477,8 @@ export function arcJoinRegister(
   if (asked) {
     return {
       phase: "awaiting",
-      line: `${arc} stopped with a question — answer it on its card`,
-      word: "question",
+      line: `${arc} asked a question — answer it on its card`,
+      word: "asked",
     };
   }
 

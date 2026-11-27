@@ -275,6 +275,17 @@ export interface QuestionWizardProps {
   onDecline: (response: string) => void;
   /** The unified Stop / Escape gesture. */
   onCancel: () => void;
+  /**
+   * Whether the wizard holds the card while it is pending: a trapped focus
+   * mode and the inline-dialog scope, so the keyboard is the question's until
+   * it is answered. `true` (default) for a question a turn is blocked on. A
+   * host whose question blocks nothing — an arc stopped to ask, where the
+   * composer is itself a way to reply — passes `false`, and the wizard is an
+   * ordinary part of the card: its controls stay in the card's own order, its
+   * primary buttons claim no default-button Return, and the composer keeps
+   * the keyboard and its own Return.
+   */
+  cardModal?: boolean;
   /** Forwarded class name for cascade-scoped customization. */
   className?: string;
 }
@@ -1189,6 +1200,7 @@ export const QuestionWizard: React.FC<QuestionWizardProps> = ({
   onSubmit,
   onDecline,
   onCancel,
+  cardModal = true,
   className,
 }) => {
   // Held in refs so the callbacks below do not re-create on every host render
@@ -1680,7 +1692,7 @@ export const QuestionWizard: React.FC<QuestionWizardProps> = ({
   // `useInlineDialogScope`'s CANCEL_DIALOG handler runs) instead of relying on
   // Stage-1's CANCEL_DIALOG fallthrough. ⌘. stays chain-routed via the scope.
   const { FocusModeScope, scopeId } = useFocusTrap({
-    active: isPending,
+    active: isPending && cardModal,
     onEscapeDismiss: handleEscape,
   });
 
@@ -1786,7 +1798,7 @@ export const QuestionWizard: React.FC<QuestionWizardProps> = ({
       ? `${focusGroup}:${QUESTION_OPTIONS_ORDER}`
       : `${focusGroup}:${QUESTION_SUBMIT_ORDER}`;
   const { attachRoot } = useInlineDialogScope({
-    active: isPending,
+    active: isPending && cardModal,
     defaultFocusKey: seedFocusKey,
     onCancel: handleEscape,
   });
@@ -2148,7 +2160,8 @@ export const QuestionWizard: React.FC<QuestionWizardProps> = ({
         size="xs"
         focusGroup={focusGroup}
         focusOrder={QUESTION_SEND_REPLY_ORDER}
-        persistentDefaultRing
+        persistentDefaultRing={cardModal}
+        neverDefaultButton={!cardModal}
         disabled={declineText.trim() === ""}
         onClick={respondDecline}
       >
@@ -2200,7 +2213,9 @@ export const QuestionWizard: React.FC<QuestionWizardProps> = ({
         size="xs"
         focusGroup={focusGroup}
         focusOrder={QUESTION_SUBMIT_ORDER}
-        persistentDefaultRing={allAnswered && isAtReview}
+        persistentDefaultRing={cardModal && allAnswered && isAtReview}
+        // Not card-modal: the card's Return stays the composer's ([P14]).
+        neverDefaultButton={!cardModal}
         disabled={!allAnswered}
         onClick={handleSubmit}
       >
@@ -2214,7 +2229,8 @@ export const QuestionWizard: React.FC<QuestionWizardProps> = ({
       size="xs"
       focusGroup={focusGroup}
       focusOrder={QUESTION_SUBMIT_ORDER}
-      persistentDefaultRing
+      persistentDefaultRing={cardModal}
+      neverDefaultButton={!cardModal}
       onClick={handleSubmit}
     >
       Dismiss

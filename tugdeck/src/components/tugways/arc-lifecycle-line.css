@@ -80,3 +80,10 @@
 .tug-arc-lifecycle-line[data-stopped="true"] .tug-arc-lifecycle-note {
   color: var(--tug7-element-tone-icon-normal-danger-rest);
 }
+
+/* An ask is a question waiting on the user, not a fault: `Asked` in the
+   attention tone, never the stop's danger. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.tug-arc-lifecycle-line[data-asked="true"] .tug-arc-lifecycle-note {
+  color: var(--tug7-element-tone-icon-normal-caution-rest);
+}

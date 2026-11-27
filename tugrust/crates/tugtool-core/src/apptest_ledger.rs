@@ -403,6 +403,18 @@ pub fn file_history(
     base_root: &str,
     files: &[String],
 ) -> Result<Vec<FileHistory>, ApptestLedgerError> {
+    file_history_on(conn, base_root, None, files)
+}
+
+/// [`file_history`] over the runs recorded on one branch only, when `branch`
+/// names it — what a red verify asks of the base branch, where the arc's own
+/// runs would otherwise answer for it.
+pub fn file_history_on(
+    conn: &Connection,
+    base_root: &str,
+    branch: Option<&str>,
+    files: &[String],
+) -> Result<Vec<FileHistory>, ApptestLedgerError> {
     let mut stmt = conn.prepare(
         "SELECT r.status, u.head_sha, DATE(u.ended_at, 'unixepoch'), u.dirty,
                 (SELECT COUNT(*) FROM results b
@@ -410,13 +422,14 @@ pub fn file_history(
                 r.secs
            FROM results r JOIN runs u ON u.id = r.run_id
           WHERE u.base_root = ?1 AND r.file = ?2
+            AND (?3 IS NULL OR u.branch = ?3)
             AND r.status NOT IN ('SKIP', 'WEDGED', 'STALLED')
           ORDER BY u.id DESC",
     )?;
     let mut out = Vec::with_capacity(files.len());
     for file in files {
         let outcomes: Vec<Outcome> = stmt
-            .query_map(params![base_root, ledger_file_name(file)], |row| {
+            .query_map(params![base_root, ledger_file_name(file), branch], |row| {
                 Ok(Outcome {
                     status: row.get(0)?,
                     head_sha: row.get(1)?,

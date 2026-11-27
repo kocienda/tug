@@ -89,6 +89,7 @@ import {
   useSessionWheelDriving,
 } from "@/lib/code-session-store/use-session-phase";
 import { ARC_JOIN_READY_CELL_WORD } from "@/lib/arc-join-register";
+import { ARC_ASK_STOP_WORD } from "@/lib/arc-ask-question";
 import type { CodeSessionStore } from "@/lib/code-session-store";
 import type { TurnEntry } from "@/lib/code-session-store/types";
 import {
@@ -1268,6 +1269,8 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   const arcRunLabel =
     arcFact?.arc == null
       ? ""
+      : arcFact.arc.stopped === ARC_ASK_STOP_WORD && arcFact.arc.done !== true
+        ? `, asked a question in ${arcFact.arc.stopped_stage ?? arcFact.arc.stage ?? "an unnamed stage"}`
       : arcFact.arc.stopped !== undefined
         ? `, stopped in ${arcFact.arc.stopped_stage ?? arcFact.arc.stage ?? "an unnamed stage"}: ${arcFact.arc.stopped}`
         : arcFact.arc.stage !== undefined && arcFact.arc.done !== true
@@ -1468,7 +1471,8 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   const jobCounts = countJobs(jobsLedger);
   const nowMs = Date.now();
 
-  // The ARC reading's flanking dots: a stopped arc paints danger, a
+  // The ARC reading's flanking dots: a stopped arc paints danger, an asked
+  // one holds still in the attention tone, a
   // wheel-driven one runs across turn ends, only a hand-run arc is demoted
   // to still dots while the session idles, and no arc at all is still dots.
   // The pose function owns all of them.
@@ -1885,7 +1889,9 @@ export const SessionTelemetryStatusRow = React.forwardRef<
           // The arc reading is a word, so it is STATE's shape, from STATE's
           // markup, under rules that say so.
           //
-          // A stopped arc turns both dots danger and holds them still.
+          // A stopped arc turns both dots danger and holds them still; an
+          // asked one holds them in the attention tone, since it waits on an
+          // answer rather than on a repair.
           //
           // **The two dots mount in one commit and stay mounted.** The loops
           // phase-lock by SHARING A START TIME

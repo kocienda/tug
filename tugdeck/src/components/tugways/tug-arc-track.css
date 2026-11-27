@@ -139,6 +139,13 @@
   background: var(--tug7-element-tone-icon-normal-danger-rest);
 }
 
+/* An ask is a question waiting on the user, not a fault: the attention tone,
+   never the stop's danger. */
+.tug-arc-track-cell[data-state="asked"],
+.tug-arc-track-tick[data-state="asked"] {
+  background: var(--tug7-element-tone-icon-normal-caution-rest);
+}
+
 .tug-arc-track-tick[data-state="withdrawn"] {
   background: transparent;
   box-shadow: inset 0 0 0 1px var(--tug7-element-global-border-normal-muted-rest);

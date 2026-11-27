@@ -66,6 +66,11 @@
   color: var(--tug7-element-tone-icon-normal-danger-rest);
 }
 
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.tug-arc-lifecycle-mark[data-asked="true"] .tug-arc-lifecycle-mark-word {
+  color: var(--tug7-element-tone-icon-normal-caution-rest);
+}
+
 .tug-arc-lifecycle-mark-pill {
   display: inline-block;
   flex: 0 0 auto;
@@ -86,6 +91,11 @@
 
 .tug-arc-lifecycle-mark-pill[data-state="stopped"] {
   background: var(--tug7-element-tone-icon-normal-danger-rest);
+}
+
+/* An ask waits on the user: the attention tone, never the stop's danger. */
+.tug-arc-lifecycle-mark-pill[data-state="asked"] {
+  background: var(--tug7-element-tone-icon-normal-caution-rest);
 }
 
 .tug-arc-lifecycle-mark[data-size="read"] {

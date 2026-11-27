@@ -2631,6 +2631,7 @@ mod tests {
             stages: Vec::new(),
             notes: Vec::new(),
             asked_choices: Vec::new(),
+            asked: Default::default(),
             answer: None,
             stopped: stopped.map(|(stage, why)| (stage, why.to_owned())),
             last_stop: None,

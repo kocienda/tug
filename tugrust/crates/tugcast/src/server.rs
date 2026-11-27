@@ -749,6 +749,11 @@ struct ArcApiRequest {
     /// sent, so an older one still asks.
     #[serde(default)]
     choices: Vec<String>,
+    /// For `arc_ask`: the rest of the decision — what each choice does, the
+    /// one recommended, what was found and guessed, what was tried. Absent
+    /// reads as none, which is what every `tugtool` before it sent.
+    #[serde(default)]
+    detail: tugarc_core::AskDetail,
     /// For `arc_answer`: the user's reply to the arc's question — a choice's
     /// label or the text they typed.
     #[serde(default)]
@@ -942,6 +947,7 @@ async fn arc_handler(
             reason,
             question,
             choices,
+            detail,
         } => {
             // The whole of the stop — the question's note, the interrupt, the
             // hand-back, the receipt, the record — is the supervisor's one
@@ -973,6 +979,7 @@ async fn arc_handler(
                     (session_id.clone(), project_dir.clone(), arc.clone());
                 let question = question.clone();
                 let choices = choices.clone();
+                let ask_detail = (*detail).clone();
                 let halt = reason == tugarc_core::arc::ArcStopReason::StoppedByUser;
                 tokio::spawn(async move {
                     let outcome = supervisor
@@ -985,6 +992,7 @@ async fn arc_handler(
                                 reason,
                                 question: question.as_deref(),
                                 choices: &choices,
+                                detail: Some(&ask_detail),
                                 halt,
                             },
                         )
@@ -1007,6 +1015,7 @@ async fn arc_handler(
                     "reason": reason.as_str(),
                     "question": question,
                     "choices": choices,
+                    "detail": detail,
                 })),
             )
                 .into_response()
@@ -1207,7 +1216,15 @@ fn apply_arc_request(
                     "arc_ask needs tug_session_id, project_dir, arc, and question".to_string(),
                 );
             };
-            crate::arc_api::arc_ask(ledger, &project, session, arc, question, &req.choices)
+            crate::arc_api::arc_ask(
+                ledger,
+                &project,
+                session,
+                arc,
+                question,
+                &req.choices,
+                req.detail.clone(),
+            )
         }
         "arc_gone" => {
             let (Some(project), Some(arc_id)) = (resolved_project(), req.arc_id.as_deref()) else {

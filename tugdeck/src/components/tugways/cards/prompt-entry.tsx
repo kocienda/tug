@@ -190,6 +190,10 @@ import { isDictationAvailable } from "@/lib/dictation-bridge";
 import type { AtomPathRoots } from "@/lib/atom-file-path";
 import { rehydrateDraftAttachments } from "@/lib/attachment-upload";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
+import { useArcForSession } from "@/lib/arc-session-index";
+import { CardIdContext } from "@/lib/card-id-context";
+import { arcAwaitingReply } from "@/lib/arc-ask-question";
+import { arcPressStore } from "@/lib/arc-press-store";
 
 // ---------------------------------------------------------------------------
 // Module constants
@@ -2640,6 +2644,21 @@ export const PromptEntry = React.forwardRef<
   // so a composer that cannot name its card cannot be released that way and
   // gets no mic (the gallery entry is one — it mounts outside any `CardHost`).
   const composerCardId = cardIdForTrace;
+  // The arc this card's composer answers, when its question is up ([B07]) —
+  // the same read the ask receipt's dialog makes for its pending: the card's
+  // bound session, through the binding store, into the live arc model. Held in
+  // a ref so the submit reads the current value at fire time ([L07]).
+  const askCardId = useContext(CardIdContext);
+  const askSession = useSyncExternalStore(
+    cardSessionBindingStore.subscribe,
+    () =>
+      askCardId === null
+        ? null
+        : (cardSessionBindingStore.getBinding(askCardId)?.tugSessionId ?? null),
+    () => null,
+  );
+  const askedArcRef = useRef<string | null>(null);
+  askedArcRef.current = arcAwaitingReply(useArcForSession(askSession));
   const dictationFace = useDictationFace(composerCardId ?? "");
   const dictationOwned =
     composerCardId !== null &&
@@ -3282,6 +3301,46 @@ export const PromptEntry = React.forwardRef<
       }
     }
 
+    // An arc's question is up on this card ([B07]): the draft is the answer.
+    // It goes through the same answer act the question dialog's reply does —
+    // the resume press carrying words — rather than starting a turn in a
+    // stage the arc has stopped. Read at submit time from the live arc model,
+    // which is where the dialog's own pending reads too, so the two agree on
+    // whether a question is up. A slash command — handled above, or bound for
+    // Claude — is never an answer.
+    if (!isEffectivelyEmpty(view)) {
+      const askedArc = askedArcRef.current;
+      const cardId = askCardId;
+      const actor = cardId === null ? undefined : cardSessionBindingStore.getBinding(cardId);
+      const words = buildSlashCommandLine(
+        editor.captureState().text,
+        getAtomsInState(view.state),
+      ).trim();
+      if (
+        askedArc !== null &&
+        actor !== undefined &&
+        words !== "" &&
+        slashCommandName(words) === null
+      ) {
+        arcPressStore.send(askedArc, "resume", actor, words);
+        historyStore.push({
+          id: `${snap.tugSessionId}-${Date.now()}`,
+          sessionId: snap.tugSessionId,
+          projectPath: "",
+          route,
+          text: words,
+          atoms: [],
+          timestamp: Date.now(),
+        });
+        editor.clear();
+        currentHistoryProviderRef.current.resetToDraft(EMPTY_EDIT_STATE);
+        persistClearedDraft();
+        releaseRunSlot();
+        onAfterSubmitRef.current?.();
+        return;
+      }
+    }
+
     // Z5 disabled-mode gate. When `submitButtonMode` is one of the
     // four inert kinds (awaiting-user / stopping / reconnecting /
     // restoring) the button is `disabled` — a native-disabled button
@@ -3648,6 +3707,7 @@ export const PromptEntry = React.forwardRef<
     releaseRunSlot,
     publishAttachmentError,
     route,
+    askCardId,
   ]);
 
   // Live ref to `performSubmit` for the command-insert effect above, which

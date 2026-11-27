@@ -504,6 +504,13 @@ pub struct ArcRecord {
     /// before; a newer reader over an older log finds no marker and reads no
     /// choices. Neither direction invents an answer.
     pub asked_choices: Vec<String>,
+    /// The rest of the decision the stage put beside its question: what each
+    /// choice does, the one it recommends, what it found (verified apart from
+    /// guessed), and what it tried. Cleared with [`ArcRecord::asked_choices`]
+    /// by every note, for the same reason. Empty for every ask recorded before
+    /// these markers, which is a question with labels alone.
+    #[serde(default, skip_serializing_if = "AskDetail::is_empty")]
+    pub asked: AskDetail,
     /// The user's answer to the arc's last stop — a choice's label or the
     /// reply they typed — written by the answer act just before the resume it
     /// rides, so the stage the resume seats is told what was decided.
@@ -637,6 +644,7 @@ pub fn read_arc_in(text: &str, arc: &str) -> Option<ArcRecord> {
             stages: Vec::new(),
             notes: Vec::new(),
             asked_choices: Vec::new(),
+            asked: AskDetail::default(),
             answer: None,
             stopped: None,
             last_stop: None,
@@ -661,12 +669,28 @@ pub fn read_arc_in(text: &str, arc: &str) -> Option<ArcRecord> {
             "arc-note" => {
                 record.notes.push(note.to_owned());
                 record.asked_choices.clear();
+                record.asked = AskDetail::default();
             }
             "arc-choice" => record.asked_choices.push(note.trim().to_owned()),
+            // The detail rides the question the same way its choices do, and
+            // `arc-does` describes the choice written just before it.
+            "arc-does" => {
+                if let Some(label) = record.asked_choices.last() {
+                    record
+                        .asked
+                        .does
+                        .push((label.clone(), note.trim().to_owned()));
+                }
+            }
+            "arc-recommend" => record.asked.recommended = Some(note.trim().to_owned()),
+            "arc-found" => record.asked.found.push(note.trim().to_owned()),
+            "arc-guess" => record.asked.guessed.push(note.trim().to_owned()),
+            "arc-tried" => record.asked.tried = Some(note.trim().to_owned()),
             "arc-answer" => {
                 let answer = note.trim();
                 record.notes.push(format!("{ANSWER_NOTE_PREFIX}{answer}"));
                 record.asked_choices.clear();
+                record.asked = AskDetail::default();
                 record.answer = Some(answer.to_owned());
             }
             // The question still stands, so its choices do too: a Resume
@@ -905,8 +929,11 @@ pub fn append_arc_note(
     append_arc_log(paths, repo_root, arc, "arc-note", note)
 }
 
-/// Append a stage's question and the answers it offers: the question as an
-/// `arc-note`, then one `arc-choice` line per answer, in order.
+/// Append a stage's question and the decision around it: the question as an
+/// `arc-note`; what was found (`arc-found`), guessed (`arc-guess`) and tried
+/// (`arc-tried`); one `arc-choice` line per answer, in order, each followed by
+/// an `arc-does` line when the stage said what it does; and `arc-recommend`
+/// naming the one it recommends.
 ///
 /// One function for the pair because the choices mean nothing apart from the
 /// note before them — [`ArcRecord::asked_choices`] is cleared by every note —
@@ -919,13 +946,69 @@ pub fn append_arc_ask(
     arc: &str,
     question: &str,
     choices: &[String],
+    detail: &AskDetail,
 ) -> Result<(), TugError> {
     let mut file = crate::log::open_arc_log(paths, repo_root)?;
     crate::log::write_arc_log_line(&mut file, arc, "arc-note", question)?;
+    for found in &detail.found {
+        crate::log::write_arc_log_line(&mut file, arc, "arc-found", found)?;
+    }
+    for guess in &detail.guessed {
+        crate::log::write_arc_log_line(&mut file, arc, "arc-guess", guess)?;
+    }
+    if let Some(tried) = &detail.tried {
+        crate::log::write_arc_log_line(&mut file, arc, "arc-tried", tried)?;
+    }
     for choice in choices {
         crate::log::write_arc_log_line(&mut file, arc, "arc-choice", choice)?;
+        if let Some(does) = detail.does_for(choice) {
+            crate::log::write_arc_log_line(&mut file, arc, "arc-does", does)?;
+        }
+    }
+    if let Some(recommended) = &detail.recommended {
+        crate::log::write_arc_log_line(&mut file, arc, "arc-recommend", recommended)?;
     }
     Ok(())
+}
+
+/// Everything an ask carries beyond its question and its choices' labels.
+///
+/// The labels stay in [`ArcRecord::asked_choices`], where every reader before
+/// this struct already reads them. This holds what [`append_arc_ask`] writes
+/// around them, so a stage's choice is put to the user with its outcome
+/// stated and its evidence sorted.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AskDetail {
+    /// What happens if a choice is picked, keyed by the choice's label.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub does: Vec<(String, String)>,
+    /// The label of the one choice the stage recommends.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recommended: Option<String>,
+    /// What the stage verified, each a fact it checked.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub found: Vec<String>,
+    /// What the stage believes and did not verify.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub guessed: Vec<String>,
+    /// What the stage attempted before asking.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tried: Option<String>,
+}
+
+impl AskDetail {
+    /// Whether the ask carried nothing beyond its question and labels.
+    pub fn is_empty(&self) -> bool {
+        self == &Self::default()
+    }
+
+    /// What the choice labelled `label` does, when the stage said.
+    pub fn does_for(&self, label: &str) -> Option<&str> {
+        self.does
+            .iter()
+            .find(|(l, _)| l == label)
+            .map(|(_, d)| d.as_str())
+    }
 }
 
 /// How an answer reads among the record's notes: `the user answered: <text>`.
@@ -1882,6 +1965,7 @@ mod tests {
             "d",
             "per-host or per-request?",
             &["per-host".to_owned(), "per-request".to_owned()],
+            &AskDetail::default(),
         )
         .expect("ask");
         let arc = read_arc(&fixture.paths, root, "d").expect("arc");
@@ -1897,9 +1981,88 @@ mod tests {
         assert!(arc.asked_choices.is_empty(), "{:?}", arc.asked_choices);
 
         // A question asked with none carries none, whatever an earlier ask did.
-        append_arc_ask(&fixture.paths, root, "d", "what next?", &[]).expect("bare ask");
+        append_arc_ask(
+            &fixture.paths,
+            root,
+            "d",
+            "what next?",
+            &[],
+            &AskDetail::default(),
+        )
+        .expect("bare ask");
         let arc = read_arc(&fixture.paths, root, "d").expect("arc");
         assert!(arc.asked_choices.is_empty());
+    }
+
+    #[test]
+    fn an_asks_full_decision_round_trips_through_the_record() {
+        let fixture = log_repo("");
+        let root = fixture.root();
+        append_arc_start(&fixture.paths, root, "d", "arc/idea.md").expect("start");
+        let detail = AskDetail {
+            does: vec![
+                (
+                    "per-host".to_owned(),
+                    "each host keeps its own cache".to_owned(),
+                ),
+                (
+                    "per-request".to_owned(),
+                    "nothing is cached across requests".to_owned(),
+                ),
+            ],
+            recommended: Some("per-host".to_owned()),
+            found: vec!["the cache is read twice per request".to_owned()],
+            guessed: vec!["the second read is the slow one".to_owned()],
+            tried: Some("folding the reads, which broke the retry".to_owned()),
+        };
+        let choices = ["per-host".to_owned(), "per-request".to_owned()];
+        append_arc_ask(
+            &fixture.paths,
+            root,
+            "d",
+            "per-host or per-request?",
+            &choices,
+            &detail,
+        )
+        .expect("ask");
+        let arc = read_arc(&fixture.paths, root, "d").expect("arc");
+        assert_eq!(arc.asked_choices, choices);
+        assert_eq!(arc.asked, detail);
+        assert_eq!(
+            arc.notes.last().map(String::as_str),
+            Some("per-host or per-request?"),
+            "the detail is no note of its own"
+        );
+
+        // A description given for no choice is not written, and a later note
+        // clears the whole decision with its labels.
+        let stray = AskDetail {
+            does: vec![("elsewhere".to_owned(), "nothing".to_owned())],
+            ..AskDetail::default()
+        };
+        append_arc_ask(
+            &fixture.paths,
+            root,
+            "d",
+            "which?",
+            &["this".to_owned()],
+            &stray,
+        )
+        .expect("second ask");
+        assert!(
+            read_arc(&fixture.paths, root, "d")
+                .expect("arc")
+                .asked
+                .is_empty()
+        );
+        append_arc_ask(&fixture.paths, root, "d", "again?", &choices, &detail).expect("third ask");
+        append_arc_note(&fixture.paths, root, "d", "the user answered: per-host").expect("note");
+        assert!(
+            read_arc(&fixture.paths, root, "d")
+                .expect("arc")
+                .asked
+                .is_empty()
+        );
     }
 
     #[test]
@@ -1907,7 +2070,15 @@ mod tests {
         let fixture = log_repo("");
         let root = fixture.root();
         append_arc_start(&fixture.paths, root, "d", "arc/idea.md").expect("start");
-        append_arc_ask(&fixture.paths, root, "d", "which?", &["this".to_owned()]).expect("ask");
+        append_arc_ask(
+            &fixture.paths,
+            root,
+            "d",
+            "which?",
+            &["this".to_owned()],
+            &AskDetail::default(),
+        )
+        .expect("ask");
         append_arc_stop(
             &fixture.paths,
             root,
@@ -1949,7 +2120,15 @@ mod tests {
         let fixture = log_repo("");
         let root = fixture.root();
         append_arc_start(&fixture.paths, root, "d", "arc/idea.md").expect("start");
-        append_arc_ask(&fixture.paths, root, "d", "which?", &["this".to_owned()]).expect("ask");
+        append_arc_ask(
+            &fixture.paths,
+            root,
+            "d",
+            "which?",
+            &["this".to_owned()],
+            &AskDetail::default(),
+        )
+        .expect("ask");
         append_arc_stop(
             &fixture.paths,
             root,

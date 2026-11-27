@@ -31,12 +31,19 @@ import {
   FlaskConical,
   GitMerge,
   Hammer,
+  MessageCircleQuestion,
   OctagonX,
   ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
 
-import { arcReading, type ArcPhase, type ArcTrackModel } from "./tug-arc-track";
+import {
+  ARC_ASKED_WORD,
+  arcAsked,
+  arcReading,
+  type ArcPhase,
+  type ArcTrackModel,
+} from "./tug-arc-track";
 
 /** One glyph per phase, in lifecycle order. */
 export const ARC_PHASE_ICONS: Record<ArcPhase, LucideIcon> = {
@@ -55,9 +62,11 @@ export const ARC_PHASE_ICONS: Record<ArcPhase, LucideIcon> = {
  * the full one cannot say two different things about one arc. A stop names
  * its phase, which the line never has to: the line's track lights the cell it
  * stopped in, and here the glyph has become the stop's own octagon, so the
- * phase would otherwise be lost.
+ * phase would otherwise be lost. An ask names its phase the same way, in
+ * its own word: it is a question waiting, not a fault.
  */
 export function arcPhaseWord(model: ArcTrackModel): string {
+  if (arcAsked(model)) return `${ARC_ASKED_WORD} in ${model.phase}`;
   if (model.stopped !== null) {
     return `Stopped in ${model.phase} · ${model.stopped}`;
   }
@@ -75,7 +84,12 @@ export function ArcPhaseMark({
   size = 12,
 }: ArcPhaseMarkProps): React.ReactElement {
   const stopped = model.stopped !== null;
-  const Glyph: LucideIcon = stopped ? OctagonX : ARC_PHASE_ICONS[model.phase];
+  const asked = arcAsked(model);
+  const Glyph: LucideIcon = asked
+    ? MessageCircleQuestion
+    : stopped
+      ? OctagonX
+      : ARC_PHASE_ICONS[model.phase];
   const word = arcPhaseWord(model);
   return (
     <span
@@ -83,6 +97,7 @@ export function ArcPhaseMark({
       data-slot="tug-arc-phase-mark"
       data-phase={model.phase}
       data-stopped={stopped ? "true" : undefined}
+      data-asked={asked ? "true" : undefined}
       aria-label={word}
     >
       <Glyph size={size} />

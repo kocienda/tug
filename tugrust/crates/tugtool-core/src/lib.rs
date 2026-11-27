@@ -31,6 +31,9 @@ pub mod apptest_ledger;
 /// The unit-test results ledger
 pub mod test_ledger;
 
+/// Whose red a red verify's failing tests are, read from both ledgers
+pub mod red_history;
+
 // Re-exports — exactly the surface consumed by the `tugtool` binary.
 pub use config::{Config, find_project_root};
 pub use error::TugError;

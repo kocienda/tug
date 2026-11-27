@@ -1674,8 +1674,20 @@ pub enum ArcCommands {
     /// answer and the resume in one gesture. The card always offers a typed
     /// reply and Keep Stopped beside them.
     ///
+    /// `--does` says what happens if a choice is picked, one per `--choice`
+    /// and in the same order (`""` for a choice it leaves undescribed), and
+    /// `--recommend <label>` marks the one the stage would take. `--found`
+    /// states a fact the stage verified and `--guess` one it did not, each
+    /// repeatable, so the user never chooses on a guess presented as a fact.
+    ///
     /// `tugtool arc run <name>` picks the work back up once it is answered,
     /// exactly as it does after any other stop.
+    ///
+    /// An ask while the arc's last verify at its head is red is refused
+    /// unless it says, with `--tried`, what was attempted: a red is the
+    /// arc's to fix, and the user's question is only ever reached when no
+    /// fix exists. With no `--session`, an ask from a shell whose session is
+    /// not the arc's bound seat speaks for the bound seat.
     Ask {
         /// Arc name.
         name: String,
@@ -1687,6 +1699,23 @@ pub enum ArcCommands {
         /// in the order the buttons are drawn).
         #[arg(long = "choice", value_name = "LABEL")]
         choices: Vec<String>,
+        /// What happens if the choice in the same place is picked
+        /// (repeatable; none at all, or one per `--choice`).
+        #[arg(long = "does", value_name = "WHAT HAPPENS")]
+        does: Vec<String>,
+        /// The label of the one choice the stage recommends.
+        #[arg(long, value_name = "LABEL")]
+        recommend: Option<String>,
+        /// A fact the stage verified (repeatable).
+        #[arg(long = "found", value_name = "FACT")]
+        found: Vec<String>,
+        /// Something the stage believes and did not verify (repeatable).
+        #[arg(long = "guess", value_name = "GUESS")]
+        guessed: Vec<String>,
+        /// What was attempted before asking. Required while the arc's last
+        /// verify at its head is red; never judged, only carried.
+        #[arg(long, value_name = "WHAT WAS ATTEMPTED")]
+        tried: Option<String>,
         /// Project directory (default: cwd). Travels as your own spelling —
         /// the server canonicalizes it ([L29]).
         #[arg(long)]
@@ -2488,23 +2517,60 @@ mod tests {
             "per-host",
             "--choice",
             "per-request",
+            "--does",
+            "each host keeps its own cache",
+            "--does",
+            "",
+            "--recommend",
+            "per-host",
+            "--found",
+            "the cache is read twice",
+            "--guess",
+            "the second read is slow",
         ]);
         match cli.command {
             Some(Commands::Arc(ArcCommands::Ask {
-                question, choices, ..
+                question,
+                choices,
+                does,
+                recommend,
+                found,
+                guessed,
+                ..
             })) => {
                 assert_eq!(question, "per-host or per-request?");
                 assert_eq!(choices, vec!["per-host", "per-request"]);
+                assert_eq!(does, vec!["each host keeps its own cache", ""]);
+                assert_eq!(recommend.as_deref(), Some("per-host"));
+                assert_eq!(found, vec!["the cache is read twice"]);
+                assert_eq!(guessed, vec!["the second read is slow"]);
             }
             _ => panic!("arc ask did not parse"),
         }
 
         let cli = Cli::parse_from(["tugtool", "arc", "ask", "demo", "what next?"]);
         match cli.command {
-            Some(Commands::Arc(ArcCommands::Ask { choices, .. })) => {
-                assert!(choices.is_empty(), "a question may be asked with none")
+            Some(Commands::Arc(ArcCommands::Ask { choices, tried, .. })) => {
+                assert!(choices.is_empty(), "a question may be asked with none");
+                assert!(tried.is_none(), "--tried is not required to parse");
             }
             _ => panic!("arc ask did not parse"),
+        }
+
+        let cli = Cli::parse_from([
+            "tugtool",
+            "arc",
+            "ask",
+            "demo",
+            "delete the test or wait for main?",
+            "--tried",
+            "reversed the arc's diff; still red",
+        ]);
+        match cli.command {
+            Some(Commands::Arc(ArcCommands::Ask { tried, .. })) => {
+                assert_eq!(tried.as_deref(), Some("reversed the arc's diff; still red"))
+            }
+            _ => panic!("arc ask --tried did not parse"),
         }
     }
 

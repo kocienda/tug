@@ -38,7 +38,7 @@ import "./arc-lifecycle-mark.css";
 import React from "react";
 
 import { useMotionHold, useOffscreenPause } from "@/lib/motion-guard";
-import { arcCellWord, arcWordCountsSteps } from "@/lib/arc-track-model";
+import { arcAsked, arcCellWord, arcWordCountsSteps } from "@/lib/arc-track-model";
 
 import { ArcPhaseMark, arcPhaseWord } from "./arc-phase-mark";
 import { TugStepFraction } from "./tug-step-fraction";
@@ -136,6 +136,7 @@ export function ArcLifecycleMark({
         data-size={size}
         data-phase={model.phase}
         data-stopped={model.stopped !== null ? "true" : undefined}
+        data-asked={arcAsked(model) ? "true" : undefined}
         data-worded={showWord ? "true" : undefined}
         aria-label={sentence}
       >

@@ -46,9 +46,9 @@
  */
 
 import type React from "react";
-import { useCallback, useContext, useState } from "react";
+import { useCallback, useContext, useMemo } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
-import { GitBranch, MessageCircleQuestion } from "lucide-react";
+import { GitBranch } from "lucide-react";
 
 import { BlockChrome } from "@/components/tugways/blocks/block-chrome";
 import { ToolBlockHistoryCollapse } from "@/components/tugways/blocks/collapse-context";
@@ -57,8 +57,20 @@ import { arcTrackModel } from "@/components/tugways/tug-arc-track";
 import { formatDurationMs } from "@/lib/session-telemetry-format";
 import { TugInlineDialog } from "@/components/tugways/tug-inline-dialog";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
-import { TugInput } from "@/components/tugways/tug-input";
+import {
+  QuestionWizard,
+  type ParsedQuestion,
+} from "@/components/tugways/chrome/session-question-dialog";
 import { arcPressStore, type ArcPressActor } from "@/lib/arc-press-store";
+import {
+  arcAskAnswer,
+  arcAskEvidence,
+  arcAskEvidenceLead,
+  arcAskIsLive,
+  arcAskQuestion,
+  arcAskRoute,
+} from "@/lib/arc-ask-question";
+import { useArcForSession } from "@/lib/arc-session-index";
 import { arcNoteParts } from "@/lib/arc-note-command";
 import { CardIdContext } from "@/lib/card-id-context";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
@@ -331,8 +343,10 @@ export function arcRecordFindParts({
  */
 export const ARC_RESUME_OFFER_TITLE = "Resume this arc";
 
-/** The ask's two standing buttons, pinned for the same reason the title is. */
-export const ARC_ASK_REPLY = "Reply…";
+/**
+ * What the question dialog's cancel does on an arc's ask, pinned for the same
+ * reason the title is: it leaves the arc stopped and says so on the record.
+ */
 export const ARC_ASK_KEEP_STOPPED = "Keep Stopped";
 
 /** The caption under an ask's question: who is asking ([B02]). */
@@ -343,12 +357,14 @@ export function arcAskCaption(stage: string): string {
 /**
  * What a stop receipt offers, read off the row ([B02], [B04], [B07]).
  *
- * An **ask** that carries its question offers the question as the dialog:
- * one answer per choice the stage named, `Reply…`, and `Keep Stopped`, with
- * a bare `Resume` only when the stage named no choices — for the reader who
- * already answered in the composer, and for every ask recorded before choices
- * were ([B09]). Every other stop offers the one Resume it always has. `null`
- * where {@link shouldOfferResume} says there is nothing to offer.
+ * An **ask** that carries its question offers it as the app's question
+ * dialog: one question built from the receipt's own text, each choice an
+ * option with what it does, the recommended one first, a typed reply beside
+ * them, and cancel as Keep Stopped. A receipt written with labels alone, or
+ * with no choices at all, offers the same dialog with what it has. Beside it
+ * stands what the stage verified, guessed and tried. Every other stop offers
+ * the one Resume it always has. `null` where {@link shouldOfferResume} says
+ * there is nothing to offer.
  *
  * Pure and exported: the deck's tests are `bun:test` with no fake DOM.
  */
@@ -356,10 +372,9 @@ export type ArcStopOffer =
   | { kind: "resume" }
   | {
       kind: "ask";
-      question: string;
+      question: ParsedQuestion;
       caption: string;
-      choices: string[];
-      resume: boolean;
+      evidence: ReturnType<typeof arcAskEvidence>;
     };
 
 export function arcStopOffer(
@@ -367,17 +382,15 @@ export function arcStopOffer(
   superseded: boolean | undefined,
 ): ArcStopOffer | null {
   if (!shouldOfferResume(parsed, superseded) || parsed.stop === null) return null;
-  const question = parsed.stop.said;
   // An ask whose question did not land is a stop with nothing to answer, so
   // it takes the plain offer rather than a dialog with no title.
-  if (!isArcAsk(parsed) || question === null) return { kind: "resume" };
-  const choices = parsed.stop.choices;
+  const question = isArcAsk(parsed) ? arcAskQuestion(parsed.stop) : null;
+  if (question === null) return { kind: "resume" };
   return {
     kind: "ask",
     question,
     caption: arcAskCaption(parsed.stop.stage),
-    choices,
-    resume: choices.length === 0,
+    evidence: arcAskEvidence(parsed.stop),
   };
 }
 
@@ -532,31 +545,49 @@ function pressActor(cardId: string | null): ArcPressActor | undefined {
   return cardId === null ? undefined : cardSessionBindingStore.getBinding(cardId);
 }
 
+/** The card's bound session, read from the binding store ([L02]). */
+function useCardSession(cardId: string | null): string | null {
+  return useSyncExternalStore(
+    cardSessionBindingStore.subscribe,
+    () =>
+      cardId === null ? null : (cardSessionBindingStore.getBinding(cardId)?.tugSessionId ?? null),
+    () => null,
+  );
+}
+
 /**
- * An ask's offer: the stage's question as the dialog, and its answers
- * ([B02], [B03], [B04], [B05], [B07]).
+ * An ask's offer: the stage's question in the app's question dialog
+ * ([B06], [B08]).
  *
- * The question is the title and the stage that asks is the caption. Each
- * choice the stage named is a button whose press is the answer and the
- * resume in one gesture; `Reply…` opens a one-line field whose send is the
- * same; `Keep Stopped` leaves the arc where it is and says so on the record,
- * which is a later row that folds this receipt ([F06]). A bare `Resume`
- * stands only when the stage named no choices.
+ * The dialog is the same `QuestionWizard` an `AskUserQuestion` is drawn by,
+ * hosted here with one question built from the receipt's own text. A chosen
+ * option and a typed reply are both the answer, sent through the answer act —
+ * the resume press carrying words — and the dialog's cancel is Keep Stopped.
  *
- * Like the Resume offer it replaces, it is the primitive and not the scope:
- * a stopped arc blocks nothing, so the composer stays live and every button
- * is an ordinary focusable in the card's order. The reply's text and whether
- * the field is open are the user's own input, held as component state the
- * way the question dialog holds its free text; nothing about the arc is.
+ * **Pending is read beside the record, never into it.** The receipt's text is
+ * the frozen record of what was asked, and it stays byte-identical; whether
+ * the dialog over it is still waiting is read from the live arc model, so a
+ * question answered elsewhere — the composer, a terminal's `arc answer`, the
+ * Arcs card — stops being offered here without this row being rewritten. It
+ * also survives a restart, a restored transcript and a rotated session: none
+ * of those changes what the live arc says, and nothing holds a turn open over
+ * it. While a press is in flight the dialog stands down, so the same answer
+ * cannot be sent twice.
+ *
+ * When the dialog is not pending the question stays on the receipt as text,
+ * so a folded or answered record still says what was asked.
  */
-function ArcAskOffer({
+function ArcAskQuestion({
   arc,
   offer,
+  requestId,
 }: {
   arc: string;
   offer: Extract<ArcStopOffer, { kind: "ask" }>;
+  requestId: string;
 }): React.ReactElement {
   const cardId = useContext(CardIdContext);
+  const fact = useArcForSession(useCardSession(cardId));
   // An answer is a resume carrying words, so it holds the resume's press.
   const resuming = useSyncExternalStore(
     arcPressStore.subscribe,
@@ -568,9 +599,13 @@ function ArcAskOffer({
     () => arcPressStore.isPending(arc, "keep"),
     () => false,
   );
-  const pending = resuming || keeping;
-  const [replying, setReplying] = useState(false);
-  const [reply, setReply] = useState("");
+  const pending = arcAskIsLive(fact, arc) && !resuming && !keeping;
+  // The receipt's text is frozen for the row's life, so the question built
+  // from it is one value; holding it keeps the dialog's question list one
+  // identity across the renders a live store beat causes.
+  const questionKey = JSON.stringify(offer.question);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `questionKey` is the question's identity
+  const questions = useMemo(() => [offer.question], [questionKey]);
 
   const answer = useCallback(
     (words: string): void => {
@@ -581,111 +616,55 @@ function ArcAskOffer({
     },
     [arc, cardId],
   );
-  const resume = useCallback((): void => {
-    const actor = pressActor(cardId);
-    if (actor !== undefined) arcPressStore.send(arc, "resume", actor);
-  }, [arc, cardId]);
+  const onSubmit = useCallback(
+    (answers: Record<string, string>): void => {
+      const chosen = arcAskAnswer(answers, offer.question);
+      if (chosen !== null) answer(chosen);
+    },
+    [answer, offer.question],
+  );
   const keepStopped = useCallback((): void => {
     const actor = pressActor(cardId);
     if (actor !== undefined) arcPressStore.send(arc, "keep", actor);
   }, [arc, cardId]);
-  const sendReply = useCallback((): void => answer(reply), [answer, reply]);
-  const onReplyKey = useCallback(
-    (event: React.KeyboardEvent<HTMLInputElement>): void => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        sendReply();
-      } else if (event.key === "Escape") {
-        event.preventDefault();
-        setReplying(false);
-      }
-    },
-    [sendReply],
-  );
 
   return (
-    <TugInlineDialog
-      icon={<MessageCircleQuestion />}
-      iconTone="caution"
-      title={offer.question}
-      findableTitle
-      description={offer.caption}
-      variant="notice"
-      className="arc-receipt-resume arc-receipt-ask"
-      data-slot="arc-receipt-ask"
-      footer={
-        <>
-          {offer.choices.map((choice) => (
-            <TugPushButton
-              key={choice}
-              emphasis="tinted"
-              role="action"
-              size="xs"
-              disabled={pending}
-              onClick={() => answer(choice)}
-            >
-              {choice}
-            </TugPushButton>
-          ))}
-          <TugPushButton
-            emphasis="outlined"
-            role="action"
-            size="xs"
-            disabled={pending}
-            onClick={() => setReplying(true)}
-          >
-            {ARC_ASK_REPLY}
-          </TugPushButton>
-          {offer.resume ? (
-            <TugPushButton
-              emphasis="ghost"
-              role="action"
-              size="xs"
-              disabled={pending}
-              onClick={resume}
-            >
-              Resume
-            </TugPushButton>
-          ) : null}
-          <TugPushButton
-            emphasis="ghost"
-            role="action"
-            size="xs"
-            disabled={pending}
-            onClick={keepStopped}
-          >
-            {ARC_ASK_KEEP_STOPPED}
-          </TugPushButton>
-        </>
-      }
-    >
-      {replying ? (
-        <div className="arc-receipt-ask-reply" data-slot="arc-receipt-ask-reply">
-          <TugInput
-            className="arc-receipt-ask-reply-input"
-            type="text"
-            size="sm"
-            autoFocus
-            spellCheck={false}
-            autoComplete="off"
-            placeholder="Your answer"
-            aria-label="Your answer"
-            value={reply}
-            onChange={(event) => setReply(event.target.value)}
-            onKeyDown={onReplyKey}
-          />
-          <TugPushButton
-            emphasis="primary"
-            role="action"
-            size="xs"
-            disabled={pending || reply.trim() === ""}
-            onClick={sendReply}
-          >
-            Send
-          </TugPushButton>
-        </div>
+    <div className="arc-receipt-ask" data-slot="arc-receipt-ask" data-pending={pending ? "" : undefined}>
+      <p className="arc-receipt-ask-caption">{offer.caption}</p>
+      {/* What stands between the arc and its join, read live while the
+          question is up, so the answer reads as a step toward a land ([B10]). */}
+      {pending && fact !== null ? (
+        <p className="arc-receipt-ask-route" data-slot="arc-receipt-ask-route">
+          {arcAskRoute(fact)}
+        </p>
       ) : null}
-    </TugInlineDialog>
+      {pending ? null : (
+        <p className="arc-receipt-tail" data-tugx-findable="">
+          {offer.question.question}
+        </p>
+      )}
+      {offer.evidence.length > 0 ? (
+        <ul className="arc-receipt-ask-evidence" data-slot="arc-receipt-ask-evidence">
+          {offer.evidence.map((line, index) => (
+            <li key={index} className="arc-receipt-ask-evidence-line" data-kind={line.kind}>
+              <span className="arc-receipt-ask-evidence-lead">{arcAskEvidenceLead(line.kind)}</span>{" "}
+              <span data-tugx-findable="">{line.text}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <QuestionWizard
+        requestId={requestId}
+        questions={questions}
+        isPending={pending}
+        onSubmit={onSubmit}
+        onDecline={answer}
+        onCancel={keepStopped}
+        // An arc stopped to ask holds no turn, so its question holds no card:
+        // the composer keeps the keyboard and is itself a way to reply ([B07]).
+        cardModal={false}
+      />
+    </div>
   );
 }
 
@@ -771,7 +750,11 @@ export function SessionArcReceiptBlock(props: CommandBlockProps): React.ReactEle
             </p>
           ) : null}
           {offer?.kind === "ask" ? (
-            <ArcAskOffer arc={parsed.arc} offer={offer} />
+            <ArcAskQuestion
+              arc={parsed.arc}
+              offer={offer}
+              requestId={`arc-ask/${props.message.exchangeId}`}
+            />
           ) : offer?.kind === "resume" ? (
             <ArcResumeOffer arc={parsed.arc} />
           ) : null}

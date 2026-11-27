@@ -6,6 +6,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  ARC_ASKED_WORD,
   ARC_CELL_WIDEST_FRACTION,
   ARC_CELL_NONE_WORD,
   ARC_CELL_WIDEST_WORD,
@@ -327,19 +328,17 @@ describe("arcReading", () => {
       documents: PLAN,
       arc: {
         stage: "implement",
-        stopped: "needs a decision",
+        stopped: "stalled",
         stopped_stage: "implement",
-        stopped_why: "it met a decision that is yours to make, so it stopped rather than asking",
+        stopped_why: "it went quiet past its idle horizon",
       },
       steps: steps(2, 3, 6),
       stage: "working",
     });
-    expect(arcReading(stopped)).toEqual({ word: "Stopped · needs a decision", fraction: null });
+    expect(arcReading(stopped)).toEqual({ word: "Stopped · stalled", fraction: null });
     // The sentence rides on the model for the hover to say, and is never the
     // line's own words.
-    expect(stopped.stoppedWhy).toBe(
-      "it met a decision that is yours to make, so it stopped rather than asking",
-    );
+    expect(stopped.stoppedWhy).toBe("it went quiet past its idle horizon");
     expect(stopped.live).toBe(false);
   });
 
@@ -589,7 +588,7 @@ describe("the Z2 cell's word", () => {
     // A stop's reason is already a run of the label's own; a cut is the whole
     // reading. Neither is a clause the cell shortened.
     expect(
-      arcCellRestClause(face({ phase: "audit", live: false, stopped: "needs a decision" })),
+      arcCellRestClause(face({ phase: "audit", live: false, stopped: "stalled" })),
     ).toBeNull();
     expect(
       arcCellRestClause(face({ phase: "audit", live: false, direct: true, steps: null })),
@@ -619,6 +618,7 @@ describe("the Z2 cell's word", () => {
       readings.add(arcCellWord(face({ phase, live: true })));
       readings.add(arcCellWord(face({ phase, live: false })));
     }
+    readings.add(arcCellWord(face({ stopped: "stalled", stoppedWhy: "why" })));
     readings.add(arcCellWord(face({ stopped: "needs a decision", stoppedWhy: "why" })));
     readings.add(arcCellWord(face({ direct: true, planned: false, steps: null })));
     readings.add(ARC_JOIN_READY_CELL_WORD);
@@ -663,12 +663,44 @@ describe("the Z2 cell's word", () => {
   test("a stop is one word here, not the line's whole clause", () => {
     const stopped = arcTrackModel({
       documents: PLAN,
+      arc: { stage: "implement", stopped: "stalled", stopped_stage: "implement" },
+      steps: steps(2, 3, 6),
+      stage: "working",
+    });
+    expect(arcReading(stopped).word).toBe("Stopped · stalled");
+    expect(arcCellWord(stopped)).toBe("Stopped");
+  });
+
+  // An ask is a question waiting, not a fault: every register says `Asked`,
+  // and the cell and tick it stopped in wear the attention state, never the
+  // stop's.
+  test("an arc stopped on its question reads Asked in every register", () => {
+    const asked = arcTrackModel({
+      documents: PLAN,
+      arc: {
+        stage: "audit",
+        stopped: "needs a decision",
+        stopped_stage: "audit",
+        stopped_why: "it met a decision that is yours to make, so it stopped rather than asking",
+      },
+      steps: steps(6, null, 6),
+      stage: "working",
+    });
+    expect(arcReading(asked)).toEqual({ word: ARC_ASKED_WORD, fraction: null });
+    expect(arcCellWord(asked)).toBe("Asked");
+    expect(arcPhaseWord(asked)).toBe("Asked in audit");
+    expect(arcSessionPurpose(asked)).toBe("Asked — waiting on your answer");
+    expect(arcCellState(asked, "audit")).toBe("asked");
+    expect(arcCellTip(asked, "audit", "asked")).toContain("asked: a decision waits on your answer");
+    // Mid-walk, the step it asked on wears the same state.
+    const midWalk = arcTrackModel({
+      documents: PLAN,
       arc: { stage: "implement", stopped: "needs a decision", stopped_stage: "implement" },
       steps: steps(2, 3, 6),
       stage: "working",
     });
-    expect(arcReading(stopped).word).toBe("Stopped · needs a decision");
-    expect(arcCellWord(stopped)).toBe("Stopped");
+    expect(tickState(midWalk, 3)).toBe("asked");
+    expect(arcCellState(midWalk, "implement")).toBe("asked");
   });
 
   test("an arc with no ledger at all reads Cut", () => {
@@ -716,11 +748,11 @@ describe("the mark's word", () => {
   test("a stop names the phase the glyph stopped showing", () => {
     const stopped = arcTrackModel({
       documents: PLAN,
-      arc: { stage: "review", stopped: "needs a decision", stopped_stage: "review" },
+      arc: { stage: "review", stopped: "stalled", stopped_stage: "review" },
       steps: steps(0, null, 4),
       stage: "working",
     });
-    expect(arcPhaseWord(stopped)).toBe("Stopped in review · needs a decision");
+    expect(arcPhaseWord(stopped)).toBe("Stopped in review · stalled");
   });
 });
 
@@ -792,8 +824,8 @@ describe("a seated session's purpose", () => {
   // A stopped session is not doing the thing its stage is named for, and it
   // says so in the same words the line does.
   test("a stop outranks the purpose, in the line's own words", () => {
-    const stopped = model({ phase: "devise", stopped: "needs a decision" });
-    expect(arcSessionPurpose(stopped)).toBe("Stopped · needs a decision");
+    const stopped = model({ phase: "devise", stopped: "stalled" });
+    expect(arcSessionPurpose(stopped)).toBe("Stopped · stalled");
     expect(arcSessionPurpose(stopped)).toBe(arcReading(stopped).word);
   });
 

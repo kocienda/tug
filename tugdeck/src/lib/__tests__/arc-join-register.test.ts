@@ -109,15 +109,16 @@ describe("what the register says", () => {
     ).toBe("committing");
   });
 
-  test("an arc stopped with a question waits on a person, on its card", () => {
+  test("an arc that asked a question waits on a person, on its card", () => {
     const asked = reg(null, {
       stage: "implementing",
       run: { stage: "implement", stopped: "needs a decision", stopped_stage: "implement" },
     });
     // `awaiting` is the caution pulse — work that has stopped for somebody.
     expect(asked?.phase).toBe("awaiting");
-    expect(asked?.line).toBe("imposer2 stopped with a question — answer it on its card");
-    expect(asked?.word).toBe("question");
+    // `Asked`, never `stopped`: a question waiting is not a fault.
+    expect(asked?.line).toBe("imposer2 asked a question — answer it on its card");
+    expect(asked?.word).toBe("asked");
   });
 
   test("a live join names the arc, the base, and the beat", () => {
@@ -739,7 +740,7 @@ describe("a stale audit takes the offer down and says where the re-audit is", ()
       ...stale,
       run: { stage: "audit", stopped: "needs a decision", stopped_stage: "audit" },
     });
-    expect(stopped?.word).toBe("question");
+    expect(stopped?.word).toBe("asked");
   });
 
   test("it is never an offer, whatever offer the wire still carries", () => {

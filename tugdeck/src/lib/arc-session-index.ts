@@ -131,6 +131,11 @@ export interface ArcSessionFact {
    *  card's re-audit block reads live. Always null for an arc that is
    *  documents alone: the engine re-audits only a branched arc. */
   readonly restamp: ArcRestampWire | null;
+  /** The checks the last verify left red at the arc's head, sent only while
+   *  the arc is stopped on its question — what the asking card's line toward
+   *  the join counts. Empty for every other arc, and always for one that is
+   *  documents alone. */
+  readonly redChecks: readonly string[];
 }
 
 /**
@@ -194,6 +199,7 @@ export function buildArcSessionIndex(
         hasDraft: entry.draft !== undefined,
         branch: arcBranchFacts(entry),
         restamp: entry.restamp ?? null,
+        redChecks: entry.red_checks ?? [],
       };
       claim(boundSession, fact);
     }
@@ -233,6 +239,7 @@ export function buildArcSessionIndex(
         hasDraft: false,
         branch: null,
         restamp: null,
+        redChecks: [],
       };
       claim(boundSession, fact);
     }

@@ -791,6 +791,12 @@ pub enum ChangesetEntry {
         /// gates nothing ([D149]).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         fit: Option<ArcFit>,
+        /// The checks the last verify left red at the arc's head, read from
+        /// the test ledger only while the arc is stopped on its question —
+        /// the line the asking card shows toward the join counts them. Empty
+        /// for every other arc, and for an ask with none.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        red_checks: Vec<String>,
         /// Paths a replay stopped on, when the last attempt conflicted. Held by
         /// the engine rather than derived from git, because the answer is about
         /// an attempt rather than about a state.
@@ -2377,6 +2383,7 @@ mod tests {
             base_overlap: vec![],
             last_replay: None,
             fit: None,
+            red_checks: Vec::new(),
             replay_conflict_paths: vec![],
             restamp: None,
             audit_staleness: None,
@@ -2409,9 +2416,22 @@ mod tests {
         assert!(!json.contains("review"));
         // An arc whose generation has logged nothing has no date to send.
         assert!(!json.contains("last_activity"));
+        // An arc not stopped on its question counts no red checks.
+        assert!(!json.contains("red_checks"));
         // A pre-kind arc spends no bytes saying so — absence is "the record
         // does not say", and the deck reads it as exactly that.
         assert!(!json.contains("arc_kind"));
+
+        // An asked arc's reds ride the wire, for the line toward its join.
+        let mut asked = arc.clone();
+        if let ChangesetEntry::Arc { red_checks, .. } = &mut asked {
+            *red_checks = vec!["just ci".to_string()];
+        }
+        assert!(
+            serde_json::to_string(&asked)
+                .unwrap()
+                .contains(r#""red_checks":["just ci"]"#)
+        );
 
         // And one that has been touched sends when.
         let mut dated = arc;

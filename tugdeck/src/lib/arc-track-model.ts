@@ -13,6 +13,7 @@
 
 import type { ArcRunState, ArcChangesetEntry, ArcStep } from "@/lib/changeset-types";
 import { PLANNED_KIND_SENTENCE } from "@/lib/arc-meta-facts";
+import { ARC_ASK_STOP_WORD } from "@/lib/arc-ask-question";
 
 /** The phases, in lifecycle order. */
 export type ArcPhase = "brief" | "devise" | "review" | "implement" | "audit" | "join";
@@ -47,7 +48,22 @@ export const DIRECT_PHASES: readonly ArcPhase[] = [
   "join",
 ];
 
-export type ArcCellState = "pending" | "active" | "done" | "stopped";
+export type ArcCellState = "pending" | "active" | "done" | "stopped" | "asked";
+
+/**
+ * The word every register says for an arc stopped on its question.
+ *
+ * An ask is a stop in the record and a question in every face: nothing is
+ * wrong, the arc is waiting on an answer. So the cell, the line, the compact
+ * mark's tooltip and the notice say `Asked` in the attention tone, never the
+ * red `Stopped` a fault earns.
+ */
+export const ARC_ASKED_WORD = "Asked";
+
+/** Whether the arc is stopped on its question rather than on a fault. Pure. */
+export function arcAsked(model: Pick<ArcTrackModel, "stopped">): boolean {
+  return model.stopped === ARC_ASK_STOP_WORD;
+}
 
 /**
  * A tick's state. Only a tick can be withdrawn — a whole phase cannot — so the
@@ -420,6 +436,7 @@ export function arcWordCountsSteps(model: ArcTrackModel): boolean {
 
 /** {@link ArcReading} for a model. Pure. */
 export function arcReading(model: ArcTrackModel): ArcReading {
+  if (arcAsked(model)) return { word: ARC_ASKED_WORD, fraction: null };
   if (model.stopped !== null) {
     return { word: `Stopped · ${model.stopped}`, fraction: null };
   }
@@ -455,6 +472,7 @@ export function arcReading(model: ArcTrackModel): ArcReading {
  * once it stops walking.
  */
 export function arcCellWord(model: ArcTrackModel): string {
+  if (arcAsked(model)) return ARC_ASKED_WORD;
   if (model.stopped !== null) return "Stopped";
   if (model.direct && model.steps === null) return "Cut";
   if (!model.live && model.phase in ARC_CELL_REST_WORDS) {
@@ -526,6 +544,7 @@ const ARC_STAGE_PURPOSES: Record<ArcPhase, string> = {
  * the one place the sentence reads the kind.
  */
 export function arcSessionPurpose(model: ArcTrackModel): string {
+  if (arcAsked(model)) return `${ARC_ASKED_WORD} — waiting on your answer`;
   if (model.stopped !== null) return `Stopped · ${model.stopped}`;
   if (model.phase === "implement" && !model.planned) return "Walking the task list";
   return ARC_STAGE_PURPOSES[model.phase];
@@ -548,8 +567,14 @@ export function arcTrackModelFromEntry(entry: ArcChangesetEntry): ArcTrackModel 
 export function arcCellState(model: ArcTrackModel, phase: ArcPhase): ArcCellState {
   const at = ARC_PHASES.indexOf(phase);
   const now = ARC_PHASES.indexOf(model.phase);
-  if (at === now) return model.stopped !== null ? "stopped" : "active";
+  if (at === now) return arcStopState(model);
   return at < now ? "done" : "pending";
+}
+
+/** The state the cell or tick the arc is in wears: lit, asked, or stopped. */
+function arcStopState(model: ArcTrackModel): ArcCellState {
+  if (arcAsked(model)) return "asked";
+  return model.stopped !== null ? "stopped" : "active";
 }
 
 export function tickState(model: ArcTrackModel, n: number): ArcTickState {
@@ -559,7 +584,7 @@ export function tickState(model: ArcTrackModel, n: number): ArcTickState {
   // off the ledger, so they cannot disagree about a truthful one — but a
   // ledger that does disagree is one where somebody is working the step, and
   // that is the reading to show.
-  if (n === steps.current) return model.stopped !== null ? "stopped" : "active";
+  if (n === steps.current) return arcStopState(model);
   if (steps.closed.has(n)) return "done";
   return "pending";
 }
@@ -626,7 +651,9 @@ export function arcCellTip(model: ArcTrackModel, phase: ArcPhase, state: ArcCell
   const participles = ARC_CELL_PARTICIPLES[phase];
   const steps = model.steps;
   let reading: string;
-  if (state === "stopped") {
+  if (state === "asked") {
+    reading = `${arcCellActive(model, phase, true)} — asked: a decision waits on your answer`;
+  } else if (state === "stopped") {
     const why = model.stoppedWhy ?? model.stopped ?? "";
     reading = `${arcCellActive(model, phase, true)} — stopped: ${why}`;
   } else if (state === "active") {

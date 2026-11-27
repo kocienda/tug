@@ -1103,6 +1103,7 @@ mod tests {
                 .collect(),
             notes: Vec::new(),
             asked_choices: Vec::new(),
+            asked: Default::default(),
             answer: None,
             stopped: None,
             last_stop: None,

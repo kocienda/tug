@@ -647,6 +647,7 @@ function factFor(m: Moment): ArcSessionFact {
     hasDraft: e.draft !== undefined,
     branch: m.branched ? arcBranchFacts(e) : null,
     restamp: e.restamp ?? null,
+    redChecks: e.red_checks ?? [],
   };
 }
 

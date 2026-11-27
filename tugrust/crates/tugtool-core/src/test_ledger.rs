@@ -558,6 +558,35 @@ pub fn record_check(conn: &mut Connection, check: &CheckRun) -> Result<i64, Test
     Ok(id)
 }
 
+/// The checks a verify left red at `head_sha` under the checkout `run_root`
+/// belongs to: every command whose newest row at that head is not a pass, in
+/// the order they were recorded. A red row with a later pass for the same
+/// command at the same head is answered by the pass; a head with no rows is
+/// not red. What `arc ask` reads to know the arc's last verify was red, since
+/// a red verify writes nothing to the arc log.
+pub fn red_checks_at(
+    conn: &Connection,
+    run_root: &Path,
+    head_sha: &str,
+) -> Result<Vec<String>, TestLedgerError> {
+    let base_root = resolve_base_root(run_root);
+    let mut stmt = conn.prepare(
+        "SELECT c.command
+           FROM checks c
+          WHERE c.base_root = ?1 AND c.head_sha = ?2
+            AND c.id = (SELECT MAX(id) FROM checks
+                         WHERE base_root = ?1 AND head_sha = ?2 AND command = c.command)
+            AND c.status <> ?3
+          ORDER BY c.id",
+    )?;
+    let commands = stmt
+        .query_map(params![base_root, head_sha, check_status::PASS], |row| {
+            row.get(0)
+        })?
+        .collect::<rusqlite::Result<Vec<String>>>()?;
+    Ok(commands)
+}
+
 /// The newest check a verify may rely on instead of running `command`: green
 /// and completed, the same expanded command, the same content key, under the
 /// same base root, and recorded within [`CHECK_REUSE_SECS`] of `now`. A red,
@@ -1325,6 +1354,63 @@ assertion `left == right` failed
         )
         .unwrap();
         assert_eq!(count(&conn, "SELECT COUNT(*) FROM checks"), 1);
+    }
+
+    /// A head is red while some command's newest row there is not a pass: a
+    /// later pass answers an earlier red, another head's red is not this
+    /// one's, and a head with no rows is not red.
+    #[test]
+    fn a_head_is_red_while_a_commands_newest_check_there_is_not_a_pass() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_string_lossy().into_owned();
+        let mut conn = ledger(dir.path());
+        let reds =
+            |conn: &Connection, head: &str| red_checks_at(conn, Path::new(&root), head).unwrap();
+        assert!(reds(&conn, "abc1234").is_empty(), "no rows, not red");
+
+        let at = |status: &str, command: &str, head: &str, when: i64| CheckRun {
+            command: command.to_string(),
+            head_sha: head.to_string(),
+            ..check(
+                &root,
+                "k",
+                status,
+                Some(i64::from(status != check_status::PASS)),
+                when,
+            )
+        };
+        record_check(
+            &mut conn,
+            &at(check_status::FAIL, "just test-ts", "abc1234", 1),
+        )
+        .unwrap();
+        record_check(
+            &mut conn,
+            &at(check_status::PASS, "cargo nextest run", "abc1234", 2),
+        )
+        .unwrap();
+        assert_eq!(reds(&conn, "abc1234"), ["just test-ts"], "red at the head");
+
+        record_check(
+            &mut conn,
+            &at(check_status::PASS, "just test-ts", "abc1234", 3),
+        )
+        .unwrap();
+        assert!(
+            reds(&conn, "abc1234").is_empty(),
+            "a later pass answers the red"
+        );
+
+        record_check(
+            &mut conn,
+            &at(check_status::TIMED_OUT, "just test-ts", "def5678", 4),
+        )
+        .unwrap();
+        assert!(
+            reds(&conn, "abc1234").is_empty(),
+            "another head's red is not this one's"
+        );
+        assert_eq!(reds(&conn, "def5678"), ["just test-ts"]);
     }
 
     /// Only a green, completed check over the same command and the same key

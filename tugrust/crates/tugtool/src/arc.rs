@@ -155,14 +155,27 @@ pub fn dispatch(cmd: ArcCommands, json: bool, quiet: bool) -> ExitCode {
             name,
             question,
             choices,
+            does,
+            recommend,
+            found,
+            guessed,
+            tried,
             project,
             session,
         } => run_arc_ask(
-            &name,
-            &question,
-            &choices,
-            project,
-            session.as_deref(),
+            paths,
+            AskArgs {
+                name: &name,
+                question: &question,
+                choices: &choices,
+                does: &does,
+                recommend: recommend.as_deref(),
+                found: &found,
+                guessed: &guessed,
+                tried: tried.as_deref(),
+                project,
+                session: session.as_deref(),
+            },
             json,
             quiet,
         ),
@@ -1364,9 +1377,30 @@ fn print_verify(report: &tugarc_core::surfaces::VerifyReport) {
                 "every red recorded under this call: tugtool test last --call {call} --failures\n"
             );
         }
+        print_red_history(report);
     }
 
     println!("{}", report.receipt);
+}
+
+/// On a red verify, what the records hold of each failing test on the base
+/// branch, then the sentence that says whose red it is. Prints nothing when
+/// the verify was not red; on a red one with no recorded failure, only the
+/// sentence, since it holds whatever the record says.
+fn print_red_history(report: &tugarc_core::surfaces::VerifyReport) {
+    if report.verdict != "red" {
+        return;
+    }
+    if let Some(base_branch) = &report.base_branch {
+        println!("whose reds these are, from the record:");
+        for red in &report.reds {
+            println!(
+                "  {}",
+                tugtool_core::red_history::describe(red, base_branch)
+            );
+        }
+    }
+    println!("{}\n", tugtool_core::red_history::WHOSE_RED);
 }
 
 /// How long ago an epoch second was, as a verify report says it.
@@ -2276,24 +2310,42 @@ fn run_arc_stop(
 /// question, which becomes the arc's last note so the record and the card both
 /// carry it. A stage that simply stopped would leave a person the whole of the
 /// transcript to work out what it wanted.
-fn run_arc_ask(
-    name: &str,
-    question: &str,
-    choices: &[String],
-    project: Option<std::path::PathBuf>,
-    session: Option<&str>,
-    json: bool,
-    quiet: bool,
-) -> Result<(), AppError> {
-    let session = calling_session_id("arc ask", session)?;
+fn run_arc_ask(paths: &Paths, args: AskArgs<'_>, json: bool, quiet: bool) -> Result<(), AppError> {
+    let AskArgs {
+        name,
+        question,
+        choices,
+        does,
+        recommend,
+        found,
+        guessed,
+        tried,
+        project,
+        session,
+    } = args;
+    let arc = arc_repo_root()
+        .ok()
+        .and_then(|repo| ops::status_in(paths, &repo, name).ok());
+    if let Some(arc) = &arc
+        && let Some(refusal) = ask_over_red_refusal(&red_checks_of(paths, arc), tried)
+    {
+        return Err(AppError::Exit3("ask_over_red", refusal));
+    }
+    let session = asking_session(
+        session,
+        arc.as_ref().and_then(|a| a.bound_session.as_deref()),
+    )?;
     let project = binding_project(project)?;
+    let (labels, detail) = ask_decision(choices, does, recommend, found, guessed, tried)
+        .map_err(|m| AppError::Exit3("ask_does", m))?;
     let response = post_arc_api(serde_json::json!({
         "op": "arc_ask",
         "tug_session_id": session.session_id,
         "project_dir": project.to_string_lossy(),
         "arc": name,
         "question": question,
-        "choices": choices,
+        "choices": labels,
+        "detail": detail,
     }))
     .map_err(|e| refuse(&session, e))?;
     let stage = response
@@ -2306,13 +2358,156 @@ fn run_arc_ask(
     } else if !quiet {
         println!("Stopped the arc on '{name}' in {stage} to ask (session {stopped})");
         println!("  {question}");
-        for choice in choices {
-            println!("    · {}", choice.trim());
+        for found in &detail.found {
+            println!("  found: {found}");
+        }
+        for guess in &detail.guessed {
+            println!("  guessed: {guess}");
+        }
+        if let Some(tried) = &detail.tried {
+            println!("  tried: {tried}");
+        }
+        for label in &labels {
+            let mark = if detail.recommended.as_ref() == Some(label) {
+                " (recommended)"
+            } else {
+                ""
+            };
+            match detail.does_for(label) {
+                Some(does) => println!("    · {label}{mark} — {does}"),
+                None => println!("    · {label}{mark}"),
+            }
         }
         print_rotation_note(&session, &stopped);
         println!("Resume with tugtool arc run {name} once it is answered");
     }
     Ok(())
+}
+
+/// What `arc ask` was given, as its command line spelled it.
+struct AskArgs<'a> {
+    name: &'a str,
+    question: &'a str,
+    choices: &'a [String],
+    /// What each choice does, paired with `choices` by order.
+    does: &'a [String],
+    recommend: Option<&'a str>,
+    found: &'a [String],
+    guessed: &'a [String],
+    tried: Option<&'a str>,
+    project: Option<std::path::PathBuf>,
+    session: Option<&'a str>,
+}
+
+/// Split the command line's choices into the labels the buttons wear and the
+/// rest of the decision, trimmed, the way the server records them. The
+/// `--does` pair with `--choice` by order, so a count that differs from the
+/// choices' is refused rather than guessed at; the server validates the rest.
+fn ask_decision(
+    choices: &[String],
+    does: &[String],
+    recommend: Option<&str>,
+    found: &[String],
+    guessed: &[String],
+    tried: Option<&str>,
+) -> Result<(Vec<String>, tugarc_core::AskDetail), String> {
+    if !does.is_empty() && does.len() != choices.len() {
+        return Err(format!(
+            "arc ask was given {} --does for {} --choice; give one per choice, in the same \
+             order (\"\" for one left undescribed), or none",
+            does.len(),
+            choices.len()
+        ));
+    }
+    let trimmed = |s: &str| Some(s.trim().to_owned()).filter(|s| !s.is_empty());
+    let labels: Vec<String> = choices.iter().map(|c| c.trim().to_owned()).collect();
+    let does = labels
+        .iter()
+        .zip(does)
+        .filter_map(|(label, what)| trimmed(what).map(|what| (label.clone(), what)))
+        .collect();
+    let detail = tugarc_core::AskDetail {
+        does,
+        recommended: recommend.and_then(trimmed),
+        found: found.iter().filter_map(|f| trimmed(f)).collect(),
+        guessed: guessed.iter().filter_map(|g| trimmed(g)).collect(),
+        tried: tried.and_then(trimmed),
+    };
+    Ok((labels, detail))
+}
+
+/// The doctrine's line an ask over a red quotes, verbatim.
+const NEVER_ASK_OVER_A_RED: &str = "Never ask whether to fix a red the step surfaced. A failing test has three endings and fixing the code is the default one";
+
+/// The refusal an ask over a red earns, or `None` when the ask may go ahead:
+/// no check is red at the arc's head, or the ask says what was tried. The
+/// text of `tried` is required and never judged — its work is to interrupt
+/// the stage at the moment it would ask, and make it say what it tried.
+fn ask_over_red_refusal(red: &[String], tried: Option<&str>) -> Option<String> {
+    if red.is_empty() || tried.is_some_and(|t| !t.trim().is_empty()) {
+        return None;
+    }
+    let checks = red
+        .iter()
+        .map(|c| format!("`{c}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(format!(
+        "the arc's last verify at its head is red ({checks}), and an ask over a red must say \
+         what was tried. The doctrine: \"{NEVER_ASK_OVER_A_RED}.\" A red inherited from the base \
+         is the arc's too. Fix it as ordinary rounds; if no fix exists, ask again with \
+         --tried \"<what was attempted>\"."
+    ))
+}
+
+/// The checks left red at the arc's head, read from the test ledger a verify
+/// records its checks into. Advisory reading: no ledger, no head, or a read
+/// that fails is no red.
+fn red_checks_of(paths: &Paths, arc: &ops::ArcStatus) -> Vec<String> {
+    let ledger = &paths.test_results_db;
+    if !ledger.is_file() {
+        return Vec::new();
+    }
+    let Some(head) = tugcore::git_command()
+        .arg("-C")
+        .arg(&arc.worktree)
+        .args(["rev-parse", &arc.branch])
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+    else {
+        return Vec::new();
+    };
+    tugtool_core::test_ledger::open_ledger(ledger)
+        .and_then(|conn| {
+            tugtool_core::test_ledger::red_checks_at(
+                &conn,
+                std::path::Path::new(&arc.worktree),
+                &head,
+            )
+        })
+        .unwrap_or_default()
+}
+
+/// The session an ask speaks for. `--session` names it outright; otherwise
+/// the calling shell's, unless the arc is bound to a seat that is not the
+/// shell's — a stage's shell can carry an id the arc has since rotated off —
+/// in which case the bound seat, so a stage never has to pass `--session`.
+fn asking_session(
+    session: Option<&str>,
+    bound: Option<&str>,
+) -> Result<crate::session_identity::Resolved, AppError> {
+    if session.is_some() {
+        return calling_session_id("arc ask", session);
+    }
+    match (calling_session_id("arc ask", None), bound) {
+        (Ok(calling), Some(bound)) if !calling.keys().iter().any(|k| k == bound) => {
+            calling_session_id("arc ask", Some(bound))
+        }
+        (Err(_), Some(bound)) => calling_session_id("arc ask", Some(bound)),
+        (calling, _) => calling,
+    }
 }
 
 /// Answer a stopped arc's question and resume it — the receipt's choice and
@@ -3079,6 +3274,71 @@ fn print_record(record: &tugarc_core::RecordShowOutcome) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The command line's choices split into the buttons' labels and the rest
+    /// of the decision, trimmed, with a blank part dropped.
+    #[test]
+    fn an_asks_command_line_becomes_labels_and_a_decision() {
+        let choices = vec![
+            " per-host ".to_string(),
+            "per-request".to_string(),
+            "neither".to_string(),
+        ];
+        let does = vec![
+            " one cache a host ".to_string(),
+            String::new(),
+            "  ".to_string(),
+        ];
+        let (labels, detail) = ask_decision(
+            &choices,
+            &does,
+            Some(" per-host"),
+            &["read twice".to_string(), " ".to_string()],
+            &["the second read is slow".to_string()],
+            Some("  "),
+        )
+        .expect("one --does per choice");
+        assert_eq!(labels, vec!["per-host", "per-request", "neither"]);
+        assert_eq!(
+            detail,
+            tugarc_core::AskDetail {
+                does: vec![("per-host".to_string(), "one cache a host".to_string())],
+                recommended: Some("per-host".to_string()),
+                found: vec!["read twice".to_string()],
+                guessed: vec!["the second read is slow".to_string()],
+                tried: None,
+            }
+        );
+        let refused = ask_decision(&choices, &does[..1], None, &[], &[], None)
+            .expect_err("one --does for three choices is not a pairing");
+        assert!(refused.contains("1 --does for 3 --choice"), "{refused}");
+    }
+
+    /// An ask over a red is refused until it says what was tried; with no red
+    /// at the head, or with an attempt stated, it goes ahead.
+    #[test]
+    fn an_ask_over_a_red_needs_a_stated_attempt() {
+        let red = vec!["cd tugdeck && bunx tsc --noEmit".to_string()];
+        let refusal = ask_over_red_refusal(&red, None).expect("a red with no attempt refuses");
+        assert!(
+            refusal.contains(NEVER_ASK_OVER_A_RED),
+            "quotes the doctrine: {refusal}"
+        );
+        assert!(
+            refusal.contains("`cd tugdeck && bunx tsc --noEmit`"),
+            "{refusal}"
+        );
+        assert!(refusal.contains("--tried"), "{refusal}");
+        assert!(
+            ask_over_red_refusal(&red, Some("   ")).is_some(),
+            "a blank attempt is no attempt"
+        );
+        assert_eq!(
+            ask_over_red_refusal(&red, Some("reversed the diff; still red")),
+            None
+        );
+        assert_eq!(ask_over_red_refusal(&[], None), None, "no red, no refusal");
+    }
 
     /// Every check this project's own surface table declares wraps the way
     /// the hook would wrap it typed by hand: a known runner under `test run`

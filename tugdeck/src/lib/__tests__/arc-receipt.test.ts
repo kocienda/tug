@@ -91,3 +91,57 @@ describe("an ask's question and its choices", () => {
     expect(parsed?.stop?.choices).toEqual(["yes"]);
   });
 });
+
+describe("an ask's whole decision", () => {
+  const HEAD =
+    "arc stopped · demo · in implement — it met a decision that is yours to make, so it stopped rather than asking";
+
+  test("a new row reads what each choice does, the recommendation, and the evidence", () => {
+    const parsed = parseArcReceipt(
+      [
+        HEAD,
+        "Which cover hides the band?",
+        "found · the neighbour reaches the band",
+        "guessed · the flash is the band",
+        "tried · widening the neighbour",
+        "choice · the neighbour",
+        "choice · a new one",
+        "does · adds a cover over the band",
+        "recommended · the neighbour",
+      ].join("\n"),
+    );
+    const stop = parsed?.stop;
+    expect(stop?.said).toBe("Which cover hides the band?");
+    expect(stop?.choices).toEqual(["the neighbour", "a new one"]);
+    expect(stop?.options).toEqual([
+      { label: "the neighbour", does: null, recommended: true },
+      { label: "a new one", does: "adds a cover over the band", recommended: false },
+    ]);
+    expect(stop?.found).toEqual(["the neighbour reaches the band"]);
+    expect(stop?.guessed).toEqual(["the flash is the band"]);
+    expect(stop?.tried).toBe("widening the neighbour");
+  });
+
+  test("a row written with labels alone reads every option bare", () => {
+    const parsed = parseArcReceipt(
+      `${HEAD}\nWhich cover hides the band?\nchoice · the neighbour\nchoice · a new one`,
+    );
+    const stop = parsed?.stop;
+    expect(stop?.options).toEqual([
+      { label: "the neighbour", does: null, recommended: false },
+      { label: "a new one", does: null, recommended: false },
+    ]);
+    expect(stop?.found).toEqual([]);
+    expect(stop?.guessed).toEqual([]);
+    expect(stop?.tried).toBeNull();
+  });
+
+  test("a decision mark is never taken for the question, and a stray one describes nothing", () => {
+    const parsed = parseArcReceipt(
+      `${HEAD}\ndoes · nothing\nrecommended · elsewhere\nShip it?\nchoice · yes`,
+    );
+    const stop = parsed?.stop;
+    expect(stop?.said).toBe("Ship it?");
+    expect(stop?.options).toEqual([{ label: "yes", does: null, recommended: false }]);
+  });
+});

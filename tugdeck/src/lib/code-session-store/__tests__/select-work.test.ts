@@ -127,6 +127,13 @@ describe("arcCellPose", () => {
         arc("ready", { ...live, stopped: "stalled" }),
         "aborted",
       ],
+      // An ask waits on an answer, not a repair: held still in the attention
+      // tone, never the stop's danger.
+      [
+        "wheel stopped on its question",
+        arc("implementing", { ...live, stopped: "needs a decision" }),
+        "paused",
+      ],
       ["settled stage under a live wheel", arc("ready", live), "completed"],
       [
         "settled stage, wheel done",

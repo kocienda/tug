@@ -58,6 +58,11 @@ pub(crate) enum ArcApiOutcome {
         /// draws the same buttons. Empty for a question asked with none and
         /// for every stop that is not an ask.
         choices: Vec<String>,
+        /// The rest of the decision an ask carries — what each choice does,
+        /// the one recommended, what was found and guessed, what was tried —
+        /// written after the question's note as their own marked lines.
+        /// Empty for every stop that is not an ask.
+        detail: Box<tugarc_core::AskDetail>,
     },
     /// This instance's ledger has no such session — the CLI should try the
     /// next live instance rather than report a failure.
@@ -156,17 +161,19 @@ impl ArcGoneReason {
 /// line with no live segment is an error rather than a fall back to the
 /// posted id: there is no card left to bind, stop, or unbind, and saying so
 /// is the refusal that turns this from a silent haunting into a sentence.
-fn calling_segment(ledger: &SessionLedger, posted: &str) -> Result<String, ArcApiOutcome> {
+///
+/// The refusal is boxed because an outcome is large and a refusal is rare.
+fn calling_segment(ledger: &SessionLedger, posted: &str) -> Result<String, Box<ArcApiOutcome>> {
     if ledger.get(posted).ok().flatten().is_none() {
-        return Err(ArcApiOutcome::UnknownSession);
+        return Err(Box::new(ArcApiOutcome::UnknownSession));
     }
     match ledger.live_segment_of(posted) {
         Ok(Some(live)) => Ok(live),
-        Ok(None) => Err(ArcApiOutcome::Error(format!(
+        Ok(None) => Err(Box::new(ArcApiOutcome::Error(format!(
             "session {posted} names a closed segment and no segment of its line is live — \
              the card it worked has gone"
-        ))),
-        Err(e) => Err(ArcApiOutcome::Error(e.to_string())),
+        )))),
+        Err(e) => Err(Box::new(ArcApiOutcome::Error(e.to_string()))),
     }
 }
 
@@ -207,7 +214,7 @@ pub(crate) fn bind(
 ) -> ArcApiOutcome {
     let tug_session_id = match calling_segment(ledger, tug_session_id) {
         Ok(live) => live,
-        Err(outcome) => return outcome,
+        Err(outcome) => return *outcome,
     };
     let tug_session_id = tug_session_id.as_str();
     let Some(row) = ledger.get(tug_session_id).ok().flatten() else {
@@ -310,7 +317,7 @@ pub(crate) fn arc_run(
     // nothing seated on it.
     let tug_session_id = match calling_segment(ledger, tug_session_id) {
         Ok(live) => live,
-        Err(outcome) => return outcome,
+        Err(outcome) => return *outcome,
     };
     if tugarc_core::arc::read_arc(&Paths::from_env(), project_dir, arc).is_none() {
         if let Err(e) = tugarc_core::ops::open_arc(&Paths::from_env(), project_dir, arc) {
@@ -393,7 +400,7 @@ pub(crate) fn arc_keep_stopped(
     // Resolved first so the CLI's try-each-instance walk reads an unknown
     // card as "not mine" rather than as a refusal.
     if let Err(outcome) = calling_segment(ledger, tug_session_id) {
-        return outcome;
+        return *outcome;
     }
     let Some(record) = tugarc_core::arc::read_arc(&Paths::from_env(), project_dir, arc) else {
         return ArcApiOutcome::Error(format!("{arc} has no arc to keep stopped"));
@@ -424,7 +431,7 @@ fn resume_arc(
     // would otherwise be told its own callsign holds its own arc.
     let tug_session_id = match calling_segment(ledger, tug_session_id) {
         Ok(live) => live,
-        Err(outcome) => return outcome,
+        Err(outcome) => return *outcome,
     };
     let Some(record) = tugarc_core::arc::read_arc(&Paths::from_env(), project_dir, arc) else {
         return ArcApiOutcome::Error(format!("{arc} has no arc to resume"));
@@ -515,7 +522,7 @@ pub(crate) fn unbind(ledger: &SessionLedger, tug_session_id: &str) -> ArcApiOutc
     // binding standing.
     let tug_session_id = match calling_segment(ledger, tug_session_id) {
         Ok(live) => live,
-        Err(outcome) => return outcome,
+        Err(outcome) => return *outcome,
     };
     let tug_session_id = tug_session_id.as_str();
     // The row, not `owns_session`: the ownership question is answered by
@@ -605,7 +612,7 @@ pub(crate) fn arc_stop(
 ) -> ArcApiOutcome {
     let tug_session_id = match calling_segment(ledger, tug_session_id) {
         Ok(live) => live,
-        Err(outcome) => return outcome,
+        Err(outcome) => return *outcome,
     };
     let tug_session_id = tug_session_id.as_str();
     let Some(row) = ledger.get(tug_session_id).ok().flatten() else {
@@ -661,6 +668,7 @@ pub(crate) fn arc_stop(
         reason: tugarc_core::arc::ArcStopReason::StoppedByUser,
         question: None,
         choices: Vec::new(),
+        detail: Box::default(),
     }
 }
 
@@ -680,6 +688,10 @@ pub(crate) fn arc_stop(
 /// `choices` are the closed set of answers the stage offers, each trimmed. A
 /// blank one, or one named twice, is refused for the same reason: it would be
 /// a button that says nothing, or two buttons a reader cannot tell apart.
+///
+/// `detail` is the rest of the decision, each part trimmed and a blank one
+/// dropped. A description or a recommendation that names no choice offered
+/// is refused: it would describe a button the user is never shown.
 pub(crate) fn arc_ask(
     ledger: &SessionLedger,
     project_dir: &std::path::Path,
@@ -687,6 +699,7 @@ pub(crate) fn arc_ask(
     arc: &str,
     question: &str,
     choices: &[String],
+    detail: tugarc_core::AskDetail,
 ) -> ArcApiOutcome {
     let question = question.trim();
     if question.is_empty() {
@@ -708,6 +721,10 @@ pub(crate) fn arc_ask(
         }
         offered.push(choice.to_owned());
     }
+    let detail = match settle_ask_detail(detail, &offered) {
+        Ok(detail) => detail,
+        Err(message) => return ArcApiOutcome::Error(message),
+    };
     match arc_stop(ledger, project_dir, tug_session_id, arc) {
         ArcApiOutcome::ArcStopped {
             arc,
@@ -723,9 +740,65 @@ pub(crate) fn arc_ask(
             reason: tugarc_core::arc::ArcStopReason::NeedsDecision,
             question: Some(question.to_owned()),
             choices: offered,
+            detail: Box::new(detail),
         },
         other => other,
     }
+}
+
+/// Trim an ask's detail, drop its blank parts, and refuse a description or a
+/// recommendation that names a choice the ask does not offer.
+fn settle_ask_detail(
+    detail: tugarc_core::AskDetail,
+    offered: &[String],
+) -> Result<tugarc_core::AskDetail, String> {
+    let kept = |items: Vec<String>| -> Vec<String> {
+        items
+            .into_iter()
+            .map(|s| s.trim().to_owned())
+            .filter(|s| !s.is_empty())
+            .collect()
+    };
+    let mut does = Vec::with_capacity(detail.does.len());
+    for (label, what) in detail.does {
+        let (label, what) = (label.trim().to_owned(), what.trim().to_owned());
+        if what.is_empty() {
+            continue;
+        }
+        if !offered.contains(&label) {
+            return Err(format!(
+                "arc ask was told what '{label}' does, but offers no such choice"
+            ));
+        }
+        if does
+            .iter()
+            .any(|(seen, _): &(String, String)| seen == &label)
+        {
+            return Err(format!("arc ask was told twice what '{label}' does"));
+        }
+        does.push((label, what));
+    }
+    let recommended = detail
+        .recommended
+        .map(|r| r.trim().to_owned())
+        .filter(|r| !r.is_empty());
+    if let Some(r) = &recommended
+        && !offered.contains(r)
+    {
+        return Err(format!(
+            "arc ask recommends '{r}', but offers no such choice"
+        ));
+    }
+    Ok(tugarc_core::AskDetail {
+        does,
+        recommended,
+        found: kept(detail.found),
+        guessed: kept(detail.guessed),
+        tried: detail
+            .tried
+            .map(|t| t.trim().to_owned())
+            .filter(|t| !t.is_empty()),
+    })
 }
 
 /// Sweep every binding to a dead arc, plus its authored draft row.
@@ -1447,6 +1520,13 @@ mod tests {
             "alpha",
             "  per-host or per-request?  ",
             &[" per-host ".to_owned(), "per-request".to_owned()],
+            tugarc_core::AskDetail {
+                does: vec![(" per-host".to_owned(), " one cache a host ".to_owned())],
+                recommended: Some("per-host ".to_owned()),
+                found: vec!["  ".to_owned(), " read twice ".to_owned()],
+                guessed: Vec::new(),
+                tried: Some("   ".to_owned()),
+            },
         ) {
             ArcApiOutcome::ArcStopped {
                 arc,
@@ -1454,6 +1534,7 @@ mod tests {
                 reason,
                 question,
                 choices,
+                detail,
                 ..
             } => {
                 assert_eq!(arc, "alpha");
@@ -1461,6 +1542,17 @@ mod tests {
                 assert_eq!(reason, tugarc_core::arc::ArcStopReason::NeedsDecision);
                 assert_eq!(question.as_deref(), Some("per-host or per-request?"));
                 assert_eq!(choices, vec!["per-host", "per-request"]);
+                assert_eq!(
+                    *detail,
+                    tugarc_core::AskDetail {
+                        does: vec![("per-host".to_owned(), "one cache a host".to_owned())],
+                        recommended: Some("per-host".to_owned()),
+                        found: vec!["read twice".to_owned()],
+                        guessed: Vec::new(),
+                        tried: None,
+                    },
+                    "trimmed, and the blank parts dropped"
+                );
             }
             ArcApiOutcome::Error(m) => panic!("refused: {m}"),
             _ => panic!("unexpected"),
@@ -1483,7 +1575,15 @@ mod tests {
         let root = dir.path();
         let ledger = on_arc_card(root);
 
-        match arc_ask(&ledger, root, "claude-1", "alpha", "   ", &[]) {
+        match arc_ask(
+            &ledger,
+            root,
+            "claude-1",
+            "alpha",
+            "   ",
+            &[],
+            Default::default(),
+        ) {
             ArcApiOutcome::Error(message) => {
                 assert!(message.contains("needs the question"), "{message}");
             }
@@ -1494,9 +1594,36 @@ mod tests {
             vec!["yes".to_owned(), "  ".to_owned()],
             vec!["yes".to_owned(), " yes".to_owned()],
         ] {
-            match arc_ask(&ledger, root, "claude-1", "alpha", "which?", &choices) {
+            match arc_ask(
+                &ledger,
+                root,
+                "claude-1",
+                "alpha",
+                "which?",
+                &choices,
+                Default::default(),
+            ) {
                 ArcApiOutcome::Error(message) => assert!(message.contains("choice"), "{message}"),
                 _ => panic!("{choices:?} must not stop an arc"),
+            }
+        }
+        // Nor a description or a recommendation of a button never drawn.
+        let yes = vec!["yes".to_owned()];
+        for detail in [
+            tugarc_core::AskDetail {
+                does: vec![("no".to_owned(), "stops".to_owned())],
+                ..Default::default()
+            },
+            tugarc_core::AskDetail {
+                recommended: Some("no".to_owned()),
+                ..Default::default()
+            },
+        ] {
+            match arc_ask(&ledger, root, "claude-1", "alpha", "which?", &yes, detail) {
+                ArcApiOutcome::Error(message) => {
+                    assert!(message.contains("no such choice"), "{message}")
+                }
+                _ => panic!("a detail of no choice must not stop an arc"),
             }
         }
     }
@@ -1912,6 +2039,7 @@ mod tests {
             "alpha",
             "per-host or per-request?",
             &["per-host".to_owned(), "per-request".to_owned()],
+            &tugarc_core::AskDetail::default(),
         )
         .unwrap();
         tugarc_core::arc::append_arc_stop(
@@ -2319,6 +2447,7 @@ mod tests {
             "alpha",
             "Which cover hides the band?",
             &[],
+            Default::default(),
         ) {
             ArcApiOutcome::ArcStopped {
                 arc,

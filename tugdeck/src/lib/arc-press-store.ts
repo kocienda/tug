@@ -55,6 +55,12 @@
  * from the entry it is handed, which is a different fact from this one and
  * arrives by a different road.
  *
+ * An ask's receipt is the one row that reads more, and it reads it from that
+ * other road: whether its question dialog is still pending comes from the
+ * live arc model, read beside the receipt's frozen text and never into it, so
+ * the record of what was asked stays byte-identical while the dialog over it
+ * stands down once the arc has moved on. That fact still does not live here.
+ *
  * **The press's horizon is not such a field either.** A pending press holds a
  * one-shot timer and the id of the card that made it, and both are the press's
  * own present tense rather than a reading of the arc: the timer observes

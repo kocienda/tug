@@ -52,7 +52,7 @@ import "./arc-lifecycle-line.css";
 
 import React from "react";
 import { ArcPhaseMark } from "./arc-phase-mark";
-import { arcReading, TugArcTrack, type ArcTrackModel } from "./tug-arc-track";
+import { arcAsked, arcReading, TugArcTrack, type ArcTrackModel } from "./tug-arc-track";
 import { TugStepFraction } from "./tug-step-fraction";
 import { TugTooltip } from "./tug-tooltip";
 
@@ -104,6 +104,7 @@ export function ArcLifecycleLine({
       className="tug-arc-lifecycle-line"
       data-slot="tug-arc-lifecycle-line"
       data-stopped={model.stopped !== null ? "true" : undefined}
+      data-asked={arcAsked(model) ? "true" : undefined}
     >
       <TugArcTrack model={model} />
       <span className="tug-arc-lifecycle-reading" data-slot="tug-arc-lifecycle-reading">

@@ -3736,6 +3736,17 @@ fn format_arc_receipt(record: &ArcRecord) -> String {
 /// `parseArcReceipt` matches the same bytes.
 const ARC_RECEIPT_CHOICE_PREFIX: &str = "choice · ";
 
+/// The marks the rest of an ask's decision carries on its receipt, each a
+/// line of its own after the question: what was verified, what is guessed,
+/// what was tried, what a choice does (straight after that choice), and the
+/// one recommended. Every one is marked, so the question stays the first
+/// unmarked line and a receipt written with labels alone still reads.
+const ARC_RECEIPT_FOUND_PREFIX: &str = "found · ";
+const ARC_RECEIPT_GUESSED_PREFIX: &str = "guessed · ";
+const ARC_RECEIPT_TRIED_PREFIX: &str = "tried · ";
+const ARC_RECEIPT_DOES_PREFIX: &str = "does · ";
+const ARC_RECEIPT_RECOMMENDED_PREFIX: &str = "recommended · ";
+
 /// The receipt a stop leaves in the transcript. A stop is not a completion,
 /// so it does not read as one — but it happened on this card, and
 /// the card is where the user is watching, so it says which stage stopped,
@@ -3779,11 +3790,7 @@ fn format_arc_stop_receipt(record: &ArcRecord, stage: ArcStage, reason: ArcStopR
     // older than choices keeps that question and passes over the rest, and a
     // newer one reads no choices from a receipt written before them.
     let choices: String = match (reason, record.notes.last()) {
-        (ArcStopReason::NeedsDecision, Some(_)) => record
-            .asked_choices
-            .iter()
-            .map(|choice| format!("\n{ARC_RECEIPT_CHOICE_PREFIX}{choice}"))
-            .collect(),
+        (ArcStopReason::NeedsDecision, Some(_)) => ask_decision_lines(record),
         _ => String::new(),
     };
     format!(
@@ -3792,6 +3799,38 @@ fn format_arc_stop_receipt(record: &ArcRecord, stage: ArcStage, reason: ArcStopR
         stage.as_str(),
         format_args!("{}{asked}{choices}", reason.sentence()),
     )
+}
+
+/// The marked lines an ask's decision adds after its question: what was found,
+/// guessed and tried, then each choice with what it does, then the one
+/// recommended. A record with labels alone writes the `choice · ` lines it
+/// always wrote and nothing else.
+fn ask_decision_lines(record: &ArcRecord) -> String {
+    let detail = &record.asked;
+    let mut out = String::new();
+    for found in &detail.found {
+        out.push_str(&format!("\n{ARC_RECEIPT_FOUND_PREFIX}{found}"));
+    }
+    for guess in &detail.guessed {
+        out.push_str(&format!("\n{ARC_RECEIPT_GUESSED_PREFIX}{guess}"));
+    }
+    if let Some(tried) = &detail.tried {
+        out.push_str(&format!("\n{ARC_RECEIPT_TRIED_PREFIX}{tried}"));
+    }
+    for choice in &record.asked_choices {
+        out.push_str(&format!("\n{ARC_RECEIPT_CHOICE_PREFIX}{choice}"));
+        if let Some(does) = detail.does_for(choice) {
+            out.push_str(&format!("\n{ARC_RECEIPT_DOES_PREFIX}{does}"));
+        }
+    }
+    if let Some(recommended) = detail
+        .recommended
+        .as_ref()
+        .filter(|r| record.asked_choices.contains(r))
+    {
+        out.push_str(&format!("\n{ARC_RECEIPT_RECOMMENDED_PREFIX}{recommended}"));
+    }
+    out
 }
 
 /// How a stop reaches the card and the record.
@@ -3879,6 +3918,7 @@ pub(crate) async fn stop_arc_for_session(
             stages: Vec::new(),
             notes: Vec::new(),
             asked_choices: Vec::new(),
+            asked: Default::default(),
             answer: None,
             stopped: None,
             last_stop: None,
@@ -7256,6 +7296,7 @@ Some context.
             stages,
             notes: Vec::new(),
             asked_choices: Vec::new(),
+            asked: Default::default(),
             answer: None,
             stopped: None,
             last_stop: None,
@@ -7472,6 +7513,43 @@ Some context.
         assert!(!receipt.contains("choice · "), "got {receipt}");
     }
 
+    #[test]
+    fn an_ask_receipt_carries_its_whole_decision_in_marked_lines() {
+        let mut record = done_record(vec![stage_line(ArcStage::Implement, None, "claude-a")]);
+        record.notes = vec!["Which cover hides the band?".to_owned()];
+        record.asked_choices = vec!["the neighbour".to_owned(), "a new one".to_owned()];
+        record.asked = tugarc_core::AskDetail {
+            does: vec![(
+                "a new one".to_owned(),
+                "adds a cover over the band".to_owned(),
+            )],
+            recommended: Some("the neighbour".to_owned()),
+            found: vec!["the neighbour reaches the band".to_owned()],
+            guessed: vec!["the flash is the band".to_owned()],
+            tried: Some("widening the neighbour".to_owned()),
+        };
+        assert_eq!(
+            format_arc_stop_receipt(&record, ArcStage::Implement, ArcStopReason::NeedsDecision),
+            format!(
+                "arc stopped · foo · in implement — {}\n\
+                 Which cover hides the band?\n\
+                 found · the neighbour reaches the band\n\
+                 guessed · the flash is the band\n\
+                 tried · widening the neighbour\n\
+                 choice · the neighbour\n\
+                 choice · a new one\n\
+                 does · adds a cover over the band\n\
+                 recommended · the neighbour",
+                ArcStopReason::NeedsDecision.sentence(),
+            ),
+        );
+        // A recommendation naming no choice offered is not drawn as one.
+        record.asked.recommended = Some("elsewhere".to_owned());
+        let receipt =
+            format_arc_stop_receipt(&record, ArcStage::Implement, ArcStopReason::NeedsDecision);
+        assert!(!receipt.contains("recommended · "), "got {receipt}");
+    }
+
     /// **The card tells an ask from any other stop by these bytes alone.** A
     /// restored receipt has only its text, so `parseArcReceipt` keeps copies
     /// of the ask's reason sentence (`ASK_REASON`) and of the choice mark
@@ -7495,6 +7573,19 @@ Some context.
             DECK.contains(&prefix),
             "tugdeck's CHOICE_PREFIX no longer matches {prefix}",
         );
+        for (name, bytes) in [
+            ("FOUND_PREFIX", ARC_RECEIPT_FOUND_PREFIX),
+            ("GUESSED_PREFIX", ARC_RECEIPT_GUESSED_PREFIX),
+            ("TRIED_PREFIX", ARC_RECEIPT_TRIED_PREFIX),
+            ("DOES_PREFIX", ARC_RECEIPT_DOES_PREFIX),
+            ("RECOMMENDED_PREFIX", ARC_RECEIPT_RECOMMENDED_PREFIX),
+        ] {
+            let mark = format!("{name} = \"{bytes}\"");
+            assert!(
+                DECK.contains(&mark),
+                "tugdeck's {name} no longer matches {mark}"
+            );
+        }
     }
 
     #[test]
@@ -8786,6 +8877,7 @@ Some context.
                     reason: ArcStopReason::StoppedByUser,
                     question: None,
                     choices: &[],
+                    detail: None,
                     halt: false,
                 },
             )
@@ -9433,6 +9525,7 @@ Some context.
             "demo",
             "per-host or per-request?",
             &["per-host".to_owned(), "per-request".to_owned()],
+            &tugarc_core::AskDetail::default(),
         )
         .unwrap();
         tugarc_core::arc::append_arc_stop(

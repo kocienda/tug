@@ -690,6 +690,7 @@ impl AgentSupervisor {
                 arc,
                 question,
                 terms.choices,
+                terms.detail.unwrap_or(&tugarc_core::AskDetail::default()),
             ) {
                 warn!(
                     arc = %arc,
@@ -973,6 +974,7 @@ impl AgentSupervisor {
                 reason,
                 question,
                 choices,
+                detail,
             }) => {
                 // Resolved before the stop, from the same walk `stop_arc_now`
                 // makes: the card this press is to be answered on.
@@ -990,6 +992,7 @@ impl AgentSupervisor {
                             reason,
                             question: question.as_deref(),
                             choices: &choices,
+                            detail: Some(&*detail),
                             halt: true,
                         },
                     )

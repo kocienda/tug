@@ -13,6 +13,7 @@ import type { GoalState } from "./select-goal";
 import { goalIsActive } from "./select-goal";
 import type { JobCounts, JobItem } from "./select-jobs";
 import { isTerminalJobStatus, jobsCellPose } from "./select-jobs";
+import { ARC_ASK_STOP_WORD } from "@/lib/arc-ask-question";
 
 /**
  * How long a finished item keeps contributing to its cell's reading
@@ -69,8 +70,11 @@ const ARC_SETTLED_STAGES: ReadonlySet<string> = new Set([
  * The ARC reading's indicator pose — the arc lifecycle in the work
  * cells' poses, plus danger for a stop:
  *
- *  - a recorded stop (`wheel.stopped`) → `aborted`, which outranks every
- *    other reading;
+ *  - a stop on the arc's question (`needs a decision`) → `paused`, the
+ *    attention tone held still: the arc is waiting on an answer, not
+ *    faulted, so it never paints the stop's danger;
+ *  - any other recorded stop (`wheel.stopped`) → `aborted`, which outranks
+ *    every other reading;
  *  - a resting point of the arc (`ready` / `built` / `audited` /
  *    `draft-ready`) → `completed`;
  *  - an arc the wheel is driving — a wheel record present, not `done`,
@@ -108,8 +112,9 @@ export function arcCellPose(
     wheel: { stage?: string; stopped?: string; done?: boolean } | null;
   },
   isIdle: boolean,
-): "stopped" | "running" | "completed" | "aborted" {
+): "stopped" | "running" | "paused" | "completed" | "aborted" {
   const { stage, wheel } = arc;
+  if (wheel?.stopped === ARC_ASK_STOP_WORD && wheel.done !== true) return "paused";
   if (wheel?.stopped !== undefined) return "aborted";
   if (stage !== null && ARC_SETTLED_STAGES.has(stage)) return "completed";
   if (wheel !== null && wheel.done !== true) return "running";

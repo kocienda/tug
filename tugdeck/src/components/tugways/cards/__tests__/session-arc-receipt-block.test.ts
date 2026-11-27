@@ -11,7 +11,6 @@ import { describe, expect, it } from "bun:test";
 
 import {
   ARC_ASK_KEEP_STOPPED,
-  ARC_ASK_REPLY,
   ARC_FINISH_SLOT,
   ARC_RESUME_OFFER_TITLE,
   arcReceiptNote,
@@ -138,6 +137,10 @@ describe("parsing a stopped arc", () => {
       reason: "the review ended without stamping the plan",
       said: null,
       choices: [],
+      options: [],
+      found: [],
+      guessed: [],
+      tried: null,
       terminal: false,
     });
     // The stages it did walk are still the record, and still parsed.
@@ -248,24 +251,30 @@ const ASKED_WITH_CHOICES = [
  * card by the app-tests; this is the shape each receipt reads as.
  */
 describe("an ask is a question with its answers", () => {
-  it("offers the question with its choices, and no bare Resume", () => {
+  it("offers the question dialog with one option per choice", () => {
     expect(arcStopOffer(parseArcReceipt(ASKED_WITH_CHOICES)!, undefined)).toEqual({
       kind: "ask",
-      question: "Should the cache key include the locale?",
+      question: {
+        question: "Should the cache key include the locale?",
+        multiSelect: false,
+        options: [{ label: "yes, by locale" }, { label: "no, one key" }],
+      },
       caption: "the implement stage asks",
-      choices: ["yes, by locale", "no, one key"],
-      resume: false,
+      evidence: [],
     });
   });
 
-  it("offers a bare Resume on an ask with no choices, as every older ask is", () => {
+  it("offers the same dialog, with a reply and no options, on an ask with no choices", () => {
     const offer = arcStopOffer(parseArcReceipt(ASKED)!, undefined);
     expect(offer).toEqual({
       kind: "ask",
-      question: "Should the cache key include the locale?",
+      question: {
+        question: "Should the cache key include the locale?",
+        multiSelect: false,
+        options: [],
+      },
       caption: "the implement stage asks",
-      choices: [],
-      resume: true,
+      evidence: [],
     });
   });
 
@@ -297,8 +306,7 @@ describe("an ask is a question with its answers", () => {
     );
   });
 
-  it("names its two standing buttons", () => {
-    expect(ARC_ASK_REPLY).toBe("Reply…");
+  it("names what the dialog's cancel does", () => {
     expect(ARC_ASK_KEEP_STOPPED).toBe("Keep Stopped");
   });
 });

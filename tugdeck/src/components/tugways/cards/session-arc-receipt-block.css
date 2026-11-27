@@ -118,15 +118,46 @@
   white-space: nowrap;
 }
 
-/* An ask's reply field: the one-line field and its Send on one row, filling
-   the dialog's inset column. */
-.arc-receipt-ask-reply {
+/* An ask: who asks, what the stage verified, guessed and tried, then the
+   question dialog. Stacked in the body's column at the body's own rhythm. */
+.arc-receipt-ask {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: var(--tug-space-sm);
 }
 
-.arc-receipt-ask-reply-input {
-  flex: 1 1 auto;
-  min-width: 0;
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.arc-receipt-ask-caption {
+  margin: 0;
+  font-size: var(--tugx-toolheader-name-size);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* The line toward the join: what is left before the arc can land. The
+   attention tone, because it is what the asked arc is waiting through. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.arc-receipt-ask-route {
+  margin: 0;
+  font-size: var(--tugx-toolheader-name-size);
+  color: var(--tug7-element-tone-icon-normal-caution-rest);
+}
+
+.arc-receipt-ask-evidence {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-2xs);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.arc-receipt-ask-evidence-line {
+  font-size: var(--tugx-toolheader-name-size);
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.arc-receipt-ask-evidence-lead {
+  color: var(--tug7-element-global-text-normal-muted-rest);
 }

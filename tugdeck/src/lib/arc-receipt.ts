@@ -48,6 +48,14 @@ export interface ParsedArcReceipt {
    * an old row and a new one parse to the same shape, and the block decides
    * what an empty set offers.
    *
+   * `options` are the same choices with the rest of the decision a newer
+   * receipt carries: what each does (a `does · ` line straight after its
+   * choice) and whether it is the one recommended (a `recommended · <label>`
+   * line). `found` and `guessed` keep what the stage verified apart from what
+   * it believes, and `tried` is what it attempted before asking. A receipt
+   * written with labels alone reads every option undescribed and
+   * unrecommended, and the three as empty.
+   *
    * `terminal` is read off the frozen sentence `there is nothing to resume`,
    * which the server writes for a discard and a join and for nothing else.
    * **No wire field carries this and none should**: the receipt is a record
@@ -60,6 +68,10 @@ export interface ParsedArcReceipt {
     reason: string;
     said: string | null;
     choices: string[];
+    options: ArcAskOption[];
+    found: string[];
+    guessed: string[];
+    tried: string | null;
     terminal: boolean;
   } | null;
   /**
@@ -130,6 +142,26 @@ const LEGACY_RESUME_RE = /^resume with tugtool arc run \S+$/;
 export const CHOICE_PREFIX = "choice · ";
 
 /**
+ * The marks the rest of an ask's decision carries, the same bytes
+ * `format_arc_stop_receipt` writes. Each is marked for the reason the choice
+ * is: the question stays the first unmarked line, so a reader older than
+ * these marks still reads a new row as its question and its choices.
+ */
+export const FOUND_PREFIX = "found · ";
+export const GUESSED_PREFIX = "guessed · ";
+export const TRIED_PREFIX = "tried · ";
+export const DOES_PREFIX = "does · ";
+export const RECOMMENDED_PREFIX = "recommended · ";
+
+/** One answer an ask offers, with what it does and whether it is recommended. */
+export interface ArcAskOption {
+  label: string;
+  /** What happens if it is picked; `null` when the stage did not say. */
+  does: string | null;
+  recommended: boolean;
+}
+
+/**
  * The sentence a `needs a decision` stop writes as its reason — the server's
  * `ArcStopReason::NeedsDecision` description, copied, because the receipt's
  * own text is all a restored row has to tell an ask from any other stop.
@@ -172,6 +204,10 @@ export function parseArcReceipt(output: string): ParsedArcReceipt | null {
             reason: stopped[3] ?? "",
             said: null,
             choices: [],
+            options: [],
+            found: [],
+            guessed: [],
+            tried: null,
             terminal: false,
           }
         : null,
@@ -210,7 +246,39 @@ export function parseArcReceipt(output: string): ParsedArcReceipt | null {
     if (parsed.stop !== null && LEGACY_RESUME_RE.test(line)) continue;
     if (parsed.stop !== null && line.startsWith(CHOICE_PREFIX)) {
       const choice = line.slice(CHOICE_PREFIX.length).trim();
-      if (choice.length > 0) parsed.stop.choices.push(choice);
+      if (choice.length > 0) {
+        parsed.stop.choices.push(choice);
+        parsed.stop.options.push({ label: choice, does: null, recommended: false });
+      }
+      continue;
+    }
+    const mark = parsed.stop === null ? null : decisionMark(line);
+    if (parsed.stop !== null && mark !== null) {
+      const { stop } = parsed;
+      const text = mark.text;
+      if (text.length === 0) continue;
+      switch (mark.kind) {
+        case "found":
+          stop.found.push(text);
+          break;
+        case "guessed":
+          stop.guessed.push(text);
+          break;
+        case "tried":
+          stop.tried = text;
+          break;
+        case "does": {
+          // What the choice just before it does; a stray one describes nothing.
+          const last = stop.options[stop.options.length - 1];
+          if (last !== undefined && last.does === null) last.does = text;
+          break;
+        }
+        case "recommended":
+          for (const option of stop.options) {
+            if (option.label === text) option.recommended = true;
+          }
+          break;
+      }
       continue;
     }
     // Whatever else the stop wrote after its header is the stage's own words,
@@ -221,6 +289,24 @@ export function parseArcReceipt(output: string): ParsedArcReceipt | null {
     }
   }
   return parsed;
+}
+
+type DecisionMarkKind = "found" | "guessed" | "tried" | "does" | "recommended";
+
+const DECISION_MARKS: ReadonlyArray<readonly [DecisionMarkKind, string]> = [
+  ["found", FOUND_PREFIX],
+  ["guessed", GUESSED_PREFIX],
+  ["tried", TRIED_PREFIX],
+  ["does", DOES_PREFIX],
+  ["recommended", RECOMMENDED_PREFIX],
+];
+
+/** Which decision mark a receipt line wears, and its text; `null` for none. */
+function decisionMark(line: string): { kind: DecisionMarkKind; text: string } | null {
+  for (const [kind, prefix] of DECISION_MARKS) {
+    if (line.startsWith(prefix)) return { kind, text: line.slice(prefix.length).trim() };
+  }
+  return null;
 }
 
 /**
