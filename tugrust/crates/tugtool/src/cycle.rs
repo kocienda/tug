@@ -138,6 +138,9 @@ fn run_find(
         match (found.n, found.letter) {
             (Some(n), _) => println!("{}  {n}", found.id),
             (None, Some(letter)) => println!("{}  {letter}", found.id),
+            (None, None) if !found.from.is_empty() => {
+                println!("{}  from {}", found.id, found.from.join(","))
+            }
             (None, None) => println!("{}", found.id),
         }
     }

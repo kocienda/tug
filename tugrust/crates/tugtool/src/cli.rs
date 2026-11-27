@@ -801,7 +801,10 @@ pub enum CycleCommands {
     /// no cycle holds it.
     ///
     /// Exits 0 either way. The most recently changed cycle is asked first,
-    /// and within a cycle an entry answers before a sketch.
+    /// and within a cycle an entry answers before a sketch. The entry that
+    /// answers is the earliest one holding the brief that no arc carries;
+    /// when an arc, open or joined, carries every one of them, `from` lists
+    /// the letters to add a new entry from instead.
     Find {
         /// The brief's path, relative to the project root or absolute
         /// inside the checkout.

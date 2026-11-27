@@ -206,6 +206,15 @@ With the receipt confirmed, run `tugtool sketch record <name> --json`, which giv
   tugtool cycle attach <data.id> <n> <name> --json
   ```
 
+  When `data` names a cycle with no entry and a list of letters instead (`data.from`), every entry that holds the brief already has an arc of its own, open or landed, and this arc is the brief run again. It is a new entry, never a second arc on an old one: add it from those letters, one `--from` each, and attach this arc to the number `add-entry` prints:
+
+  ```bash
+  tugtool cycle add-entry <data.id> --brief <the path they handed you> --from <each letter of data.from> --json
+  tugtool cycle attach <data.id> <n> <name> --json
+  ```
+
+  One arc goes on one entry. `attach` refuses an entry whose arc has landed and an arc another entry carries, and its message says what to run; never answer a refusal by attaching the arc to a second entry.
+
 - **Anything else becomes a cycle of one**: a bare idea, a brief on no cycle, a brief written before cycles were kept. Name it by the rule below, create it, add this arc's sketch as A, add entry 1, and attach it:
 
   ```bash

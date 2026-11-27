@@ -86,7 +86,7 @@ A cycle is found through the records the brief comes from, never through the ses
    tugtool cycle find --brief <the brief it was written from> --json
    ```
 
-   When `data` names a cycle, whether by an entry (`data.n`) or by a sketch that brief wrote up (`data.letter`), that is the one.
+   When `data` names a cycle, whether by an entry (`data.n`), by the letters a new entry for that brief would come from (`data.from`), or by a sketch that brief wrote up (`data.letter`), that is the one.
 4. **A new cycle**, named by the rule below from the sketch just recorded:
 
    ```bash

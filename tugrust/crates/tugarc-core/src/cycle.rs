@@ -192,6 +192,11 @@ pub struct BriefFound {
     /// The letter of the sketch the brief wrote up, when no entry holds it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub letter: Option<String>,
+    /// The letters a new entry for the brief comes from, when every entry
+    /// that holds it already has an arc, open or joined: the brief is being
+    /// run again, and the run is a new entry.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub from: Vec<String>,
 }
 
 /// The cycle in this checkout that holds brief `brief`, named relative to
@@ -199,18 +204,28 @@ pub struct BriefFound {
 /// that carries it as the brief that wrote it up.
 ///
 /// The most recently changed cycle is asked first. Within a cycle the
-/// earliest entry answers, and a sketch only when no entry holds the brief.
-/// `None` when neither does on any cycle.
+/// earliest entry that can still take an arc answers: one with no arc, or
+/// one whose arc was discarded. When every entry holding the brief already
+/// has an arc, open or joined, no entry answers and `from` carries the
+/// letters of the latest of them, for the new entry another run of the
+/// brief is. A sketch answers only when no entry holds the brief. `None`
+/// when neither does on any cycle.
 pub fn find_by_brief(paths: &Paths, repo: &Path, brief: &str) -> Option<BriefFound> {
     let wanted = normal_brief(brief);
     if wanted.is_empty() {
         return None;
     }
+    let log_path = tugtool_core::paths::arc_log_path_at(paths, repo);
+    let log = fs::read_to_string(&log_path).unwrap_or_default();
     cycles(paths, repo).into_iter().find_map(|record| {
-        let n = record
+        let holding: Vec<&CycleEntry> = record
             .entries
             .iter()
             .filter(|e| normal_brief(&e.brief) == wanted)
+            .collect();
+        let free = holding
+            .iter()
+            .filter(|e| !is_carried(&log, e))
             .map(|e| e.n)
             .min();
         let letter = || {
@@ -220,15 +235,28 @@ pub fn find_by_brief(paths: &Paths, repo: &Path, brief: &str) -> Option<BriefFou
                 .find(|s| s.brief.as_deref().map(normal_brief) == Some(wanted))
                 .map(|s| s.letter.clone())
         };
-        let (n, letter) = match n {
-            Some(n) => (Some(n), None),
-            None => (None, Some(letter()?)),
+        let (n, letter, from) = match (free, holding.iter().max_by_key(|e| e.n)) {
+            (Some(n), _) => (Some(n), None, Vec::new()),
+            (None, Some(last)) => (None, None, last.from.clone()),
+            (None, None) => (None, Some(letter()?), Vec::new()),
         };
         Some(BriefFound {
             id: record.id.clone(),
             n,
             letter,
+            from,
         })
+    })
+}
+
+/// Whether an arc already carries `entry`: its linked generation is open or
+/// ended in a join. A discarded link is history, and leaves the entry free.
+fn is_carried(log: &str, entry: &CycleEntry) -> bool {
+    entry.arc.as_ref().is_some_and(|link| {
+        matches!(
+            link_status(log, link),
+            LinkStatus::Open | LinkStatus::Joined
+        )
     })
 }
 
@@ -251,6 +279,7 @@ pub fn find_by_sketch(paths: &Paths, repo: &Path, sketch_id: &str) -> Option<Bri
             id: record.id.clone(),
             n: None,
             letter: Some(letter),
+            from: Vec::new(),
         })
     })
 }
@@ -461,12 +490,15 @@ pub fn add_sketch(
 
 /// Tie entry `n` of cycle `id` to arc `arc`'s current generation.
 ///
-/// Refused when the arc log never recorded the arc, and when the entry already
-/// links a different arc generation that is still open. Attaching the link an
-/// entry already holds changes nothing; a link to a generation that has ended
-/// is replaced, so an entry whose arc was discarded can be carried by a new
-/// one. Attaching clears a dropped mark: an entry that is run after all is
-/// carried like any other.
+/// Refused when the arc log never recorded the arc, when the entry already
+/// links a different arc generation that is open or has joined, and when
+/// another entry of this checkout's cycles already carries the arc: an entry
+/// has one arc and an arc one entry. Attaching the link an entry already
+/// holds changes nothing; a link to a generation that was discarded is
+/// replaced, so an entry whose arc was discarded can be carried by a new
+/// one. A joined link is never replaced, because it is the record of what
+/// landed: a brief run again is a new entry. Attaching clears a dropped
+/// mark: an entry that is run after all is carried like any other.
 pub fn attach(
     paths: &Paths,
     repo: &Path,
@@ -487,19 +519,42 @@ pub fn attach(
         name: arc.to_string(),
         created: Some(start),
     };
+    for other in cycles(paths, repo) {
+        let held = other
+            .entries
+            .iter()
+            .find(|e| e.arc.as_ref() == Some(&link) && !(other.id == record.id && e.n == n));
+        if let Some(e) = held {
+            return Err(ArcError::Refused(format!(
+                "arc {arc} is already carried by entry {} of cycle {}",
+                e.n, other.id
+            )));
+        }
+    }
     let Some(entry) = record.entries.iter_mut().find(|e| e.n == n) else {
         return Err(ArcError::Refused(format!("cycle {id} has no entry {n}")));
     };
     match &entry.arc {
         Some(held) if *held == link && entry.dropped.is_none() => return Ok(link),
         Some(held) if *held == link => {}
-        Some(held) if link_status(&log, held) == LinkStatus::Open => {
-            return Err(ArcError::Refused(format!(
-                "entry {n} is already carried by arc {}, which is still open",
-                held.name
-            )));
-        }
-        _ => {}
+        Some(held) => match link_status(&log, held) {
+            LinkStatus::Open => {
+                return Err(ArcError::Refused(format!(
+                    "entry {n} is already carried by arc {}, which is still open",
+                    held.name
+                )));
+            }
+            LinkStatus::Joined => {
+                return Err(ArcError::Refused(format!(
+                    "entry {n} landed with arc {}: a brief run again is a new entry, so add one with `tugtool cycle add-entry {id} --brief {} --from {}` and attach {arc} to the number it prints",
+                    held.name,
+                    entry.brief,
+                    entry.from.join(" --from ")
+                )));
+            }
+            LinkStatus::Discarded | LinkStatus::NotStarted => {}
+        },
+        None => {}
     }
     entry.arc = Some(link.clone());
     entry.dropped = None;
@@ -1424,6 +1479,75 @@ mod tests {
     }
 
     #[test]
+    fn a_brief_run_again_is_a_new_entry_and_never_takes_a_landed_one() {
+        let (_t, repo, paths) = scratch();
+        let id = sketched(&paths, &repo, "C");
+        add_entry(&paths, &repo, &id, entry("briefs/a.md", &[])).unwrap();
+        log_append(
+            &paths,
+            &repo,
+            "2026-11-01T00:00:00Z  first  arc-start  brief.md",
+        );
+        let first = attach(&paths, &repo, &id, 1, "first").unwrap();
+        assert_eq!(
+            find_by_brief(&paths, &repo, "briefs/a.md"),
+            Some(BriefFound {
+                id: id.clone(),
+                n: None,
+                letter: None,
+                from: vec!["A".into()],
+            }),
+            "an entry an open arc carries is not offered to another"
+        );
+
+        // The first arc lands, and the same brief is run as a second arc.
+        log_append(&paths, &repo, "2026-11-01T01:00:00Z  first  abc1234  joined");
+        log_append(
+            &paths,
+            &repo,
+            "2026-11-01T02:00:00Z  second  arc-start  brief.md",
+        );
+        let refused = attach(&paths, &repo, &id, 1, "second").unwrap_err();
+        assert!(
+            refused.to_string().contains("landed with arc first"),
+            "{refused}"
+        );
+        let found = find_by_brief(&paths, &repo, "briefs/a.md").unwrap();
+        assert_eq!((found.n, found.from.clone()), (None, vec!["A".to_string()]));
+        let n = add_entry(
+            &paths,
+            &repo,
+            &id,
+            NewEntry {
+                brief: "briefs/a.md".into(),
+                from: found.from,
+                ..NewEntry::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(n, 2);
+        assert_eq!(
+            find_by_brief(&paths, &repo, "briefs/a.md"),
+            Some(at_entry(&id, 2)),
+            "the entry with no arc answers before the landed one"
+        );
+        let second = attach(&paths, &repo, &id, 2, "second").unwrap();
+
+        // One arc, one entry: the second arc cannot be put on a third entry.
+        add_entry(&paths, &repo, &id, entry("briefs/b.md", &[])).unwrap();
+        let twice = attach(&paths, &repo, &id, 3, "second").unwrap_err();
+        assert!(
+            twice.to_string().contains("already carried by entry 2"),
+            "{twice}"
+        );
+        let record = &find_cycle(&paths, &id)[0].1;
+        assert_eq!(record.entry(1).unwrap().arc.as_ref(), Some(&first));
+        assert_eq!(record.entry(2).unwrap().arc.as_ref(), Some(&second));
+        assert_eq!(record.entry(3).unwrap().arc, None);
+        assert_eq!(check_cycles(&paths), Vec::new());
+    }
+
+    #[test]
     fn a_cycle_in_another_checkout_is_not_written_here() {
         let (temp, repo, paths) = scratch();
         let other = temp.path().join("other");
@@ -1513,6 +1637,7 @@ mod tests {
             id: id.into(),
             n: Some(n),
             letter: None,
+            from: Vec::new(),
         }
     }
 
@@ -1553,6 +1678,7 @@ mod tests {
                 id: id.clone(),
                 n: None,
                 letter: Some("A".into()),
+                from: Vec::new(),
             }),
             "found through the sketch it wrote up"
         );
