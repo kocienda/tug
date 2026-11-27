@@ -65,13 +65,11 @@ import { Check, ChevronDown, Play, Search, SquareArrowOutUpRight } from "lucide-
 
 import type { SpikeDef } from "./spike-registry";
 import { cycleMap, type CycleMapEntry, type CycleMapSeat } from "./spike-cycle-band-layout";
-import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
 import { ArcLifecycleMark } from "@/components/tugways/arc-lifecycle-mark";
 import { ArcStepItems } from "@/components/tugways/arc-step-list";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
-import { SessionArcPanels, type SessionArcPanel } from "@/components/tugways/cards/session-arc-panels";
 import { SessionIdentityView } from "@/components/tugways/cards/session-identity";
-import { recordPanel } from "@/components/tugways/cards/session-arc-shade-content";
+import { recordBody } from "@/components/tugways/cards/session-arc-record";
 import { SessionTelemetryCell } from "@/components/tugways/cards/session-telemetry-cell";
 import { tileProgress } from "@/components/tugways/cycle-map-layout";
 import { TugArcAtom } from "@/components/tugways/tug-arc-atom";
@@ -625,7 +623,7 @@ function SketchAsset({
         trailingReveal="always"
         onClick={() => onChoose(key)}
       />
-      <div className="sp-cycle-sketch-body">{recordPanel(SKETCHES[sketch]).body}</div>
+      <div className="sp-cycle-sketch-body">{recordBody(SKETCHES[sketch])}</div>
     </div>
   );
 }
@@ -728,57 +726,6 @@ function Assets({
       ))}
     </>
   );
-}
-
-// ---------------------------------------------------------------------------
-// A cycle of one — the arc shade's own three panels
-// ---------------------------------------------------------------------------
-
-const DECISIONS = [
-  "B01 The Window menu groups its panes in three sections",
-  "B02 Sidebar panes are listed after deck panes",
-  "B03 Panes keep the order they were made in",
-];
-
-function panelsFor(entry: Entry, reading: Reading): Record<"sketch" | "brief" | "arc", SessionArcPanel> {
-  const state = stateOf(entry, reading.runs);
-  const brief: SessionArcPanel = {
-    state: "done",
-    title: entry.title,
-    detail: <TugAtomRef entity={{ kind: "file", path: `${ROOT}/briefs/${entry.brief}` }} />,
-    body: (
-      <div className="sp-cycle-decisions">
-        {DECISIONS.map((line) => (
-          <TugLabel key={line} size="xs">
-            {line}
-          </TugLabel>
-        ))}
-      </div>
-    ),
-  };
-  let arc: SessionArcPanel;
-  if (state === "running") {
-    const { model, steps } = runningModel(entry, doneOf(entry, reading.runs));
-    arc = {
-      state: "active",
-      full: true,
-      body: (
-        <TugPopupListFrame kind="item">
-          <TugPopupListScroller>
-            <div className="sp-cycle-arc-head">
-              <ArcLifecycleBlock name={entry.arc} worker={HERE} model={model} />
-            </div>
-            <ArcStepItems steps={steps} live={model.live} />
-          </TugPopupListScroller>
-        </TugPopupListFrame>
-      ),
-    };
-  } else if (state === "joined") {
-    arc = { state: "done", title: "Joined", detail: "Landed on main. Its rounds and commit stay on record." };
-  } else {
-    arc = { state: "pending", title: "Ready to start", detail: "Nothing is in its way." };
-  }
-  return { sketch: recordPanel(SKETCHES[1]), brief, arc };
 }
 
 // ---------------------------------------------------------------------------
@@ -1009,7 +956,6 @@ function CardFrame({
   prompt: string;
 }): React.ReactElement {
   const summary = kind !== "none" ? summarize(kind, reading) : null;
-  const only = reading.entries.length === 1 ? reading.entries[0]! : null;
   const many = reading.entries.length > 1;
   const assetsRef = useRef<HTMLDivElement | null>(null);
   const [mapPress, setMapPress] = useState(0);
@@ -1076,33 +1022,26 @@ function CardFrame({
             ) : (
               <>
                 <ShadeHeader summary={summary} onCollapse={() => setRaised(false)} />
-                {only !== null ? (
-                  <div className="sp-cycle-panels">
-                    <SessionArcPanels panels={panelsFor(only, reading)} raised={raised} />
-                  </div>
-                ) : (
-                  <>
-                    <CycleMapView
-                      reading={reading}
-                      chosen={chosen}
-                      onPress={pressOnMap}
-                      onClear={() => onChoose(NO_PICKS)}
-                    />
-                    {chosen.size > 1 ? <OnlyBar count={chosen.size} onBack={() => onChoose(NO_PICKS)} /> : null}
-                    <div className="sp-cycle-assets" data-slot="sp-cycle-assets" ref={assetsRef}>
-                      <Assets
-                        reading={reading}
-                        presses={presses}
-                        chosen={chosen}
-                        onChoose={(key) => {
-                          // A press on a row in the narrowed list keeps the selection.
-                          if (chosen.size <= 1) onChoose(new Set([key]));
-                        }}
-                      />
-                      {chosen.size <= 1 ? <div className="sp-cycle-assets-tail" aria-hidden /> : null}
-                    </div>
-                  </>
-                )}
+                {/* A cycle of one is drawn as any other: the map and the list. */}
+                <CycleMapView
+                  reading={reading}
+                  chosen={chosen}
+                  onPress={pressOnMap}
+                  onClear={() => onChoose(NO_PICKS)}
+                />
+                {chosen.size > 1 ? <OnlyBar count={chosen.size} onBack={() => onChoose(NO_PICKS)} /> : null}
+                <div className="sp-cycle-assets" data-slot="sp-cycle-assets" ref={assetsRef}>
+                  <Assets
+                    reading={reading}
+                    presses={presses}
+                    chosen={chosen}
+                    onChoose={(key) => {
+                      // A press on a row in the narrowed list keeps the selection.
+                      if (chosen.size <= 1) onChoose(new Set([key]));
+                    }}
+                  />
+                  {chosen.size <= 1 ? <div className="sp-cycle-assets-tail" aria-hidden /> : null}
+                </div>
               </>
             )}
           </div>
@@ -1323,7 +1262,7 @@ function SidebarSketch({
         <span className="sp-cycle-side-content">
           <span className="sp-cycle-sketch-label">{`Sketch ${letterOf(sketch)}`}</span>
           {open ? (
-            <span className="sp-cycle-side-sketch">{recordPanel(SKETCHES[sketch]).body}</span>
+            <span className="sp-cycle-side-sketch">{recordBody(SKETCHES[sketch])}</span>
           ) : (
             <span className="sp-cycle-side-want">{wantOf(sketch)}</span>
           )}

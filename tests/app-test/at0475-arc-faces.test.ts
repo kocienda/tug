@@ -45,6 +45,7 @@
  * @covers tugdeck/src/components/tugways/tug-arc-track.tsx
  * @covers tugdeck/src/lib/arc-track-model.ts
  * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-renderers.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-cycle-shade.tsx
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -66,6 +67,7 @@ import {
   seedScratchSession,
   type ArcScratchRepo,
 } from "./arc-fixture";
+import { ARC_ENTRY_BODY, openArcEntry } from "./arc-entry-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -79,9 +81,8 @@ const ARC_VALUE =
   '[data-card-id="A"] [data-slot="tug-status-cell"][data-priority="arc"] [data-slot="session-telemetry-arc-value"]';
 const ARC_CELL =
   '[data-card-id="A"] [data-slot="tug-status-cell"][data-priority="arc"]';
-/** The arc's reading in the card's arc shade, while the shade is raised. */
-const PLACARD =
-  '[data-slot="session-arc-shade"][data-raised="true"] [data-slot="session-arc-panel"][data-rung="arc"] [data-slot="session-arc-popover-body"]';
+/** The arc's reading in its open entry in the card's raised shade. */
+const PLACARD = ARC_ENTRY_BODY;
 /** The placard's own reading of a stopped arc: the note leads with the stop,
  *  and the strip tints the cell it stopped in. The line drops the two arc
  *  FACTS on purpose — the track already says the arc is running, and the note
@@ -210,6 +211,9 @@ describe.skipIf(!SHOULD_RUN)("AT0475: the arc's faces", () => {
 
         // The words are in the arc shade the cell raises, where there is room for them.
         await app.body("A").click(ARC_CELL);
+        // The arc is on no cycle, so the shade draws the cycle of one it is
+        // about to be; its entry opens on a press to show the arc's reading.
+        await openArcEntry(app);
         await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ARC_TRACK)}) !== null`,
           { timeoutMs: 10_000 },

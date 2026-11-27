@@ -74,6 +74,7 @@
  * @covers tugdeck/src/lib/session-restore.ts
  * @covers tugdeck/src/lib/card-session-binding-store.ts
  * @covers tugdeck/src/lib/arc-session-index.ts
+ * @covers tugdeck/src/components/tugways/cards/session-cycle-shade.tsx
  * @covers tugdeck/src/lib/session-line-store.ts
  * @covers tugdeck/src/action-dispatch.ts
  * @covers tugdeck/src/connection.ts
@@ -105,6 +106,7 @@ import {
   seedScratchSession,
   type ArcScratchRepo,
 } from "./arc-fixture";
+import { ARC_ENTRY_BODY, openArcEntry } from "./arc-entry-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 300_000;
@@ -129,9 +131,8 @@ const MASTHEAD_ARC =
 /** The Z2 ARC cell. */
 const CELL =
   '[data-card-id="A"] [data-slot="tug-status-cell"][data-priority="arc"]';
-/** The arc's reading in the card's arc shade, while the shade is raised. */
-const ARC_PLACARD =
-  '[data-slot="session-arc-shade"][data-raised="true"] [data-slot="session-arc-panel"][data-rung="arc"] [data-slot="session-arc-popover-body"]';
+/** The arc's reading in its open entry in the card's raised shade. */
+const ARC_PLACARD = ARC_ENTRY_BODY;
 const SUBMIT = '[data-card-id="A"] .tug-prompt-entry-submit-button';
 
 /** This checkout — the build under test, never the tree the fixture cuts in. */
@@ -258,11 +259,10 @@ async function readArcSurfaces(app: App): Promise<ArcSurfaces> {
     `window.__tug.cardLineFacts("A")`,
   );
   await app.body("A").click(CELL);
-  // The shade is the card's own surface, drawn in its page.
-  await app.body("A").waitForCondition<boolean>(
-    `document.querySelector(${JSON.stringify(ARC_PLACARD)}) !== null`,
-    { timeoutMs: 10_000 },
-  );
+  // The shade is the card's own surface, drawn in its page. The arc is on no
+  // cycle, so the shade draws the cycle of one it is about to be, and its
+  // entry opens on a press to show the arc's reading.
+  await openArcEntry(app);
   const steps = await app.body("A").evalJS<string[]>(
     `(() => {
        const body = document.querySelector(${JSON.stringify(ARC_PLACARD)});

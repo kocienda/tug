@@ -14,14 +14,21 @@
  *      cycle's name, the map, a list of the sketch and one asset per entry,
  *      and the two-line footer where Done would stand. The key view is on the
  *      header's lowering control.
- *   3. A press on a map tile brings that entry's asset to the top of the
- *      list. The list stays whole and the map does not move.
+ *      Each entry is headed by its brief's title, and only the entry an arc
+ *      carries names that arc beneath it.
+ *   3. Every asset starts closed, the session's own entry included, and the
+ *      brief's headings are listed nowhere. A press on a row opens that asset
+ *      in place and a second press closes it. A press on a map tile opens
+ *      that entry's asset and brings it into view, scrolling the list no
+ *      further than that needs. The list stays whole. The shade is sized by
+ *      what it holds, so it grows as an asset opens and the map rides up
+ *      with it.
  *   4. A shift-press on a second tile narrows the list to the two chosen
  *      entries under a Back bar, and Back makes the list whole again.
  *   5. Nothing in the shade starts anything: it holds no Start control.
- *   6. The list is the shade's one vertical scroller: a running entry's steps
- *      are laid out in full inside it, so every popup list set into an asset
- *      scrolls nothing of its own.
+ *   6. The list is the shade's one vertical scroller: a running entry's steps,
+ *      once it is open, are laid out in full inside it, so every popup list
+ *      set into an asset scrolls nothing of its own.
  *
  * @covers tugdeck/src/components/tugways/cards/session-cycle-shade.tsx
  * @covers tugdeck/src/components/tugways/cards/session-cycle-shade.css
@@ -151,6 +158,20 @@ interface ShadeReading {
    */
   shadeButtons: string[];
   keyViewLabel: string | null;
+  /** Each entry asset's headline, by asset key. */
+  headlines: Record<string, string>;
+  /** How many arc chips stand in each entry asset's row, by asset key. */
+  arcChips: Record<string, number>;
+  /** Each tile's accessible name. */
+  tileNames: string[];
+  /** The footer's Now and Next lines, as text. */
+  footerText: Record<string, string>;
+  /** The assets drawn open, in list order. */
+  opened: string[];
+  /** Whether the session's own entry is drawing its steps and verbs. */
+  hereShown: boolean;
+  /** Whether any sketch is drawing its whole text. */
+  sketchBody: boolean;
 }
 
 const read = (app: App): Promise<ShadeReading> =>
@@ -194,18 +215,40 @@ const read = (app: App): Promise<ShadeReading> =>
            .filter((el) => el.closest('[data-slot="session-cycle-shade-here"]') === null)
            .map((el) => (text(el) + " " + (el.getAttribute("aria-label") ?? "")).trim()),
          keyViewLabel: keyView !== null && shade.contains(keyView) ? keyView.getAttribute("aria-label") : null,
+          opened: assets.filter((el) => el.hasAttribute("data-open")).map((el) => el.getAttribute("data-asset")),
+          hereShown: body.querySelector('[data-slot="session-cycle-shade-here"]') !== null,
+          sketchBody: body.querySelector('[data-slot="session-cycle-shade-sketch-body"]') !== null,
+          headlines: Object.fromEntries(
+            assets
+              .filter((el) => el.getAttribute("data-kind") === "entry")
+              .map((el) => [el.getAttribute("data-asset"), text(el.querySelector('[data-slot="session-cycle-shade-headline"]'))]),
+          ),
+          arcChips: Object.fromEntries(
+            assets
+              .filter((el) => el.getAttribute("data-kind") === "entry")
+              .map((el) => [el.getAttribute("data-asset"), el.querySelectorAll(".session-cycle-shade-facts .tug-arc-atom").length]),
+          ),
+          tileNames: Array.from(map.querySelectorAll(".tug-cycle-map-tile")).map((el) => el.getAttribute("aria-label") ?? ""),
+          footerText: Object.fromEntries(
+            Array.from(body.querySelectorAll('[data-slot="session-cycle-shade-footer"] [data-line]')).map((el) => [
+              el.getAttribute("data-line"),
+              text(el),
+            ]),
+          ),
        };
      })()`,
   );
 
-/** Wait until an asset's top edge rests on the list's top edge. */
-const atListTop = (app: App, asset: string): Promise<boolean> =>
+/** An asset wholly inside the list's visible box: brought into view, not to the top. */
+const inListView = (app: App, asset: string): Promise<boolean> =>
   app.body("A").waitForCondition<boolean>(
     `(() => {
        const list = document.querySelector(${JSON.stringify(LIST)});
        const el = list?.querySelector('[data-asset="${asset}"]');
        if (!list || !el) return false;
-       return Math.abs(el.getBoundingClientRect().top - list.getBoundingClientRect().top) <= 2;
+       const box = list.getBoundingClientRect();
+       const at = el.getBoundingClientRect();
+       return at.top >= box.top - 1 && Math.min(at.bottom, at.top + box.height) <= box.bottom + 1;
      })()`,
     { timeoutMs: 8_000 },
   );
@@ -239,7 +282,8 @@ describe.skipIf(!SHOULD_RUN)("AT0898: the cycle shade and the CYCLE cell", () =>
           `(() => {
              const value = document.querySelector(${JSON.stringify(CELL)})?.querySelector('[data-slot="session-telemetry-arc-value"]');
              return (value?.querySelector('[data-slot="session-telemetry-cycle-fraction"]')?.textContent ?? "").trim() === "0/3"
-               && (value?.querySelector('[data-slot="session-telemetry-arc-reading"]')?.textContent ?? "").trim() !== "";
+               && (value?.querySelector('[data-slot="session-telemetry-arc-reading"]')?.textContent ?? "").trim() !== ""
+               && (value?.getAttribute("aria-label") ?? "").includes(${JSON.stringify(`arc ${ARC_NAME}`)});
            })()`,
           { timeoutMs: 30_000 },
         );
@@ -298,6 +342,24 @@ describe.skipIf(!SHOULD_RUN)("AT0898: the cycle shade and the CYCLE cell", () =>
         expect(rest.mapHeight, "the map is drawn").toBeGreaterThan(0);
         expect(rest.assets, "the list holds the sketch and one asset per entry").toEqual(["sA", "e1", "e2", "e3"]);
         expect(rest.footerLines, "the two-line footer stands under the list").toEqual(["now", "next"]);
+        expect(rest.headlines, "each entry is headed by its brief's title, the running one included").toEqual({
+          e1: "First brief",
+          e2: "Second brief",
+          e3: "Third brief",
+        });
+        expect(rest.arcChips, "only the entry an arc carries names its arc, under the headline").toEqual({
+          e1: 1,
+          e2: 0,
+          e3: 0,
+        });
+        expect(rest.tileNames[0], "a tile's name is its number, its brief's title, then where it stands").toMatch(
+          /^1, First brief · Running/,
+        );
+        expect(rest.tileNames[1]).toBe("2, Second brief · Waits on 1");
+        expect(rest.footerText.now, "Now names the running entry by its title").toContain("First brief");
+        expect(rest.opened, "every asset starts closed, the session's own entry included").toEqual([]);
+        expect(rest.hereShown, "so the session's own steps and verbs wait for a press").toBe(false);
+        expect(rest.sketchBody, "and the sketch shows only its want").toBe(false);
         expect(rest.frameHead, "the frame draws no header of its own").toBe(false);
         expect(rest.frameFoot, "and no Done footer").toBe(false);
         expect(rest.back, "a whole list has no Back bar").toBe(false);
@@ -306,6 +368,17 @@ describe.skipIf(!SHOULD_RUN)("AT0898: the cycle shade and the CYCLE cell", () =>
           rest.shadeButtons.filter((b) => /start/i.test(b)),
           "the shade holds no Start control",
         ).toEqual([]);
+
+        // ── A press on a row opens it in place ────────────────────────────
+        const HEADLINE_E1 = `${LIST} [data-asset="e1"] [data-slot="session-cycle-shade-headline"]`;
+        const HERE = `${BODY} [data-slot="session-cycle-shade-here"]`;
+        await app.body("A").click(HEADLINE_E1);
+        await app.body("A").waitForCondition<boolean>(`document.querySelector(${JSON.stringify(HERE)}) !== null`, {
+          timeoutMs: 8_000,
+        });
+        const opened = await read(app);
+        note("at0898 session's entry opened", JSON.stringify(opened));
+        expect(opened.opened, "the pressed entry, and only it, is open").toEqual(["e1"]);
 
         // ── The list is the one scroller ──────────────────────────────────
         const inner = await app.body("A").evalJS<{ lists: number; overflows: string[]; where: string[] }>(
@@ -336,17 +409,23 @@ describe.skipIf(!SHOULD_RUN)("AT0898: the cycle shade and the CYCLE cell", () =>
           "no popup list inside an asset scrolls on its own",
         ).toEqual([]);
 
-        // ── A press on the map brings the asset to the list's top ─────────
+        // ── A second press closes it ──────────────────────────────────────
+        await app.body("A").click(HEADLINE_E1);
+        await app.body("A").waitForCondition<boolean>(`document.querySelector(${JSON.stringify(HERE)}) === null`, {
+          timeoutMs: 8_000,
+        });
+        expect((await read(app)).opened, "a second press closes it").toEqual([]);
+
+        // ── A press on the map opens the asset and brings it into view ────
         await app.body("A").click(tile(3));
-        await atListTop(app, "e3");
+        await inListView(app, "e3");
         const picked = await read(app);
         note("at0898 one tile pressed", JSON.stringify(picked));
         expect(picked.chosenTiles, "the pressed tile is chosen").toEqual(["3"]);
+        expect(picked.opened, "and its asset is open in place").toEqual(["e3"]);
         expect(picked.assets, "one chosen entry leaves the list whole").toEqual(["sA", "e1", "e2", "e3"]);
-        expect(Math.abs(picked.offsets.e3 ?? 99), "its asset is at the top of the list").toBeLessThanOrEqual(2);
         expect(picked.back).toBe(false);
-        expect(picked.mapTop, "the map did not move").toBe(rest.mapTop);
-        expect(picked.mapHeight).toBe(rest.mapHeight);
+        expect(picked.mapHeight, "the map keeps its size").toBe(rest.mapHeight);
 
         // ── A shift-press narrows the list under Back ─────────────────────
         await app.body("A").evalJS<boolean>(
@@ -365,7 +444,6 @@ describe.skipIf(!SHOULD_RUN)("AT0898: the cycle shade and the CYCLE cell", () =>
         expect(narrowed.chosenTiles.slice().sort(), "both tiles are chosen").toEqual(["2", "3"]);
         expect(narrowed.assets.slice().sort(), "the list shows the two chosen entries only").toEqual(["e2", "e3"]);
         expect(narrowed.narrowed).toBe(true);
-        expect(narrowed.mapTop, "the map did not move").toBe(rest.mapTop);
         expect(
           narrowed.shadeButtons.filter((b) => /start/i.test(b)),
           "narrowed, there is still no Start control",

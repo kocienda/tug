@@ -1,6 +1,7 @@
 /* @tug-pairings {
   --tug7-element-global-text-normal-muted-rest    | --tug7-surface-global-primary-normal-raised-rest  | informational
   --tug7-element-global-text-normal-muted-rest    | --tug7-surface-global-primary-normal-content-rest | informational
+  --tug7-element-global-text-normal-default-rest  | --tug7-surface-global-primary-normal-content-rest | content
   --tug7-element-global-text-normal-caution-rest  | --tug7-surface-global-primary-normal-content-rest | informational
   --tug7-element-global-text-normal-caution-rest  | --tug7-surface-global-primary-normal-raised-rest  | informational
   --tug7-element-global-border-normal-muted-rest  | --tug7-surface-global-primary-normal-content-rest | decorative
@@ -15,6 +16,7 @@
  * |--------------------------------------------------|---------------------------------------------------|---------------|----------------------------------------------------------------------|
  * | --tug7-element-global-text-normal-muted-rest     | --tug7-surface-global-primary-normal-raised-rest  | informational | -eyebrow, -landed, -footer-word, -footer-else, footer -quiet (color) |
  * | --tug7-element-global-text-normal-muted-rest     | --tug7-surface-global-primary-normal-content-rest | informational | -quiet, -asset-line, -wait (color, border-color)                     |
+ * | --tug7-element-global-text-normal-default-rest   | --tug7-surface-global-primary-normal-content-rest | content       | .session-arc-record-text, an open sketch's want (color)              |
  * | --tug7-element-global-text-normal-caution-rest   | --tug7-surface-global-primary-normal-content-rest | informational | -note in an entry's row (color)                                      |
  * | --tug7-element-global-text-normal-caution-rest   | --tug7-surface-global-primary-normal-raised-rest  | informational | -note on the footer's Next line (color)                              |
  * | --tug7-element-global-border-normal-muted-rest   | --tug7-surface-global-primary-normal-content-rest | decorative    | -header, -map, -back, -asset (border-bottom-color)                   |
@@ -52,7 +54,7 @@ body {
 /* ---- The body ----------------------------------------------------------- */
 
 .session-cycle-shade {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -130,14 +132,15 @@ body {
 
 .session-cycle-shade-list {
   position: relative;
-  flex: 1 1 0;
+  /* As tall as its rows, shrinking to scroll only when the shade reaches its
+     cap. */
+  flex: 0 1 auto;
   min-height: 0;
   overflow-y: auto;
   /* A press on the map changes what is above an asset; the scroller must not
      answer that by moving of its own accord. */
   overflow-anchor: none;
   scroll-behavior: smooth;
-  container-type: size;
 }
 
 /* Motion off (`body[data-tug-motion="off"]`) and reduced motion: the list
@@ -150,11 +153,6 @@ body[data-tug-motion="off"] .session-cycle-shade-list {
   .session-cycle-shade-list {
     scroll-behavior: auto;
   }
-}
-
-/* Room under the last asset, so it too can reach the top of the list. */
-.session-cycle-shade-list-tail {
-  height: calc(100cqh - 96px);
 }
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
@@ -210,10 +208,49 @@ body[data-tug-motion="off"] .session-cycle-shade-list {
   font-weight: var(--tug-font-weight-semibold);
 }
 
+/* A closed sketch's want: one line, cut where the row ends. */
+.session-cycle-shade-sketch-want {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--tug-font-size-sm);
+}
+
 .session-cycle-shade-sketch-body {
   padding: 0 var(--tug-space-md) var(--tug-space-sm) calc(var(--tug-space-lg) + 3em);
   font-size: var(--tug-font-size-sm);
   line-height: 1.5;
+}
+
+/* An open sketch's record: its want in the text's full ink, and the approach
+   and its parts under it quieter, so the want is what the eye takes first. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-arc-record-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-sm);
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+.session-arc-record-text > p {
+  margin: 0;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-arc-record-text > :not(:first-child) {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.session-arc-record-text > ul {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+  margin: 0;
+  padding-inline-start: 1.2em;
 }
 
 .session-cycle-shade-title {
@@ -223,7 +260,17 @@ body[data-tug-motion="off"] .session-cycle-shade-list {
   gap: var(--tug-space-sm);
 }
 
-/* The brief and what the entry waits on, set in under the arc's name. */
+/* What the entry is called: its brief's title, else its file name. */
+.session-cycle-shade-headline {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--tug-font-weight-semibold);
+}
+
+/* Set in under the headline: the arc once one is carrying the entry, where it
+   runs, the brief's file, what the entry waits on, and its note. */
 .session-cycle-shade-facts {
   display: flex;
   flex-wrap: wrap;

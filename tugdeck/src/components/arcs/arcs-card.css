@@ -324,10 +324,6 @@
   padding-block: var(--tug-space-xs);
 }
 
-.arcs-cycle-content > .tug-arc-atom {
-  max-inline-size: 100%;
-}
-
 .arcs-cycle-title {
   max-inline-size: 100%;
   overflow: hidden;

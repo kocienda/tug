@@ -14,10 +14,11 @@
  *      the shade; the status row stays in view beneath it.
  *   4. Escape lowers it, the transcript takes input again, and the caret is
  *      back in the composer it was taken from.
- *   5. With an arc bound the raised shade holds the panels by the same rule:
- *      as tall as they need, never past four fifths of the slot, so at least
- *      a fifth of the transcript shows. It names the arc, and the footer's
- *      Done button lowers it.
+ *   5. With an arc bound and on no cycle, the raised shade holds the cycle
+ *      of one the arc is about to be, by the same rule: as tall as it needs,
+ *      never past four fifths of the slot, so at least a fifth of the
+ *      transcript shows. Its entry names the arc, and the header's lowering
+ *      control lowers it.
  *   6. The History shade stands over a raised shade without lowering it:
  *      under History the shade stays raised and inert, a raise does not take
  *      History down, and when History leaves the shade is live again.
@@ -28,6 +29,8 @@
  * @covers tugdeck/src/components/tugways/cards/session-arc-shade.tsx
  * @covers tugdeck/src/components/tugways/cards/session-arc-shade.css
  * @covers tugdeck/src/components/tugways/cards/session-arc-shade-content.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-cycle-shade.tsx
+ * @covers tugdeck/src/components/tugways/cards/use-session-cycle.ts
  * @covers tugdeck/src/components/tugways/cards/session-telemetry-cell.tsx
  * @covers tugdeck/src/components/tugways/cards/session-telemetry-cell.css
  * @covers tugdeck/src/lib/arc-shade-controller.ts
@@ -67,7 +70,7 @@ const SHADE = `${CARD} [data-slot="session-arc-shade"]`;
 const SLOT = `${CARD} .session-view-slot`;
 const TRANSCRIPT_PANE = `${CARD} .session-view-pane[data-view="transcript"]`;
 const STATUS_ROW = `${CARD} [data-slot="session-telemetry-status-row"]`;
-const LOWER_BUTTON = `${SHADE} [data-slot="session-arc-shade-foot"] button:last-of-type`;
+const LOWER_BUTTON = `${SHADE} [data-slot="session-cycle-shade-header"] button[aria-label="Lower the cycle"]`;
 const COMPOSER = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const ARC_CELL = `${CARD} [data-slot="tug-status-cell"][data-priority="arc"]`;
 const STATE_CELL = `${CARD} [data-slot="tug-status-cell"][data-priority="state"]`;
@@ -93,8 +96,8 @@ afterAll(() => {
 
 interface ShadeReading {
   raised: string | null;
-  /** The shade holds the arc's panels rather than the no-arc hint. */
-  panels: boolean;
+  /** The shade holds the cycle body rather than the no-arc hint. */
+  cycle: boolean;
   /** How far the shade's body runs past its own box, down. */
   bodyScroll: number;
   shadeInert: boolean;
@@ -132,9 +135,12 @@ const read = (app: App): Promise<ShadeReading> =>
          + (el.hasAttribute("data-key-view-kbd") ? " kbd" : "");
        return {
          raised: shade.getAttribute("data-raised"),
-         panels: shade.querySelector('[data-slot="session-arc-panels"]') !== null,
+         cycle: shade.querySelector('[data-slot="session-cycle-shade"]') !== null,
          bodyScroll: (() => {
-           const body = shade.querySelector('[data-slot="session-arc-shade-body"]');
+           // The hint's frame body, or the cycle body's list, which is the
+           // one part of it that scrolls.
+           const body = shade.querySelector('[data-slot="session-cycle-shade-list"]')
+             ?? shade.querySelector('[data-slot="session-arc-shade-body"]');
            return body === null ? 0 : body.scrollHeight - body.clientHeight;
          })(),
          shadeInert: shade.inert === true,
@@ -230,7 +236,7 @@ describe.skipIf(!SHOULD_RUN)("AT0859: the arc shade over the transcript", () => 
         note("at0859 lowered", JSON.stringify(lowered));
         expect(lowered.shadeInert, "a lowered shade is inert").toBe(true);
         expect(lowered.transcriptInert, "the transcript is live with the shade down").toBe(false);
-        expect(lowered.panels, "no arc, no panels").toBe(false);
+        expect(lowered.cycle, "no arc, no cycle").toBe(false);
 
         // The caret goes to the composer, so the raise has somewhere to take
         // the keyboard from and the lower somewhere to return it.
@@ -244,7 +250,7 @@ describe.skipIf(!SHOULD_RUN)("AT0859: the arc shade over the transcript", () => 
         await app.dispatchControlAction("toggle-arc-shade");
         const short = await settled(app, true);
         note("at0859 no arc raised", JSON.stringify(short));
-        expect(short.panels).toBe(false);
+        expect(short.cycle).toBe(false);
         expect(short.shadeInert, "a raised shade is live").toBe(false);
         expect(short.transcriptInert, "the transcript strip is inert under a raised shade").toBe(true);
         expect(short.shadeHeight, "the shade is no taller than four fifths of the slot")
@@ -270,7 +276,7 @@ describe.skipIf(!SHOULD_RUN)("AT0859: the arc shade over the transcript", () => 
           { timeoutMs: 6_000 },
         );
 
-        // ── With an arc: the panels, by the same rule ─────────────────────
+        // ── With an arc: its cycle of one, by the same rule ───────────────
         // The arc is made only now: an arc in the project that no session is
         // working is offered by the short shade, which was read above with
         // nothing to offer.
@@ -280,27 +286,27 @@ describe.skipIf(!SHOULD_RUN)("AT0859: the arc shade over the transcript", () => 
           env: scratch?.cli.env,
         });
         await app.body("A").waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(`${SHADE} [data-slot="session-arc-panels"]`)}) !== null`,
+          `document.querySelector(${JSON.stringify(`${SHADE} [data-slot="session-cycle-shade"]`)}) !== null`,
           { timeoutMs: 30_000 },
         );
         await app.dispatchControlAction("toggle-arc-shade");
         const full = await settled(app, true);
         note("at0859 with an arc raised", JSON.stringify(full));
-        expect(full.panels).toBe(true);
+        expect(full.cycle, "an arc on no cycle is drawn as its cycle of one").toBe(true);
         expect(Math.abs(full.shadeBottom - full.slotBottom), "the shade rests on the slot's bottom edge")
           .toBeLessThanOrEqual(1);
         expect(full.shadeHeight, "it is no taller than four fifths of the slot")
           .toBeLessThanOrEqual(full.slotHeight * 0.8 + 1);
         expect(full.shadeTop, "so at least a fifth of the transcript shows above it")
           .toBeGreaterThanOrEqual(full.slotTop + full.slotHeight * 0.2 - 1);
-        // Short of the cap, the shade is exactly as tall as the panels need.
+        // Short of the cap, the shade is exactly as tall as the cycle needs.
         if (full.shadeHeight < full.slotHeight * 0.8 - 1) {
-          expect(full.bodyScroll, "under the cap, the shade holds the panels whole").toBeLessThanOrEqual(0);
+          expect(full.bodyScroll, "under the cap, the shade holds the cycle whole").toBeLessThanOrEqual(1);
         }
         expect(full.transcriptInert).toBe(true);
-        expect(full.text, "the header names the arc").toContain(ARC_NAME);
+        expect(full.text, "its entry names the arc").toContain(ARC_NAME);
 
-        // The footer's Done button lowers it.
+        // The header's lowering control lowers it.
         await app.body("A").nativeClickAtElement(LOWER_BUTTON);
         const afterButton = await settled(app, false);
         expect(afterButton.transcriptInert).toBe(false);

@@ -30,7 +30,9 @@ use tugtool_core::session::now_iso8601;
 
 use crate::arc::{ArcStageLine, read_arc_in};
 use crate::error::ArcError;
-use crate::log::{generation_started_at, is_terminal, split_log_line, validate_arc_name};
+use crate::log::{
+    ArcFate, arc_fates, generation_started_at, is_terminal, split_log_line, validate_arc_name,
+};
 use crate::ops::main_repo_root;
 use crate::sketch::{find_sketch, valid_id, write_atomically};
 
@@ -728,6 +730,68 @@ pub fn check_cycles(paths: &Paths) -> Vec<ChainBreak> {
                 name: record.name.clone(),
                 project_dir: record.project_dir.clone(),
                 problems,
+            })
+        })
+        .collect()
+}
+
+/// A live arc that no cycle's entry carries: the gap between `arc run` and
+/// `cycle attach` that a cycle of one's attach never closed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct UnattachedArc {
+    pub arc: String,
+    /// The open generation's start, when the log records one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created: Option<String>,
+    /// The checkout whose arc log holds it, canonical ([L29]).
+    pub project_dir: String,
+}
+
+/// Every live arc on this machine that no cycle's entry carries, ordered by
+/// checkout and then by name.
+///
+/// The checkouts read are the ones that keep cycles, each read against its
+/// own arc log once. A checkout with no cycle record at all has never used
+/// them, so its arcs are not a gap in a chain it keeps; and a state dir's slug
+/// cannot be turned back into the checkout it keys, so there is no other way
+/// to name one.
+pub fn unattached_arcs(paths: &Paths) -> Vec<UnattachedArc> {
+    let records = all_cycles(paths);
+    let mut dirs: Vec<&str> = records.iter().map(|r| r.project_dir.as_str()).collect();
+    dirs.dedup();
+    dirs.into_iter()
+        .flat_map(|dir| {
+            let log_path = tugtool_core::paths::arc_log_path_at(paths, Path::new(dir));
+            let log = fs::read_to_string(&log_path).unwrap_or_default();
+            let here: Vec<&CycleRecord> = records.iter().filter(|r| r.project_dir == dir).collect();
+            unattached_arcs_in(&log, dir, &here)
+        })
+        .collect()
+}
+
+/// The live arcs in `log`, the arc log of `project_dir`, that no entry of
+/// `records` carries. An entry carries an arc when it links the arc's name
+/// and the open generation's start; a link with no start answers for the
+/// name alone.
+pub fn unattached_arcs_in(
+    log: &str,
+    project_dir: &str,
+    records: &[&CycleRecord],
+) -> Vec<UnattachedArc> {
+    arc_fates(log)
+        .into_iter()
+        .filter(|(_, fate)| *fate == ArcFate::Live)
+        .filter_map(|(name, _)| {
+            let created = generation_started_at(log, &name);
+            let carried = records.iter().flat_map(|r| &r.entries).any(|e| {
+                e.arc.as_ref().is_some_and(|link| {
+                    link.name == name && (link.created.is_none() || link.created == created)
+                })
+            });
+            (!carried).then(|| UnattachedArc {
+                arc: name,
+                created,
+                project_dir: project_dir.to_owned(),
             })
         })
         .collect()
@@ -1617,6 +1681,52 @@ mod tests {
         assert!(chain_breaks(&record).is_empty());
         record.entries[0].brief = " ".into();
         assert_eq!(chain_breaks(&record), vec!["entry 1 has no brief"]);
+    }
+
+    #[test]
+    fn check_lists_a_live_arc_no_entry_carries_and_only_that() {
+        let (_t, repo, paths) = scratch();
+        assert!(
+            unattached_arcs(&paths).is_empty(),
+            "no cycles, nothing read"
+        );
+        let id = sketched(&paths, &repo, "Gap");
+        add_entry(&paths, &repo, &id, entry("briefs/a.md", &[])).unwrap();
+        // The fixture's sketch was recorded by an arc of its own; end it, so
+        // the log's arcs are the ones below.
+        let sketch_arc = format!("2026-11-01T00:00:00Z  sketch-{id}  discarded  by hand");
+        log_append(&paths, &repo, &sketch_arc);
+        for line in [
+            "2026-11-01T00:00:00Z  attached  arc-start  briefs/a.md",
+            "2026-11-01T00:01:00Z  loose  arc-start  briefs/b.md",
+            "2026-11-01T00:02:00Z  landed  arc-start  briefs/c.md",
+            "2026-11-01T00:03:00Z  landed  abc1234  joined",
+        ] {
+            log_append(&paths, &repo, line);
+        }
+        attach(&paths, &repo, &id, 1, "attached").unwrap();
+
+        let found = unattached_arcs(&paths);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].arc, "loose");
+        assert_eq!(found[0].created.as_deref(), Some("2026-11-01T00:01:00Z"));
+        let record = find_cycle(&paths, &id).remove(0).1;
+        assert_eq!(found[0].project_dir, record.project_dir);
+
+        // A reused name whose open generation is not the one an entry links
+        // is on no cycle, though an older generation of it was.
+        log_append(
+            &paths,
+            &repo,
+            "2026-11-02T00:00:00Z  attached  discarded  by hand",
+        );
+        log_append(
+            &paths,
+            &repo,
+            "2026-11-02T00:01:00Z  attached  arc-start  briefs/a.md",
+        );
+        let names: Vec<String> = unattached_arcs(&paths).into_iter().map(|u| u.arc).collect();
+        assert_eq!(names, vec!["attached", "loose"]);
     }
 
     #[test]

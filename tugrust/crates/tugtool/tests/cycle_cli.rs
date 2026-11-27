@@ -451,7 +451,7 @@ fn an_old_entry_is_repaired_and_the_check_reads_the_whole_machine() {
     assert!(clean.status.success(), "{clean:?}");
     assert_eq!(
         String::from_utf8_lossy(&clean.stdout).trim(),
-        "every cycle on this machine is whole"
+        "every cycle on this machine is whole, and every live arc is on one"
     );
 
     // A record written before every entry had to name a sketch.
@@ -512,6 +512,27 @@ fn an_old_entry_is_repaired_and_the_check_reads_the_whole_machine() {
         "a letter is required"
     );
     assert!(check(&s).status.success(), "the record is whole again");
+
+    // A live arc the door opened and never attached is listed beside the
+    // breaks, and fails the check on its own.
+    s.write_log("2026-11-03T00:00:00.000Z  loose  arc-start  briefs/loose.md");
+    let gap = check(&s);
+    assert_eq!(gap.status.code(), Some(1), "{gap:?}");
+    let text = String::from_utf8_lossy(&gap.stdout);
+    assert!(text.contains("arc loose  "), "{text}");
+    assert!(text.trim_end().ends_with("is on no cycle"), "{text}");
+    let report: serde_json::Value = serde_json::from_slice(
+        &s.tug_in(&s.state)
+            .args(["cycle", "check", "--json"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+    assert_eq!(report["data"]["breaks"], serde_json::json!([]));
+    assert_eq!(report["data"]["unattached"][0]["arc"], "loose");
+    s.write_log("2026-11-03T00:01:00.000Z  loose  discarded  by hand");
+    assert!(check(&s).status.success(), "a discarded arc is no gap");
 
     // The brief is found through its entry; a brief only a sketch carries is
     // found through the sketch.

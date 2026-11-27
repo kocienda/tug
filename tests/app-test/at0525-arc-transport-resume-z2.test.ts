@@ -20,6 +20,7 @@
  * followed card it does not have.
  *
  * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-popovers.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-cycle-shade.tsx
  * @covers tugdeck/src/components/tugways/arc-verb-row.tsx
  * @covers tugdeck/src/lib/arc-verbs.ts
  * @covers tugdeck/src/lib/arc-transport.ts
@@ -51,6 +52,7 @@ import {
   tugtoolPath,
   type ArcScratchRepo,
 } from "./arc-fixture";
+import { ARC_ENTRY_POPOVER, openArcEntry } from "./arc-entry-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -63,10 +65,10 @@ const SHELL_ROWS = `${CARD} [data-slot="session-transcript-shell-row"]`;
 
 /** The Z2 ARC cell. */
 const CELL = `${CARD} [data-slot="tug-status-cell"][data-priority="arc"]`;
-/** The arc's frame in the raised arc shade, which is where its footer lives —
- *  the body slot is the scroller above it and does not contain the cluster. */
-const PLACARD =
-  '[data-slot="session-arc-shade"][data-raised="true"] [data-slot="session-arc-panel"][data-rung="arc"] .session-arc-popover';
+/** The arc's frame in its open entry in the raised shade, which is where its
+ *  footer lives — the body slot is the scroller above it and does not contain
+ *  the cluster. */
+const PLACARD = ARC_ENTRY_POPOVER;
 /** The footer's transport — its verb row's first slot. */
 const TRANSPORT = `${PLACARD} [data-slot="arc-verb"]:is([data-verb="start"], [data-verb="stop"], [data-verb="resume"])`;
 const transportWith = (verb: string): string => `${TRANSPORT}[data-verb="${verb}"]`;
@@ -205,7 +207,10 @@ describe.skipIf(!SHOULD_RUN)("AT0525: Resume in the ARC placard's footer", () =>
           { timeoutMs: 30_000 },
         );
         await app.body("A").click(CELL);
-        // The shade is the card's own surface, so it stands in its body.
+        // The shade is the card's own surface, so it stands in its body. The
+        // arc is on no cycle, so the shade draws the cycle of one it is about
+        // to be, and its entry opens on a press to show the arc's frame.
+        await openArcEntry(app, "A", 30_000);
         await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PLACARD)}) !== null`,
           { timeoutMs: 30_000 },
@@ -265,10 +270,10 @@ describe.skipIf(!SHOULD_RUN)("AT0525: Resume in the ARC placard's footer", () =>
         note("at0525 placard with the Resume", (await app.screenshot()).path);
 
         // The shade rises on a transform, so the press waits for it to stand
-        // on the slot's bottom edge. The arc's frame is on the Arc panel, in a
-        // grid sized to fit the shade, so the scroll below moves nothing
-        // unless the body has come to scroll; then
-        // what is under the point the press will land on is read.
+        // on the slot's bottom edge. The arc's frame is in its entry, in the
+        // cycle body's list, which is the one part of the shade that scrolls;
+        // the list is scrolled to centre the button, and then what is under
+        // the point the press will land on is read.
         await app.body("A").waitForCondition<boolean>(
           `(() => {
              const shade = document.querySelector('${CARD} [data-slot="session-arc-shade"]');
@@ -280,14 +285,19 @@ describe.skipIf(!SHOULD_RUN)("AT0525: Resume in the ARC placard's footer", () =>
         );
         await app.body("A").evalJS<boolean>(
           `(() => {
-             // Only the shade's own body is scrolled: scrollIntoView would
-             // also move the clipping panes the shade stands in.
+             // Only the shade's list is scrolled: scrollIntoView would also
+             // move the clipping panes the shade stands in.
              const button = document.querySelector(${JSON.stringify(transportWith("resume"))});
-             const body = button.closest('[data-slot="session-arc-shade-body"]');
+             const body = button.closest('[data-slot="session-cycle-shade-list"]');
              const b = button.getBoundingClientRect();
              const v = body.getBoundingClientRect();
-             body.scrollLeft += b.left + b.width / 2 - (v.left + v.width / 2);
-             body.scrollTop += b.top + b.height / 2 - (v.top + v.height / 2);
+             // At once: the list scrolls smoothly by its own CSS, and the
+             // reading below is taken straight after.
+             body.scrollTo({
+               left: body.scrollLeft + b.left + b.width / 2 - (v.left + v.width / 2),
+               top: body.scrollTop + b.top + b.height / 2 - (v.top + v.height / 2),
+               behavior: "instant",
+             });
              return true;
            })()`,
         );

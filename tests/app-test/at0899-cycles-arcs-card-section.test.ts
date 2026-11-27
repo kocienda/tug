@@ -76,7 +76,7 @@ const FOLD = `${PIN} [data-slot="arcs-cycle-fold"]`;
 const ENTRIES = `${CARD} [data-slot="arcs-cycle-entry"]`;
 const SKETCHES = `${CARD} [data-slot="arcs-cycle-sketch"]`;
 const entryRow = (n: number): string => `${ENTRIES}[data-asset="e${n}"]`;
-/** A tile by its entry's number: the map names a tile "<n>, <where it stands>". */
+/** A tile by its entry's number: the map names a tile "<n>, <its brief's title> · <where it stands>". */
 const tile = (n: number): string => `${TILES}[aria-label^="${n}, "]`;
 
 /** This checkout — the build under test, and never the tree a cycle is cut in. */
@@ -164,6 +164,7 @@ describe.skipIf(!SHOULD_RUN)("AT0899: a cycle is a section on the Cycles & Arcs 
           sketches: number;
           strip: number;
           kinds: string[];
+          titles: string[];
         }>(
           `(() => {
              const all = (sel) => Array.from(document.querySelectorAll(sel));
@@ -176,6 +177,7 @@ describe.skipIf(!SHOULD_RUN)("AT0899: a cycle is a section on the Cycles & Arcs 
                sketches: all(${JSON.stringify(SKETCHES)}).length,
                strip: all(${JSON.stringify(STRIP)}).length,
                kinds: all(${JSON.stringify(`${CARD} .tug-list-view-cell`)}).map((el) => el.getAttribute("data-tug-list-cell-kind") ?? ""),
+               titles: all(${JSON.stringify(`${ENTRIES} [data-slot="arcs-cycle-title"]`)}).map((el) => (el.textContent ?? "").trim()),
              };
            })()`,
         );
@@ -190,6 +192,11 @@ describe.skipIf(!SHOULD_RUN)("AT0899: a cycle is a section on the Cycles & Arcs 
           "waiting",
         ]);
         expect(mounted.sketches, "the sketch has a row").toBe(1);
+        expect(mounted.titles, "each entry's row is headed by its brief's title").toEqual([
+          "at0899 brief one",
+          "at0899 brief two",
+          "at0899 brief three",
+        ]);
         expect(mounted.strip, "an open cycle draws its map, not its strip").toBe(0);
         expect(mounted.kinds, "the pin leads its assets in the one list").toEqual([
           "cycle-pin",

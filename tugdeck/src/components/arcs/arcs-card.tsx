@@ -1191,11 +1191,9 @@ function CycleEntryView({
       trailingReveal="always"
     >
       <span className="arcs-cycle-content">
-        {entry.arc !== undefined ? (
-          <TugArcAtom name={entry.arc.name} />
-        ) : (
-          <span className="arcs-cycle-title">{row.title}</span>
-        )}
+        <span className="arcs-cycle-title" data-slot="arcs-cycle-title">
+          {row.title}
+        </span>
         {open ? null : worker}
         {waits}
         {open ? (
@@ -1222,6 +1220,13 @@ function CycleEntryView({
               </span>
             )}
             {worker}
+            {entry.arc !== undefined && (state === "running" || state === "joined") ? (
+              // The arc is named once one is carrying the entry, under the
+              // brief's title that heads the row.
+              <span className="arcs-cycle-line" data-slot="arcs-cycle-arc">
+                <TugArcAtom name={entry.arc.name} />
+              </span>
+            ) : null}
             {entry.brief_path !== undefined ? (
               <span className="arcs-cycle-line">
                 <TugAtomRef entity={{ kind: "file", path: entry.brief_path }} />

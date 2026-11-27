@@ -4,7 +4,8 @@
 //! A cycle is a container of related arcs, briefs and sketches. The writing
 //! verbs act on this checkout's cycles; `show` reads a cycle by id from any
 //! checkout's store on this machine, so it needs no repository, and `check`
-//! reads every cycle on the machine for a broken chain. Every entry's state
+//! reads every cycle on the machine for a broken chain, and every checkout
+//! that keeps cycles for a live arc on none of them. Every entry's state
 //! is derived from the arc log as it is read, never stored, and so is
 //! whether the cycle is closed: `list` leaves a closed cycle out unless
 //! `--all` is passed, and every other verb reads it like any other.
@@ -13,7 +14,7 @@ use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use tugarc_core::cycle::{
-    self, ChainBreak, CycleArc, CycleView, DroppedItem, EntryState, NewEntry,
+    self, ChainBreak, CycleArc, CycleView, DroppedItem, EntryState, NewEntry, UnattachedArc,
 };
 use tugcore::instance::Paths;
 
@@ -393,23 +394,37 @@ fn run_show(paths: &Paths, id: &str, json: bool) -> ExitCode {
 struct CheckPayload {
     clean: bool,
     breaks: Vec<ChainBreak>,
+    /// Live arcs no cycle's entry carries.
+    unattached: Vec<UnattachedArc>,
 }
 
-/// `cycle check`: every cycle on the machine that breaks the chain. Exits 1
-/// when any does, so the verb is a check a script can branch on.
+/// `cycle check`: every cycle on the machine that breaks the chain, and every
+/// live arc on no cycle. Exits 1 when there is either, so the verb is a check
+/// a script can branch on.
 fn run_check(paths: &Paths, json: bool) -> ExitCode {
     let breaks = cycle::check_cycles(paths);
-    let clean = breaks.is_empty();
+    let unattached = cycle::unattached_arcs(paths);
+    let clean = breaks.is_empty() && unattached.is_empty();
     if json {
-        print_ok("cycle check", CheckPayload { clean, breaks });
+        print_ok(
+            "cycle check",
+            CheckPayload {
+                clean,
+                breaks,
+                unattached,
+            },
+        );
     } else if clean {
-        println!("every cycle on this machine is whole");
+        println!("every cycle on this machine is whole, and every live arc is on one");
     } else {
         for b in &breaks {
             println!("{}  {}  {}", b.id, b.name, b.project_dir);
             for problem in &b.problems {
                 println!("  {problem}");
             }
+        }
+        for u in &unattached {
+            println!("arc {}  {}  is on no cycle", u.arc, u.project_dir);
         }
     }
     if clean {

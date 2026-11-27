@@ -19,19 +19,21 @@
  * below stays live.
  *
  * It reads `Cycle` when the session has a cycle and `Arc` when it has none.
- * The control that lowers it is in the header in every form. For an arc, or a
- * cycle of one entry, the header, the footer and the frame are this
- * component's and the body is its children: the footer carries Done at its
- * trailing edge, as the History shade's does, and the key view lands there.
- * For a cycle of several entries the body brings its own header and its own
- * two-line footer, which stand where this component's would; the body's
- * lowering control takes the focus seat this component hands down through
+ * A bound arc always has a cycle to show: its own, or the cycle of one it is
+ * about to be. The control that lowers it is in the header in every form.
+ * For the hint, which a session with no cycle and no arc is shown, the
+ * header, the footer and the frame are this component's and the body is its
+ * children: the footer carries Done at its trailing edge, as the History
+ * shade's does, and the key view lands there. For a cycle, a cycle of one
+ * included, the body brings its own header and its own two-line footer,
+ * which stand where this component's would; the body's lowering control
+ * takes the focus seat this component hands down through
  * `ArcShadeLowerContext`, and the key view lands on it.
  *
  * A Changes or History shade stands over a raised shade without lowering it
  * (`covered`). Covered, the shade is inert and gives up its focus mode, and
  * takes both back when the other shade leaves.
- * Composes `TugPushButton`, `TugTooltip` and `ArcSigil`, which keep their own
+ * Composes `TugPushButton` and `TugTooltip`, which keep their own
  * tokens.
  *
  * Laws: [L02] the raised state enters through `useSyncExternalStore`,
@@ -49,7 +51,6 @@ import React, { createContext, useCallback, useContext, useId, useLayoutEffect, 
 
 import { ChevronDown } from "lucide-react";
 
-import { ArcSigil } from "@/components/tugways/arc-sigil";
 import { FocusManagerContext } from "@/components/tugways/focus-manager";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
@@ -60,7 +61,7 @@ import { CardIdContext } from "@/lib/card-id-context";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { cycleShadeForm } from "./session-cycle-shade-model";
-import { useSessionCycle } from "./use-session-cycle";
+import { useShadeCycle } from "./use-session-cycle";
 
 /** Focus order of the header's lowering control, first in the shade's walk. */
 const LOWER_FOCUS_ORDER = 0;
@@ -117,11 +118,10 @@ export function SessionArcShade({
   const raised = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const lower = useCallback(() => controller.lower(), [controller]);
   const arc = useArcForSession(tugSessionId);
-  const arcName = arc?.name ?? null;
-  // Which body the shade holds: a cycle of several entries keeps one height,
-  // so its map holds still while the list under it changes.
-  const cycle = useSessionCycle(tugSessionId, arc?.ownerId ?? null);
-  const form = cycleShadeForm(cycle, arc !== null);
+  // Which body the shade holds: the cycle body for any cycle, the stand-in
+  // for a bound arc no cycle holds included, and the hint otherwise.
+  const cycle = useShadeCycle(tugSessionId, arc);
+  const form = cycleShadeForm(cycle);
   const several = form === "several";
   const noun = cycle !== null ? "Cycle" : "Arc";
   const lowerLabel = cycle !== null ? "Lower the cycle" : "Lower the arc";
@@ -212,11 +212,6 @@ export function SessionArcShade({
             <span className="session-arc-shade-label" data-slot="session-arc-shade-label">
               {noun}
             </span>
-            {arcName !== null ? (
-              <span className="session-arc-shade-name">
-                <ArcSigil name={arcName} slot="session-arc-shade-name" />
-              </span>
-            ) : null}
             <span className="session-arc-shade-lower" data-slot="session-arc-shade-lower">
               <TugTooltip content={lowerLabel}>
                 <TugPushButton

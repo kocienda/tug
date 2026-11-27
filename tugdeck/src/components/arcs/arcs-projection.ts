@@ -20,6 +20,7 @@ import type {
   CycleMapTile,
 } from "@/components/tugways/cycle-map";
 import { entryKey, NO_PICKS, pickOnMap, sketchKey } from "@/components/tugways/cycle-map-layout";
+import { cycleEntryHeadline, cycleTileLabel } from "@/components/tugways/cards/session-cycle-shade-model";
 import { compareArcEntries } from "@/lib/arc-order";
 import type {
   ArcChangesetEntry,
@@ -220,7 +221,7 @@ export interface CycleEntryRow {
   /** The asset's key: `entryKey(n)`, the key the map reports a press by. */
   key: string;
   entry: CycleEntryWire;
-  /** What the row is called: the arc's name, else the brief's title, else its file. */
+  /** What the row is called: the brief's title, else its file name; never the arc's name. */
   title: string;
   /** The sentence saying where the entry stands. The tile's tooltip is the same one. */
   sentence: string;
@@ -287,12 +288,6 @@ export interface ArcsCardProjection {
   plans: readonly DocumentArcRow[];
   /** Nothing at all to draw: the card shows its one `None` line. */
   empty: boolean;
-}
-
-/** The last segment of a path. */
-function basename(path: string): string {
-  const cut = path.lastIndexOf("/");
-  return cut === -1 ? path : path.slice(cut + 1);
 }
 
 /**
@@ -370,7 +365,7 @@ function entryRow(
   return {
     key: entryKey(entry.n),
     entry,
-    title: entry.arc?.name ?? entry.brief_title ?? basename(entry.brief),
+    title: cycleEntryHeadline(entry),
     sentence: sentenceOf(entry, openWaits, followedSession),
     openWaits,
     arc,
@@ -395,7 +390,7 @@ function tileOf(row: CycleEntryRow): CycleMapTile {
     state: row.entry.state,
     ...(row.elsewhere ? { elsewhere: true } : {}),
     ...(row.steps !== null ? { steps: row.steps } : {}),
-    label: row.sentence,
+    label: cycleTileLabel(row.title, row.sentence),
   };
 }
 

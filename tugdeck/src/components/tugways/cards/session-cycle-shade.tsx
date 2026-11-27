@@ -6,19 +6,25 @@
  * cycle's name and how much of it has landed; the cycle's map in a well; a
  * Back bar while two or more assets are selected; the asset list; and a
  * two-line footer saying what this session is running now and what is ready
- * next. The list is the only scroller, with a tail under its last asset so
- * that asset too can reach the top. The map never moves: a press on it
- * selects, and the list answers by scrolling the pressed asset to its top.
+ * next. The shade is as tall as what it holds, up to the cap every shade
+ * has, and the list is the only scroller once it reaches it. A press on the
+ * map opens an asset, and the list scrolls only as far as it must to bring
+ * that asset into view.
  *
- * Each asset appears once. A sketch is its letter, the entries it heads and
- * its text whole. An entry is its number, its arc, the session running it
- * when that is another session, its brief, what it waits on, its note, how it
- * stands, and its steps while it runs. Nothing here starts an arc.
+ * Each asset appears once, and starts closed. A closed sketch is its letter,
+ * the entries it heads and what it wants; open, its text whole. A closed
+ * entry is its number, its brief's title and how it stands, with its arc and
+ * the session running it while it runs; open, it adds its steps (and, for
+ * this session's own arc, its verbs), its brief's file, what it waits on and
+ * its note. The brief's contents are not listed here: its file link opens
+ * it. Nothing here starts an arc.
  *
- * The selection is this component's: a press on a tile or a seal selects one,
- * a shift-press adds or removes one, and a press on the map's ground clears.
- * One selected leaves the list whole; two or more narrow it to those. A host
- * that shows another cycle remounts this component by key, which clears it.
+ * The selection is this component's, and the selected assets are the open
+ * ones: a press on a row, a tile or a seal opens that asset alone and a
+ * second press closes it, a shift-press on the map adds or removes one, and
+ * a press on the map's ground closes all. One open leaves the list whole; two
+ * or more narrow it to those. A host that shows another cycle remounts this
+ * component by key, which clears it.
  *
  * Everything shown is read from `session-cycle-shade-model`; this component
  * composes `CycleMap`, `TugListRow`, `TugArcAtom`, `TugAtomRef`, `TugBadge`,
@@ -45,12 +51,13 @@ import { Check, ChevronDown } from "lucide-react";
 import { ArcLifecycleMark } from "@/components/tugways/arc-lifecycle-mark";
 import { ArcStepItems } from "@/components/tugways/arc-step-list";
 import { CycleMap } from "@/components/tugways/cycle-map";
-import { headsOf, NO_PICKS, pickOnMap, sketchKey } from "@/components/tugways/cycle-map-layout";
+import { headsOf, NO_PICKS, sketchKey } from "@/components/tugways/cycle-map-layout";
 import { TugArcAtom } from "@/components/tugways/tug-arc-atom";
 import { TugAtomRef } from "@/components/tugways/tug-atom-ref";
 import { TugBadge } from "@/components/tugways/tug-badge";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { TugListRow } from "@/components/tugways/tug-list-row";
+import { annotationClaimsClick } from "@/components/tugways/use-annotation-clicks";
 import { TugPopupListFrame, TugPopupListScroller } from "@/components/tugways/tug-popup-list";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
@@ -60,7 +67,7 @@ import type { CycleSketchWire, CycleWire } from "@/lib/changeset-types";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { sessionLineStore } from "@/lib/session-line-store";
 
-import { recordPanel } from "./session-arc-record-panel";
+import { recordBody } from "./session-arc-record";
 import { ArcShadeLowerContext } from "./session-arc-shade";
 import {
   arcRowsByOwner,
@@ -70,6 +77,9 @@ import {
   cycleMapTiles,
   cycleShadeEntries,
   cycleShadeSummary,
+  cycleRevealTop,
+  pressCycleAsset,
+  pressCycleRow,
   type CycleShadeEntry,
   type CycleShadeSummary,
 } from "./session-cycle-shade-model";
@@ -90,8 +100,6 @@ export interface SessionCycleShadeProps {
    * entry that is this session's work is also where it is stopped and landed.
    */
   hereBody?: React.ReactNode;
-  /** That arc's brief, by its headings, drawn in the same entry. */
-  hereBrief?: React.ReactNode;
 }
 
 // ---------------------------------------------------------------------------
@@ -153,7 +161,7 @@ function Waits({ read }: { read: CycleShadeEntry }): React.ReactElement | null {
   );
 }
 
-/** A sketch in the list: whole, with the entries it heads. */
+/** A sketch in the list: its letter and what it wants while closed, its whole text open. */
 function SketchAsset({
   sketch,
   heads,
@@ -166,6 +174,7 @@ function SketchAsset({
   onChoose: (key: string) => void;
 }): React.ReactElement {
   const key = sketchKey(sketch.letter);
+  const want = sketch.want ?? "";
   return (
     <div
       className="session-cycle-shade-asset"
@@ -173,11 +182,17 @@ function SketchAsset({
       data-asset={key}
       data-kind="sketch"
       data-chosen={selected || undefined}
+      data-open={selected || undefined}
     >
       <TugListRow
         selected={selected}
         leading={<span className="session-cycle-shade-seal">{sketch.letter}</span>}
         title={<span className="session-cycle-shade-sketch-label">{`Sketch ${sketch.letter}`}</span>}
+        description={
+          !selected && want !== "" ? (
+            <span className="session-cycle-shade-sketch-want session-cycle-shade-quiet">{want}</span>
+          ) : undefined
+        }
         trailing={
           heads.length > 0 ? (
             <span className="session-cycle-shade-waits">
@@ -193,27 +208,44 @@ function SketchAsset({
         trailingReveal="always"
         onClick={() => onChoose(key)}
       />
-      <div className="session-cycle-shade-sketch-body">{recordPanel(sketch.text).body}</div>
+      {selected ? (
+        <div className="session-cycle-shade-sketch-body" data-slot="session-cycle-shade-sketch-body">
+          {recordBody(sketch.text)}
+        </div>
+      ) : null}
     </div>
   );
 }
 
-/** An entry in the list: everything about it, in one place. */
+/**
+ * An entry in the list. Closed it is its number, its title and how it
+ * stands, with its arc and its session while it runs; open it adds its steps
+ * and verbs, its brief's file, what it waits on and its note.
+ */
 function EntryAsset({
   read,
   selected,
   onChoose,
   hereBody,
-  hereBrief,
 }: {
   read: CycleShadeEntry;
   selected: boolean;
   onChoose: (key: string) => void;
   hereBody?: React.ReactNode;
-  hereBrief?: React.ReactNode;
 }): React.ReactElement {
   const { entry, key, where, row } = read;
   const steps = row?.steps ?? [];
+  const open = selected;
+  // The arc is named once one is carrying the entry: running, or landed.
+  const arcName = entry.state === "running" || entry.state === "joined" ? entry.arc?.name : undefined;
+  const runs =
+    where === "elsewhere" && entry.bound_session !== undefined ? (
+      <SessionCitation citedId={entry.bound_session} recordedTag={entry.bound_callsign ?? null} />
+    ) : where === "here" ? (
+      <TugLabel size="2xs" emphasis="calm">
+        this session
+      </TugLabel>
+    ) : null;
   return (
     <div
       className="session-cycle-shade-asset"
@@ -222,38 +254,38 @@ function EntryAsset({
       data-kind="entry"
       data-state={entry.state}
       data-chosen={selected || undefined}
+      data-open={open || undefined}
     >
       <TugListRow
         selected={selected}
         leading={<span className="session-cycle-shade-number">{entry.n}</span>}
         title={
           <span className="session-cycle-shade-title">
-            {entry.arc !== undefined ? (
-              <TugArcAtom name={entry.arc.name} />
-            ) : (
-              <span>{entry.brief_title ?? entry.brief}</span>
-            )}
-            {where === "elsewhere" && entry.bound_session !== undefined ? (
-              <SessionCitation citedId={entry.bound_session} recordedTag={entry.bound_callsign ?? null} />
-            ) : where === "here" ? (
-              <TugLabel size="2xs" emphasis="calm">
-                this session
-              </TugLabel>
-            ) : null}
+            <span className="session-cycle-shade-headline" data-slot="session-cycle-shade-headline">
+              {read.headline}
+            </span>
           </span>
         }
         description={
-          <span className="session-cycle-shade-facts">
-            {entry.brief_path !== undefined ? (
-              <TugAtomRef entity={{ kind: "file", path: entry.brief_path }} />
-            ) : (
-              <span className="session-cycle-shade-quiet">{entry.brief}</span>
-            )}
-            <Waits read={read} />
-            {entry.note !== undefined && entry.state !== "joined" ? (
-              <span className="session-cycle-shade-note">{entry.note}</span>
-            ) : null}
-          </span>
+          open || arcName !== undefined || runs !== null ? (
+            <span className="session-cycle-shade-facts">
+              {arcName !== undefined ? <TugArcAtom name={arcName} /> : null}
+              {runs}
+              {open ? (
+                <>
+                  {entry.brief_path !== undefined ? (
+                    <TugAtomRef entity={{ kind: "file", path: entry.brief_path }} />
+                  ) : (
+                    <span className="session-cycle-shade-quiet">{entry.brief}</span>
+                  )}
+                  <Waits read={read} />
+                  {entry.note !== undefined && entry.state !== "joined" ? (
+                    <span className="session-cycle-shade-note">{entry.note}</span>
+                  ) : null}
+                </>
+              ) : null}
+            </span>
+          ) : undefined
         }
         trailing={
           <span className="session-cycle-shade-trailing">
@@ -261,12 +293,16 @@ function EntryAsset({
           </span>
         }
         trailingReveal="always"
-        onClick={() => onChoose(key)}
+        // A press on the brief's file atom opens the brief and leaves the
+        // entry as it is: one press, one act.
+        onClick={(event) => {
+          if (annotationClaimsClick(event.nativeEvent)) return;
+          onChoose(key);
+        }}
       />
-      {hereBody !== undefined ? (
+      {!open ? null : hereBody !== undefined ? (
         <div className="session-cycle-shade-here" data-slot="session-cycle-shade-here">
           {hereBody}
-          {hereBrief}
         </div>
       ) : entry.state === "running" && row !== null && steps.length > 0 ? (
         <div className="session-cycle-shade-steps" data-slot="session-cycle-shade-steps">
@@ -295,7 +331,9 @@ function Footer({ summary }: { summary: CycleShadeSummary }): React.ReactElement
         <span className="session-cycle-shade-footer-word">Now</span>
         {now.kind === "entry" ? (
           <span className="session-cycle-shade-footer-what">
-            {now.entry.entry.arc !== undefined ? <TugArcAtom name={now.entry.entry.arc.name} /> : null}
+            <span className="session-cycle-shade-headline" data-slot="session-cycle-shade-headline">
+              {now.entry.headline}
+            </span>
             {nowRow !== null ? (
               <ArcLifecycleMark
                 model={arcTrackModelFromEntry(nowRow)}
@@ -332,11 +370,9 @@ function Footer({ summary }: { summary: CycleShadeSummary }): React.ReactElement
         <span className="session-cycle-shade-footer-word">Next</span>
         {next.kind === "entry" ? (
           <span className="session-cycle-shade-footer-what">
-            {next.entry.entry.arc !== undefined ? (
-              <TugArcAtom name={next.entry.entry.arc.name} />
-            ) : (
-              <span>{next.entry.entry.brief_title ?? next.entry.entry.brief}</span>
-            )}
+            <span className="session-cycle-shade-headline" data-slot="session-cycle-shade-headline">
+              {next.entry.headline}
+            </span>
             {next.note !== null ? (
               <span className="session-cycle-shade-note">{next.note}</span>
             ) : next.more > 0 ? (
@@ -361,7 +397,6 @@ export function SessionCycleShade({
   boundOwnerId,
   onLower,
   hereBody,
-  hereBrief,
 }: SessionCycleShadeProps): React.ReactElement {
   const aggregate = useChangesetAll();
   // Here and elsewhere are read through the session's line, which moves on
@@ -388,15 +423,15 @@ export function SessionCycleShade({
   const [chosen, setChosen] = useState<ReadonlySet<string>>(NO_PICKS);
   const view = cycleListView(keys, chosen);
 
-  // A press on the map asks the list to bring the pressed asset to its top.
-  // The scroll runs after the commit, since the selection decides which
-  // assets the list holds. Only the list scrolls, so the map and the point
-  // pressed hold still.
+  // A press on the map opens the pressed asset and asks the list to bring it
+  // into view, scrolling only as far as that needs. The scroll runs after the
+  // commit, since the selection decides which assets the list holds and how
+  // tall the opened one is. Only the list scrolls, so the map holds still.
   const listRef = useRef<HTMLDivElement | null>(null);
   const scrollOwed = useRef(false);
   const pressOnMap = useCallback((key: string, shift: boolean) => {
     scrollOwed.current = true;
-    setChosen((prev) => pickOnMap(prev, key, shift));
+    setChosen((prev) => pressCycleAsset(prev, key, shift));
   }, []);
   const clear = useCallback(() => setChosen(NO_PICKS), []);
   useLayoutEffect(() => {
@@ -404,19 +439,20 @@ export function SessionCycleShade({
     scrollOwed.current = false;
     const list = listRef.current;
     if (list === null) return;
+    if (view.narrowed) {
+      list.scrollTo({ top: 0 });
+      return;
+    }
     const asset = view.top !== null ? list.querySelector<HTMLElement>(`[data-asset="${view.top}"]`) : null;
-    list.scrollTo({ top: asset !== null ? asset.offsetTop : 0 });
+    if (asset === null) return;
+    const top = cycleRevealTop(list.scrollTop, list.clientHeight, asset.offsetTop, asset.offsetHeight);
+    if (top !== list.scrollTop) list.scrollTo({ top });
   });
 
-  // A press on a row in the whole list selects it; in a narrowed list the
-  // selection is kept.
+  // A press on a row opens it alone, and a second press closes it; in a
+  // narrowed list every row is already open and the selection is kept.
   const narrowed = view.narrowed;
-  const chooseRow = useCallback(
-    (key: string) => {
-      if (!narrowed) setChosen(new Set([key]));
-    },
-    [narrowed],
-  );
+  const chooseRow = useCallback((key: string) => setChosen((prev) => pressCycleRow(prev, key)), []);
 
   const entryByKey = useMemo(() => new Map(entries.map((e) => [e.key, e])), [entries]);
   const sketchByKey = useMemo(
@@ -484,7 +520,6 @@ export function SessionCycleShade({
                 selected={chosen.has(key)}
                 onChoose={chooseRow}
                 hereBody={here ? hereBody : undefined}
-                hereBrief={here ? hereBrief : undefined}
               />
             );
           }
@@ -499,7 +534,6 @@ export function SessionCycleShade({
             />
           ) : null;
         })}
-        {narrowed ? null : <div className="session-cycle-shade-list-tail" aria-hidden />}
       </div>
       <Footer summary={summary} />
     </div>

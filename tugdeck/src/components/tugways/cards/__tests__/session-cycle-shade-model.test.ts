@@ -3,7 +3,7 @@
  * and the CYCLE cell show, over the golden frame and small cycles built from
  * it.
  *
- * Covered: which cycle a card shows, the body's three forms, here and
+ * Covered: which cycle a card shows, the stand-in cycle of one, the body's two forms, here and
  * elsewhere through the session's line, a running entry bound to nobody, the
  * tiles and their steps from the arc row, the asset list under a selection,
  * the footer at start, midway and rest, and the cell's reading.
@@ -25,16 +25,18 @@ import {
   chooseCycle,
   cycleAssetKeys,
   cycleCellReading,
-  cycleEntrySketchText,
-  cycleEntryStanding,
   cycleEntryWhere,
   cycleListView,
   cycleMapSketches,
+  cycleRevealTop,
   cycleMapTiles,
   cycleShadeEntries,
   cycleShadeForm,
   cycleShadeSummary,
+  pressCycleAsset,
+  pressCycleRow,
   sameSession,
+  standInCycle,
   type CycleShadeContext,
 } from "../session-cycle-shade-model";
 
@@ -47,6 +49,19 @@ const OWNER = "tugarc/fix-join#1723500000000-a1b2c3";
 const STRANGER = "sess-stranger";
 
 const noLines = (): string | null => null;
+
+/** An arc bound to the writer that no cycle holds yet. */
+const BOUND = {
+  ownerId: OWNER,
+  name: "fix-join",
+  projectDir: "/u/proj/",
+  boundSession: WRITER,
+  documents: {
+    brief: "/u/proj/.tug/arcs/fix-join/brief.md",
+    brief_title: "Fix the join",
+    sketch_text: "Join should keep the branch.\n\nKeep the branch until the user discards it.\n",
+  },
+};
 
 const ROWS = arcRowsByOwner(DATA);
 
@@ -100,14 +115,60 @@ describe("the body's form", () => {
   // A cycle of one once drew the arc shade's three panels. It now draws the
   // cycle body like any other cycle: the user asked for one design for every
   // cycle, reversing [B11] of briefs/cycle-rollout-brief.md on this point.
-  test("any cycle with an entry, an arc alone, and nothing", () => {
-    expect(cycleShadeForm(GOLDEN, true)).toBe("several");
-    expect(cycleShadeForm(GOLDEN, false)).toBe("several");
-    expect(cycleShadeForm(cycle([entry(1, "ready")]), false)).toBe("several");
-    expect(cycleShadeForm(cycle([entry(1, "running")]), true)).toBe("several");
-    expect(cycleShadeForm(null, true)).toBe("one");
-    expect(cycleShadeForm(null, false)).toBe("none");
-    expect(cycleShadeForm(cycle([]), false)).toBe("none");
+  // An arc no cycle holds is drawn as the stand-in cycle of one, so the
+  // three panels are gone from the application.
+  test("any cycle with an entry draws the cycle body, and nothing draws the hint", () => {
+    expect(cycleShadeForm(GOLDEN)).toBe("several");
+    expect(cycleShadeForm(cycle([entry(1, "ready")]))).toBe("several");
+    expect(cycleShadeForm(standInCycle(BOUND))).toBe("several");
+    expect(cycleShadeForm(null)).toBe("none");
+    expect(cycleShadeForm(cycle([]))).toBe("none");
+  });
+});
+
+describe("the stand-in cycle of one", () => {
+  test("an arc with a sketch and a brief reads A to 1, named by the brief's title", () => {
+    const c = standInCycle(BOUND);
+    expect(c.name).toBe("Fix the join");
+    expect(c.id).toBe(`arc:${OWNER}`);
+    expect(c.landed).toBe(0);
+    expect(c.sketches?.map((s) => s.letter)).toEqual(["A"]);
+    expect(c.sketches?.[0]?.want).toBe("Join should keep the branch.");
+    expect(c.sketches?.[0]?.text).toBe(BOUND.documents?.sketch_text);
+    expect(c.entries).toHaveLength(1);
+    const only = c.entries[0]!;
+    expect(only).toMatchObject({
+      n: 1,
+      brief: ".tug/arcs/fix-join/brief.md",
+      brief_path: "/u/proj/.tug/arcs/fix-join/brief.md",
+      brief_title: "Fix the join",
+      arc: { name: "fix-join" },
+      waits: [],
+      from: ["A"],
+      state: "running",
+      owner_id: OWNER,
+      bound_session: WRITER,
+    });
+    expect(cycleAssetKeys(c)).toEqual([sketchKey("A"), entryKey(1)]);
+  });
+
+  test("it reads as running here, with its steps from the arc row", () => {
+    const [read] = cycleShadeEntries(standInCycle(BOUND), ctx());
+    expect(read?.where).toBe("here");
+    expect(read?.headline).toBe("Fix the join");
+    expect(read?.row?.owner_id).toBe(OWNER);
+  });
+
+  test("with no sketch it is the tile alone, and with no title its file name heads it", () => {
+    const bare = standInCycle({ ...BOUND, documents: { brief: "/u/proj/.tug/arcs/fix-join/brief.md" } });
+    expect(bare.sketches).toEqual([]);
+    expect(bare.entries[0]?.from).toEqual([]);
+    expect(bare.name).toBe("brief.md");
+    expect(cycleAssetKeys(bare)).toEqual([entryKey(1)]);
+    const none = standInCycle({ ...BOUND, documents: undefined });
+    expect(none.entries[0]?.brief).toBe("brief.md");
+    expect(none.entries[0]?.brief_path).toBeUndefined();
+    expect(none.name).toBe("brief.md");
   });
 });
 
@@ -182,6 +243,19 @@ describe("entries and tiles", () => {
     expect(away.map((t) => t.elsewhere)).toEqual([undefined, true, undefined, undefined]);
   });
 
+  test("an entry is headed by its brief's title, else its file, and a tile names it before its sentence", () => {
+    const titled = cycle([
+      entry(1, "running", { brief_title: "The tooled style keeps one look" }),
+      entry(2, "ready"),
+    ]);
+    const entries = cycleShadeEntries(titled, ctx({ boundOwnerId: null }));
+    expect(entries.map((e) => e.headline)).toEqual(["The tooled style keeps one look", "2.md"]);
+    expect(cycleMapTiles(entries).map((t) => t.label)).toEqual([
+      `The tooled style keeps one look · ${entries[0]!.sentence}`,
+      "2.md · Ready to start",
+    ]);
+  });
+
   test("a running entry's steps are its arc row's, found by owner key", () => {
     // The golden's row declares no steps, so the tile draws no pips.
     const bare = cycleShadeEntries(GOLDEN, ctx());
@@ -244,6 +318,39 @@ describe("the asset list", () => {
     // Shift-pressing one of them again leaves one, and the list is whole.
     const back = pickOnMap(two, sketchKey("A"), true);
     expect(cycleListView(keys, back)).toEqual({ shown: keys, narrowed: false, top: entryKey(3) });
+  });
+
+  test("every asset starts closed; a press opens one alone and a second press closes it", () => {
+    expect(NO_PICKS.size, "nothing is open before a press").toBe(0);
+    const one = pressCycleAsset(NO_PICKS, entryKey(2), false);
+    expect([...one]).toEqual([entryKey(2)]);
+    // A press on another asset opens that one alone.
+    expect([...pressCycleAsset(one, sketchKey("A"), false)]).toEqual([sketchKey("A")]);
+    // A second press on the open asset closes it, by its mark or its row.
+    expect(pressCycleAsset(one, entryKey(2), false).size).toBe(0);
+    expect(pressCycleRow(one, entryKey(2)).size).toBe(0);
+    expect([...pressCycleRow(NO_PICKS, entryKey(3))]).toEqual([entryKey(3)]);
+    // The map's ground closes everything.
+    expect(pressCycleAsset(one, null, false).size).toBe(0);
+  });
+
+  test("a shift-press adds or removes one, and a row in a narrowed list keeps the selection", () => {
+    const two = pressCycleAsset(pressCycleAsset(NO_PICKS, entryKey(2), false), entryKey(3), true);
+    expect([...two].sort()).toEqual([entryKey(2), entryKey(3)].sort());
+    expect(pressCycleRow(two, entryKey(2))).toBe(two);
+    expect([...pressCycleAsset(two, entryKey(3), true)]).toEqual([entryKey(2)]);
+    // A plain press on one of several opens that one alone.
+    expect([...pressCycleAsset(two, entryKey(3), false)]).toEqual([entryKey(3)]);
+  });
+
+  test("an asset is brought into view by the least scroll, never to the top for its own sake", () => {
+    // A list 200 tall, scrolled to 100: it shows 100 to 300.
+    expect(cycleRevealTop(100, 200, 150, 50), "already in view: the list stays").toBe(100);
+    expect(cycleRevealTop(100, 200, 40, 30), "above the view: its top is brought to the top").toBe(40);
+    expect(cycleRevealTop(100, 200, 280, 60), "below: brought up until its bottom shows").toBe(140);
+    expect(cycleRevealTop(100, 200, 280, 400), "taller than the view: its top shows").toBe(280);
+    // A list that does not scroll at all shows everything, so nothing moves.
+    expect(cycleRevealTop(0, 500, 300, 120)).toBe(0);
   });
 
   test("a selected key the cycle no longer holds is ignored", () => {
@@ -343,47 +450,6 @@ describe("the header and the footer", () => {
     expect(s.atRest).toBe(true);
     expect(s.now).toEqual({ kind: "text", text: "At rest, 1 of 2 landed" });
     expect(s.next).toEqual({ kind: "text", text: "Nothing waiting" });
-  });
-});
-
-describe("a cycle of one whose arc is not this session's", () => {
-  const read = (e: CycleEntryWire) =>
-    cycleShadeEntries(cycle([e]), ctx({ boundOwnerId: null, sessionId: STRANGER }))[0]!;
-
-  test("one line says where the arc stands", () => {
-    expect(cycleEntryStanding(read(entry(1, "joined")))).toEqual({
-      state: "done",
-      title: "Joined",
-      detail: "Landed. Its rounds and commit stay on record.",
-    });
-    expect(cycleEntryStanding(read(entry(1, "running", { bound_session: WRITER })))).toEqual({
-      state: "active",
-      title: "Running in another session",
-      detail: null,
-    });
-    expect(cycleEntryStanding(read(entry(1, "ready")))).toEqual({
-      state: "pending",
-      title: "Ready to start",
-      detail: "Nothing is in its way.",
-    });
-    expect(cycleEntryStanding(read(entry(1, "ready", { note: "after the release" }))).detail).toBe(
-      "after the release",
-    );
-    // A wait on nothing in the cycle: the note is the title, said once.
-    expect(cycleEntryStanding(read(entry(1, "waiting", { note: "the vendor ships" })))).toEqual({
-      state: "pending",
-      title: "the vendor ships",
-      detail: null,
-    });
-  });
-
-  test("its sketch is the first readable one it came from", () => {
-    expect(cycleEntrySketchText(GOLDEN, GOLDEN.entries[0]!)).toBe(GOLDEN.sketches![0]!.text!);
-    expect(cycleEntrySketchText(GOLDEN, GOLDEN.entries[1]!)).toBeNull();
-    const unread = cycle([entry(1, "ready", { from: ["B", "A"] })], {
-      sketches: [{ letter: "B", id: "0a0a0a0a", added: "2026-11-20T10:00:00Z" }, ...GOLDEN.sketches!],
-    });
-    expect(cycleEntrySketchText(unread, unread.entries[0]!)).toBe(GOLDEN.sketches![0]!.text!);
   });
 });
 

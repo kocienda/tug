@@ -241,11 +241,12 @@ describe("projectArcsCard — a section", () => {
 });
 
 describe("projectArcsCard — rows and tiles", () => {
-  test("a row is called by its arc, else its brief's title, else its file", () => {
+  test("a row is called by its brief's title, else its file, never its arc", () => {
     const rows = sectionOf(DATA).assets.flatMap((a) => (a.kind === "entry" ? [a.row] : []));
+    // The first two carry arcs and are still headed by their briefs' titles.
     expect(rows.map((r) => r.title)).toEqual([
-      "arc-cockpit",
-      "fix-join",
+      "The arc cockpit",
+      "Fix the join",
       "arc-hardening-brief.md",
       "arc-polish-brief.md",
     ]);
@@ -258,13 +259,13 @@ describe("projectArcsCard — rows and tiles", () => {
     expect(third?.kind === "entry" && third.row.title).toBe("Harden the arc");
   });
 
-  test("each tile says where its entry stands", () => {
+  test("each tile names its entry, then says where it stands", () => {
     const tiles = sectionOf(DATA, BOUND).tiles;
     expect(tiles.map((t) => t.label)).toEqual([
-      "Joined",
-      "Running in this session",
-      "after the release",
-      "Waits on 2, 3",
+      "The arc cockpit · Joined",
+      "Fix the join · Running in this session",
+      "arc-hardening-brief.md · after the release",
+      "arc-polish-brief.md · Waits on 2, 3",
     ]);
     expect(tiles.map((t) => t.state)).toEqual(["joined", "running", "ready", "waiting"]);
     expect(tiles[0]!.from).toEqual(["A"]);
@@ -288,7 +289,7 @@ describe("projectArcsCard — rows and tiles", () => {
     const running = (followed: string | null) => sectionOf(DATA, followed).tiles[1]!;
     expect(running(BOUND).elsewhere).toBeUndefined();
     expect(running("sess-other").elsewhere).toBe(true);
-    expect(running("sess-other").label).toBe("Running in another session");
+    expect(running("sess-other").label).toBe("Fix the join · Running in another session");
     // With nothing followed, no tile draws the dot.
     expect(running(null).elsewhere).toBeUndefined();
     expect(sectionOf(DATA, "sess-other").tiles.filter((t) => t.elsewhere).length).toBe(1);
@@ -338,7 +339,7 @@ describe("projectArcsCard — a cycle of one", () => {
     expect(section.sketches.length).toBe(GOLDEN_CYCLE.sketches?.length ?? 0);
     expect(section.assets.filter((a) => a.kind === "sketch").length).toBe(section.sketches.length);
     const entry = section.assets.find((a) => a.kind === "entry");
-    expect(entry?.kind === "entry" && entry.row.title).toBe("fix-join");
+    expect(entry?.kind === "entry" && entry.row.title).toBe("Fix the join");
     expect(entry?.kind === "entry" && entry.row.arc?.ownerId).toBe(RUNNING_KEY);
     // Its arc is still drawn once.
     expect(

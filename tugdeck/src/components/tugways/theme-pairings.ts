@@ -2916,16 +2916,12 @@ export const ELEMENT_SURFACE_PAIRING_MAP: ElementSurfacePairing[] = [
   // ---- cards/session-share-view.css ----
   { element: "--tug7-element-field-text-normal-label-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "content" },
 
-  // ---- cards/session-arc-shade.css, cards/session-arc-panels.css ----
+  // ---- cards/session-arc-shade.css ----
   //
-  // The arc shade and its panels paint on the content surface. The shade's
-  // edge, its header rule, each panel's border and a panel's floor rule are
-  // rules; a panel's top edge and a seam take the tone of where the rung
-  // stands.
+  // The arc shade paints on the content surface. The shade's edge and its
+  // header rule are rules.
   { element: "--tug7-element-global-border-normal-default-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "informational" },
   { element: "--tug7-element-global-border-normal-muted-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "informational" },
-  { element: "--tug7-element-global-text-normal-success-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "informational" },
-  { element: "--tug7-element-global-fill-normal-accent-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "informational" },
 
   // ---- cards/share-parts.css ----
   { element: "--tug7-element-field-text-normal-label-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "content" },

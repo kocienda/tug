@@ -236,9 +236,9 @@ A record that genuinely disagrees is a different matter, and it is not this stag
 
 ## The record of where the work came from
 
-An arc's directory holds one **record** beside its documents: `sketch.md`. It is written **for the user**. The app shows it as the first of three panels, Sketch, Brief and Arc, and the three tell one story, each more specific than the one before it:
+An arc's directory holds one **record** beside its documents: `sketch.md`. It is written **for the user**. The app shows it as the sketch the arc's cycle comes from, a lettered seal on the cycle's map and a row that opens to it whole, and it, the brief and the arc tell one story, each more specific than the one before it:
 
-| Panel | What it says | Where it comes from |
+| Part | What it says | Where it comes from |
 |---|---|---|
 | Sketch | what is wanted and what it is for, then the shape the work will take: its parts | `sketch.md` |
 | Brief | the decisions, and the findings they rest on | the brief |
@@ -246,7 +246,7 @@ An arc's directory holds one **record** beside its documents: `sketch.md`. It is
 
 The record says its own level and nothing of the next. A sketch that argues a decision has written the brief.
 
-**It is in the user's words.** The reader is the person whose project this is, looking at a panel weeks later. They did not write the code and do not have the conversation in front of them, and every word has to be one they understand. So the record carries:
+**It is in the user's words.** The reader is the person whose project this is, looking at it weeks later. They did not write the code and do not have the conversation in front of them, and every word has to be one they understand. So the record carries:
 
 - no file path, no code identifier, no command, and nothing in backticks;
 - no `[B01]`-style label and no stage or step number;

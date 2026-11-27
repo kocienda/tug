@@ -54,20 +54,11 @@ body {
   transform: none;
 }
 
-/* A cycle of several entries holds the full four fifths, so the shade's top
-   edge and the map under it stay put while the list beneath the map changes.
-   Its body does not scroll: the list inside it is the one scroller. */
-.session-arc-shade[data-form="several"] {
-  height: 80%;
-}
-
+/* A cycle is as tall as what it holds, up to the four fifths every shade may
+   take, and never holds blank space. Its body does not scroll: the list under
+   the map is the one scroller, and only once the four fifths are reached. */
 .session-arc-shade[data-form="several"] .session-arc-shade-body {
-  flex: 1 1 auto;
   overflow: hidden;
-}
-
-.session-arc-shade[data-form="several"] .session-arc-shade-body > * {
-  flex: 1 1 auto;
 }
 
 /* Motion off (`body[data-tug-motion="off"]`) is answered by `styles/tug.css`,
@@ -95,14 +86,6 @@ body {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--tug7-element-global-text-normal-muted-rest);
-}
-
-.session-arc-shade-name {
-  min-width: 0;
-  font-size: var(--tug-font-size-sm);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* The lowering control holds the header's trailing edge. */

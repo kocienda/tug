@@ -10,15 +10,23 @@
  * The rules held here:
  *
  *   - **Which cycle a card shows.** The cycle holding the arc this session is
- *     bound to; a session bound to an arc no cycle holds shows no cycle, so
- *     its arc reads as it always has; a session bound to no arc shows the
- *     most recently changed cycle it belongs to.
- *   - **The body's form.** No cycle and no arc; one entry, or an arc with no
- *     cycle; two or more entries.
+ *     bound to; a session bound to an arc no cycle holds shows the cycle of
+ *     one that arc is about to be, composed from the arc's own facts and
+ *     written nowhere; a session bound to no arc shows the most recently
+ *     changed cycle it belongs to.
+ *   - **The body's form.** The cycle body for any cycle, a cycle of one
+ *     included, and the hint for no cycle at all.
  *   - **Here and elsewhere.** A running entry is this session's when its arc
  *     is the one this session is bound to, or when its bound session is this
  *     session's segment or line. Bound to any other session it is elsewhere;
  *     bound to none it is running with nobody to name.
+ *   - **The headline.** An entry is headed by its brief's title, else its
+ *     brief's file name, and never by its arc's name: the entry is the brief,
+ *     and the arc is what happens to it.
+ *   - **Open and closed.** Every asset starts closed, the session's own
+ *     entry included. A press on its row or on its mark on the map opens it
+ *     alone, and a second press on the one open asset closes it; a shift-press
+ *     on the map adds or removes one. The selected assets are the open ones.
  *   - **Steps.** A running entry's steps are its arc row's, found by the
  *     owner key both wear in one frame. The cycle wire carries none.
  *
@@ -26,11 +34,13 @@
  */
 
 import type { CycleMapSketch, CycleMapTile } from "@/components/tugways/cycle-map";
-import { entryKey, sketchKey } from "@/components/tugways/cycle-map-layout";
+import { entryKey, NO_PICKS, pickOnMap, sketchKey } from "@/components/tugways/cycle-map-layout";
 
+import { parseArcRecord } from "@/lib/arc-record-text";
 import { arcTrackModelFromEntry } from "@/lib/arc-track-model";
 import type {
   ArcChangesetEntry,
+  ArcDocuments,
   CycleEntryWire,
   CycleSketchWire,
   CycleWire,
@@ -49,8 +59,8 @@ import { sessionLineStore } from "@/lib/session-line-store";
  * frame order (most recently changed first). `boundOwnerId` is the owner key
  * of the arc the session is bound to. The bound arc decides whenever there is
  * one: the shade's first job is to show the work this session is doing, so a
- * bound arc that no cycle holds shows no cycle rather than one the session
- * merely wrote.
+ * bound arc that no cycle holds finds no cycle here rather than one the
+ * session merely wrote, and {@link standInCycle} stands in for it.
  */
 export function chooseCycle(
   all: readonly CycleWire[],
@@ -64,20 +74,74 @@ export function chooseCycle(
 }
 
 /**
- * The three bodies the shade draws. `several` is the cycle body: the header,
+ * The two bodies the shade draws. `several` is the cycle body: the header,
  * the map, the asset list and the footer. It is drawn for every cycle,
- * a cycle of one included, so the name is older than its meaning.
+ * a cycle of one included, so the name is older than its meaning. `none` is
+ * the hint, for a session with no cycle and no arc.
  */
-export type CycleShadeForm = "none" | "one" | "several";
+export type CycleShadeForm = "none" | "several";
+
+/** The body's form: `several` for any cycle with an entry, `none` otherwise. */
+export function cycleShadeForm(cycle: CycleWire | null): CycleShadeForm {
+  return (cycle?.entries.length ?? 0) >= 1 ? "several" : "none";
+}
+
+/** What a bound arc carries that its stand-in cycle of one is composed from. */
+export interface StandInArc {
+  ownerId: string;
+  name: string;
+  projectDir: string;
+  boundSession: string;
+  documents: ArcDocuments | undefined;
+}
 
 /**
- * The body's form: `several` for any cycle with an entry, `one` for a bound
- * arc that no cycle holds, `none` otherwise.
+ * The cycle of one a bound arc is about to be, while no cycle holds it.
+ *
+ * The `/arc` door creates the arc and binds the session before it puts the
+ * arc on its cycle, so every arc spends a moment on none. Composed from the
+ * arc's own facts, the shade draws the ordinary cycle body from it: the
+ * arc's record of where the work came from as sketch `A` when it has one,
+ * and its brief as entry 1, running in this session. It is named by the
+ * brief's title, and the real cycle takes its place when the attach lands.
+ * Nothing is written.
  */
-export function cycleShadeForm(cycle: CycleWire | null, hasArc: boolean): CycleShadeForm {
-  const count = cycle?.entries.length ?? 0;
-  if (count >= 1) return "several";
-  return hasArc ? "one" : "none";
+export function standInCycle(arc: StandInArc): CycleWire {
+  const docs = arc.documents;
+  const briefPath = docs?.brief;
+  const prefix = `${arc.projectDir.replace(/\/+$/, "")}/`;
+  let brief = "brief.md";
+  if (briefPath !== undefined) brief = briefPath.startsWith(prefix) ? briefPath.slice(prefix.length) : briefPath;
+  const text = docs?.sketch_text;
+  const record = text !== undefined && text.trim() !== "" ? text : null;
+  const lead = record === null ? undefined : parseArcRecord(record).find((b) => b.kind === "paragraph");
+  const entry: CycleEntryWire = {
+    n: 1,
+    brief,
+    ...(briefPath !== undefined ? { brief_path: briefPath } : {}),
+    ...(docs?.brief_title !== undefined ? { brief_title: docs.brief_title } : {}),
+    arc: { name: arc.name },
+    waits: [],
+    from: record === null ? [] : ["A"],
+    added: "",
+    state: "running",
+    owner_id: arc.ownerId,
+    bound_session: arc.boundSession,
+  };
+  const sketches: CycleSketchWire[] =
+    record === null
+      ? []
+      : [{ letter: "A", id: "", added: "", ...(lead?.kind === "paragraph" ? { want: lead.text } : {}), text: record }];
+  return {
+    id: `arc:${arc.ownerId}`,
+    name: cycleEntryHeadline(entry),
+    created: "",
+    updated: "",
+    project_dir: arc.projectDir,
+    entries: [entry],
+    sketches,
+    landed: 0,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -144,11 +208,28 @@ export interface CycleShadeEntry {
   steps: { done: number; total: number } | null;
   /** The running entry's arc row, for a surface that draws its steps. */
   row: ArcChangesetEntry | null;
+  /** What the entry is called: its brief's title, else its file name. */
+  headline: string;
   /** How the entry stands, in one sentence. */
   sentence: string;
 }
 
-/** The sentence for how an entry stands: the tile's tooltip and name. */
+/**
+ * What an entry is called on every surface: its brief's title, else the
+ * brief's file name when the title is not on the wire. Never the arc's name.
+ */
+export function cycleEntryHeadline(entry: CycleEntryWire): string {
+  if (entry.brief_title !== undefined && entry.brief_title !== "") return entry.brief_title;
+  const cut = entry.brief.lastIndexOf("/");
+  return cut === -1 ? entry.brief : entry.brief.slice(cut + 1);
+}
+
+/** A tile's tooltip and, after its number, its accessible name: the work, then where it stands. */
+export function cycleTileLabel(headline: string, sentence: string): string {
+  return `${headline} · ${sentence}`;
+}
+
+/** The sentence for how an entry stands, which a tile's label carries after the headline. */
 function sentenceOf(entry: CycleEntryWire, where: CycleEntryWhere | null, openWaits: readonly number[]): string {
   switch (entry.state) {
     case "joined":
@@ -183,6 +264,7 @@ export function cycleShadeEntries(cycle: CycleWire, ctx: CycleShadeContext): Cyc
         openWaits,
         steps: track === null ? null : { done: track.done, total: track.total },
         row,
+        headline: cycleEntryHeadline(entry),
         sentence: sentenceOf(entry, where, openWaits),
       };
     });
@@ -194,14 +276,14 @@ export function cycleShadeEntries(cycle: CycleWire, ctx: CycleShadeContext): Cyc
 
 /** The map's tiles: one per entry. */
 export function cycleMapTiles(entries: readonly CycleShadeEntry[]): CycleMapTile[] {
-  return entries.map(({ entry, where, steps, sentence }) => ({
+  return entries.map(({ entry, where, steps, headline, sentence }) => ({
     n: entry.n,
     waits: entry.waits,
     from: entry.from ?? [],
     state: entry.state,
     ...(where === "elsewhere" ? { elsewhere: true } : {}),
     ...(steps !== null ? { steps } : {}),
-    label: sentence,
+    label: cycleTileLabel(headline, sentence),
   }));
 }
 
@@ -240,8 +322,8 @@ export function cycleAssetKeys(cycle: CycleWire): string[] {
  * What the list shows under a selection, and what it brings to its top.
  *
  * Two or more selected: only those, under Back. One selected: the whole
- * list, scrolled to that asset. A selected key the cycle no longer holds is
- * ignored.
+ * list, with that asset brought into view. A selected key the cycle no
+ * longer holds is ignored.
  */
 export function cycleListView(
   keys: readonly string[],
@@ -250,6 +332,41 @@ export function cycleListView(
   const live = keys.filter((k) => chosen.has(k));
   if (live.length >= 2) return { shown: live, narrowed: true, top: null };
   return { shown: keys, narrowed: false, top: live[0] ?? null };
+}
+
+/**
+ * Where a list scrolled to `scrollTop`, showing `viewHeight` of itself,
+ * should scroll to bring an asset at `assetTop` of height `assetHeight` into
+ * view, moving as little as it can. An asset already in view leaves the list
+ * where it is; one above it is brought to the top; one below it is brought
+ * up until its bottom shows, or its top when it is taller than the view.
+ */
+export function cycleRevealTop(scrollTop: number, viewHeight: number, assetTop: number, assetHeight: number): number {
+  const assetBottom = assetTop + assetHeight;
+  if (assetTop < scrollTop) return assetTop;
+  if (assetBottom <= scrollTop + viewHeight) return scrollTop;
+  return Math.min(assetTop, assetBottom - viewHeight);
+}
+
+/**
+ * The selection after a press on an asset's mark on the map. A plain press
+ * opens that asset alone, and a plain press on the one asset already open
+ * closes it; a shift-press adds or removes one; a press on the map's ground
+ * (`key` null) closes everything.
+ */
+export function pressCycleAsset(chosen: ReadonlySet<string>, key: string | null, shift: boolean): ReadonlySet<string> {
+  if (key !== null && !shift && chosen.size === 1 && chosen.has(key)) return NO_PICKS;
+  return pickOnMap(chosen, key, shift);
+}
+
+/**
+ * The selection after a press on an asset's row: the same as a plain press on
+ * its mark, except that a list narrowed to several assets keeps its
+ * selection, since every row it shows is already open.
+ */
+export function pressCycleRow(chosen: ReadonlySet<string>, key: string): ReadonlySet<string> {
+  if (chosen.size > 1) return chosen;
+  return pressCycleAsset(chosen, key, false);
 }
 
 /** A sketch by its key's letter, or null. */
@@ -325,46 +442,6 @@ export function cycleShadeSummary(cycle: CycleWire, entries: readonly CycleShade
         ? { kind: "entry", entry: first, note: first.entry.note ?? null, more: ready.length - 1 }
         : { kind: "text", text: atRest ? "Nothing waiting" : "Nothing is ready until an arc lands" },
   };
-}
-
-// ---------------------------------------------------------------------------
-// A cycle of one, whose arc is not this session's
-// ---------------------------------------------------------------------------
-
-/** How the one entry's arc stands, for the Arc panel of a cycle of one. */
-export interface CycleEntryStanding {
-  state: "done" | "active" | "pending";
-  title: string;
-  detail: string | null;
-}
-
-/**
- * The one line that stands in for the Arc panel when the entry's arc is not
- * bound to this session, and so has no verbs here.
- */
-export function cycleEntryStanding(read: CycleShadeEntry): CycleEntryStanding {
-  const { entry, sentence } = read;
-  switch (entry.state) {
-    case "joined":
-      return { state: "done", title: "Joined", detail: "Landed. Its rounds and commit stay on record." };
-    case "running":
-      return { state: "active", title: sentence, detail: entry.note ?? null };
-    case "dropped":
-      return { state: "pending", title: "Dropped", detail: "Starting its brief again brings it back." };
-    case "ready":
-      return { state: "pending", title: "Ready to start", detail: entry.note ?? "Nothing is in its way." };
-    default:
-      return { state: "pending", title: sentence, detail: sentence === entry.note ? null : (entry.note ?? null) };
-  }
-}
-
-/** The text of the first readable sketch an entry came from, or null. */
-export function cycleEntrySketchText(cycle: CycleWire, entry: CycleEntryWire): string | null {
-  for (const letter of entry.from ?? []) {
-    const text = cycleSketch(cycle, letter)?.text;
-    if (text !== undefined) return text;
-  }
-  return null;
 }
 
 // ---------------------------------------------------------------------------

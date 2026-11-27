@@ -62,6 +62,7 @@
  * @covers tugdeck/src/components/tugways/tug-arc-track.css
  * @covers tugdeck/src/lib/changeset-types.ts
  * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-popovers.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-cycle-shade.tsx
  * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-popovers.css
  * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-renderers.tsx
  * @covers tugdeck/src/overlay/overlay-surface-styles.ts
@@ -101,6 +102,7 @@ import {
   type ArcScratchRepo,
 } from "./arc-fixture";
 import { kindBody } from "./_harness/card-reach";
+import { ARC_ENTRY_BODY, openArcEntry } from "./arc-entry-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -118,9 +120,8 @@ const planRow = (name: string): string => `${PLAN_ROWS}[data-arc="${name}"]`;
 /** The Z2 ARC cell. */
 const CELL =
   '[data-card-id="A"] [data-slot="tug-status-cell"][data-priority="arc"]';
-/** The arc's reading in the card's arc shade, while the shade is raised. */
-const ARC_PLACARD =
-  '[data-slot="session-arc-shade"][data-raised="true"] [data-slot="session-arc-panel"][data-rung="arc"] [data-slot="session-arc-popover-body"]';
+/** The arc's reading in its open entry in the card's raised shade. */
+const ARC_PLACARD = ARC_ENTRY_BODY;
 const ARC_NAME = "at0473-cockpit";
 
 /** This checkout — the build under test, and never a tree a fixture writes in. */
@@ -621,10 +622,9 @@ describe.skipIf(!SHOULD_RUN)(
 
           // ── And the click raises the cockpit detail in the arc shade ──────
           await app.body("A").click(CELL);
-          await app.body("A").waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(ARC_PLACARD)}) !== null`,
-            { timeoutMs: 10000 },
-          );
+          // The arc is on no cycle, so the shade draws the cycle of one it is
+          // about to be; its entry opens on a press to show the arc's reading.
+          await openArcEntry(app);
           const placard = await app.body("A").evalJS<{
             text: string;
             rows: Array<{ text: string; status: string | null }>;
@@ -738,11 +738,12 @@ describe.skipIf(!SHOULD_RUN)(
           expect(longBox.text).toBe("1/12");
 
           // ── The placard opens on the step under way ───────────────────────
-          // A sixteen-row ledger is taller than the placard's list, and a list
-          // that opens at the top opens on the rows the walk has left behind:
-          // at step sixteen every visible title is struck through and the
-          // running one is below the fold. So the placard scrolls itself to
-          // the row under way. Written straight into the document and
+          // A sixteen-row ledger is taller than the shade's list shows, and a
+          // list that opens at the top opens on the rows the walk has left
+          // behind: at step sixteen every visible title is struck through and
+          // the running one is below the fold. So the arc's reading scrolls the
+          // list it stands in, the cycle body's one scroller, to the row under
+          // way. Written straight into the document and
           // re-stamped, because a walk is what the run does over minutes and
           // the ledger's cells are what the placard reads.
           writeFileSync(
@@ -771,8 +772,9 @@ describe.skipIf(!SHOULD_RUN)(
             activeText: string;
           }>(
             `(() => {
-               const body = document.querySelector(${JSON.stringify(ARC_PLACARD)});
-               const rows = Array.from(body.querySelectorAll('[data-slot="arc-step"]'));
+               const reading = document.querySelector(${JSON.stringify(ARC_PLACARD)});
+               const body = reading.closest('[data-slot="session-cycle-shade-list"]');
+               const rows = Array.from(reading.querySelectorAll('[data-slot="arc-step"]'));
                const active = rows[15];
                const bodyRect = body.getBoundingClientRect();
                const rowRect = active.getBoundingClientRect();
@@ -787,7 +789,7 @@ describe.skipIf(!SHOULD_RUN)(
              })()`,
           );
           note("at0473 arc placard reveal", JSON.stringify(reveal));
-          // The premise: this list really does overflow its scroller. Without
+          // The premise: the list really does overflow its scroller. Without
           // it the assertion below would pass on a placard that never scrolled
           // anything, and the reveal would be untested.
           expect(reveal.scrollable, "a sixteen-row ledger overflows").toBe(true);
@@ -824,6 +826,7 @@ describe.skipIf(!SHOULD_RUN)(
             )
           ) {
             await app.body("A").click(CELL);
+            await openArcEntry(app);
           }
           await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(`${ARC_PLACARD} .session-arc-popover-head [data-slot="tug-arc-track"][data-phase="audit"]`)}) !== null`,

@@ -845,10 +845,12 @@ pub enum CycleCommands {
     },
     /// List every cycle on this machine that breaks the chain: an entry
     /// with no brief or no sketch, a letter the cycle does not have, a sketch
-    /// gone from the store, or an arc carried by more than one entry.
+    /// gone from the store, or an arc carried by more than one entry. Beside
+    /// them, every live arc no entry carries, in each checkout that keeps
+    /// cycles: an arc the door opened and never attached.
     ///
     /// Read-only, and needs no repository. Exits 0 when every record is
-    /// whole, and 1 when any breaks.
+    /// whole and every live arc is on a cycle, and 1 otherwise.
     Check,
 }
 

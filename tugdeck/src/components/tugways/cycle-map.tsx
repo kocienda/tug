@@ -59,7 +59,10 @@ export interface CycleMapTile {
   elsewhere?: boolean;
   /** How far a running entry has got: pips that share the tile's room, or one bar when they would not fit. */
   steps?: { done: number; total: number };
-  /** The sentence that is the tile's tooltip and, after its number, its accessible name. */
+  /**
+   * The tile's tooltip and, after its number, its accessible name: the brief's
+   * title, then ` · `, then the sentence saying where the entry stands.
+   */
   label: string;
 }
 

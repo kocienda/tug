@@ -66,7 +66,7 @@ The cycle shade and the Cycles & Arcs card show a cycle. Neither sends a turn, a
 
 ## Where a cycle shows
 
-A cycle shows in the session that wrote it and in every session bound to one of its arcs or that ran a stage of one (`cyclesForSession` in `tugdeck/src/lib/cycle-store.ts`). A Session card bound to an arc shows the cycle holding that arc, and no cycle when none holds it, because the shade's first job is the work this session is doing; a card bound to no arc shows the most recently changed cycle the session belongs to (`chooseCycle` in `tugdeck/src/components/tugways/cards/session-cycle-shade-model.ts`).
+A cycle shows in the session that wrote it and in every session bound to one of its arcs or that ran a stage of one (`cyclesForSession` in `tugdeck/src/lib/cycle-store.ts`). A Session card bound to an arc shows the cycle holding that arc, because the shade's first job is the work this session is doing, and when no cycle holds it yet the card shows the [cycle of one](#a-cycle-of-one) the arc is about to be; a card bound to no arc shows the most recently changed cycle the session belongs to (`chooseCycle` in `tugdeck/src/components/tugways/cards/session-cycle-shade-model.ts`).
 
 A running entry names its session with the ordinary session chip, and pressing the chip goes to that session. The chip is the link between sessions. *Rejected: a separate "go to session" control.*
 
@@ -88,11 +88,21 @@ The map is presentational: it reads no store and derives no state. The host hold
 
 A sketch or an entry is drawn once under the map, and that one drawing holds everything about it. For an entry that is its arc, its session, its brief, what it waits on, its note, its state, and its steps while it runs. For a sketch it is its letter, the entries it heads, and its text. In the sidebar the asset is one row that opens in place. *Rejected: a detail panel beside the list.*
 
+**An entry is headed by its brief's title.** An entry is a brief, and the arc is what happens to it, so every surface names the entry by what the brief says the work is: its row in the shade and in the Cycles & Arcs card, the shade footer's Now and Next lines, and its tile's tooltip, which reads the title and then the state sentence, as in "The tooled style keeps one look · Running in this session". The title is the brief's first heading as the feed sends it, and when the brief's file is not on disk the headline falls back to the file name; the arc's name is never the headline (`cycleEntryHeadline` in `tugdeck/src/components/tugways/cards/session-cycle-shade-model.ts`). The arc is named once it exists: a running or joined entry shows its arc's chip beneath the title, beside its session and the brief's file atom, and a ready, waiting or dropped entry shows none, because it has no arc to name. *Rejected: a node for the brief on the map, between its sketch and its tile. A brief and its arc are almost always one to one, so the second node and its wire carried nothing, and the map grew by a column and several rows.*
+
+*Reversed, 2026-11-27: an entry was first headed by its arc's name once it had one, and by its brief's title only before. A ready entry and a running one then named the same work two different ways.*
+
+**An asset starts closed and opens in place.** In the shade a sketch's row is its letter and its opening sentence, and an entry's row is its number, its title and its state mark, with the arc's chip and the session for one that is running. A press on the row, or on its tile or seal on the map, opens that asset where it is: the sketch whole, or the entry's steps and verbs, its brief's file link, what it waits on and its note. A second press closes it. The bound arc's own entry starts closed too, since the footer's Now line already says where it stands and one press reaches its steps and its Stop. The sidebar's rows already worked this way, so the two surfaces behave alike. *Reversed, 2026-11-27: every asset in the shade was first drawn open, and the bound arc's entry listed its brief's headings.*
+
+**A brief's contents are not listed on a cycle's surfaces.** The brief is on the map as its tile and in its row as its title, and its file link opens the document; it is shown when the user presses that link, and not before. *Rejected: the brief's Decisions and Findings headings under its entry.*
+
 A running entry's steps are read from its arc's own row in the same frame, found by the owner key both carry, so the entry and the arc cannot disagree.
 
 ## A press on the map never moves the map
 
-A press on a tile or a seal brings the pressed asset up under the map. In the shade the list scrolls and the map stays fixed above it. In the sidebar each cycle's header and map pin to the top of the card while that cycle's rows scroll under them (`tugdeck/src/components/arcs/arcs-card.css`). Only a map press scrolls: a press on a row leaves the row under the pointer.
+A press on a tile or a seal opens the pressed asset in place and brings it into view. In the shade the list scrolls only as far as it must to show the asset, never to put it at the top, and the map stays fixed above it (`cycleRevealTop` in `tugdeck/src/components/tugways/cards/session-cycle-shade-model.ts`). In the sidebar each cycle's header and map pin to the top of the card while that cycle's rows scroll under them (`tugdeck/src/components/arcs/arcs-card.css`). Only a map press scrolls: a press on a row leaves the row under the pointer. The map holds its place on the screen, but the shade may grow under it when an asset opens, because [the shade is as tall as what it holds](#the-cycle-shade).
+
+*Reversed, 2026-11-27: a map press first scrolled the asset to the top of the list, and a blank tail under the last asset made room for it, so the shade never changed height. With every asset closed by default the list is short, and a shade that grows when a row opens costs less than one that holds blank space.*
 
 ## Selection
 
@@ -115,15 +125,19 @@ The Session card's status row has an ordinary cell labelled `CYCLE:ARC`. Pressed
 
 ## A cycle of one
 
-A cycle of one is a cycle, on every surface: a surface draws what the record holds and adds no special case. In the Session card it has the same header, map, asset list and footer as any other (`cycleShadeForm`), in the Cycles & Arcs card the same name, map and sketch (`projectArcsCard` in `tugdeck/src/components/arcs/arcs-projection.ts`), and in the status row the same two fractions. The entry for the arc the session is bound to holds that arc's own steps and verbs (`ArcPopoverContent`) and its brief's headings, so stopping and landing an arc happen in its entry.
+A cycle of one is a cycle, on every surface: a surface draws what the record holds and adds no special case. In the Session card it has the same header, map, asset list and footer as any other (`cycleShadeForm`), in the Cycles & Arcs card the same name, map and sketch (`projectArcsCard` in `tugdeck/src/components/arcs/arcs-projection.ts`), and in the status row the same two fractions. The entry for the arc the session is bound to holds that arc's own steps and verbs (`ArcPopoverContent`) once it is opened, so stopping and landing an arc happen in its entry.
 
-Only an arc that no cycle holds is drawn alone, and since [every link is required](#the-chain) that is a defect to repair by putting the arc on a cycle, not a form to keep. The check verb reads the cycle records, so it finds a broken entry, but an arc on no cycle at all is not in any record for it to read.
+**An arc on no cycle is drawn as the cycle of one it is about to be.** The `/arc` door creates an arc and binds its session before it puts the arc on its cycle, so every arc spends a moment on none. For that moment the deck composes a cycle of one from the arc's own facts: its record of where the work came from as sketch `A` when it has one, its brief as entry 1, running in this session, and the cycle named by the brief's title (`standInCycle` in `tugdeck/src/components/tugways/cards/session-cycle-shade-model.ts`). The shade draws the ordinary body from it, `A` to `1`, or the tile `1` alone with no sketch, and the real cycle takes its place when the attach lands. Nothing is written. The stand-in is the shade's alone: the CYCLE:ARC cell reads only a cycle on record, so an arc that never reaches one reads as its arc alone rather than `0/1 : 2/5`.
+
+**An arc that stays on no cycle is reported.** Since [every link is required](#the-chain), an arc whose attach never landed is a defect to repair by putting it on a cycle, and the stand-in must not hide it. `tugtool cycle check` lists every live arc no entry carries, in each checkout that keeps cycles, beside the chain breaks it lists (`unattached_arcs` in `tugrust/crates/tugarc-core/src/cycle.rs`), and fails when there is one.
 
 *Reversed, 2026-11-26: the shade first kept the arc's three panels for a cycle of one, and the sidebar a plain row with no header, map or number. The user saw the first real cycles drawn that way and asked for the one design everywhere.*
 
+*Reversed, 2026-11-27: an arc no cycle held was still drawn as the three panels, and the check could not see it. The panels are gone from the application: a session bound to an arc always shows the cycle body, and the check reads the arc log beside the records.*
+
 ## The cycle shade
 
-The shade is a header, the map, the asset list and a footer (`tugdeck/src/components/tugways/cards/session-cycle-shade.tsx`). The header has the lowering control, the cycle's name and how much has landed. The footer is two lines: what this session is doing now, and what is ready next. Work running in other sessions is named with each session's chip, which goes to that session. Under 520 px of card width the footer gives up its count of other sessions.
+The shade is a header, the map, the asset list and a footer (`tugdeck/src/components/tugways/cards/session-cycle-shade.tsx`). It is as tall as what it holds, up to four fifths of the card, and only past that does the list scroll; it never holds blank space under its last asset (`tugdeck/src/components/tugways/cards/session-arc-shade.css`). *Reversed, 2026-11-27: the shade first stood at a fixed four fifths of the card, so a cycle of one with nothing open sat over a blank tail.* The header has the lowering control, the cycle's name and how much has landed. The footer is two lines: what this session is doing now, and what is ready next. Work running in other sessions is named with each session's chip, which goes to that session. Under 520 px of card width the footer gives up its count of other sessions.
 
 **Other shades stand over the cycle shade and do not lower it.** A Changes or History shade presents over a raised cycle shade, Find opens beside it, and the cycle shade is there when they leave (`tugdeck/src/lib/arc-shade-controller.ts`). Only share mode lowers it, because share mode selects the transcript turns the shade would cover.
 

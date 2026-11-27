@@ -1467,6 +1467,21 @@ function newestRowIndex(statuses: ReadonlyArray<string>): number {
 }
 
 /**
+ * The box a list's rows scroll in: the list's own scroller when it scrolls,
+ * else the nearest ancestor that does, else the list's scroller still.
+ */
+function scrollRootOf(scroller: HTMLElement): HTMLElement {
+  const scrolls = (el: HTMLElement): boolean => {
+    const overflow = getComputedStyle(el).overflowY;
+    return overflow === "auto" || overflow === "scroll";
+  };
+  for (let el: HTMLElement | null = scroller; el !== null; el = el.parentElement) {
+    if (scrolls(el)) return el;
+  }
+  return scroller;
+}
+
+/**
  * Bring the named row into the scroller's view when the placard opens, and
  * again whenever a different row becomes the one to show while it is open.
  *
@@ -1486,6 +1501,13 @@ function newestRowIndex(statuses: ReadonlyArray<string>): number {
  * The item-row lists take this route; the two chronological logs (STATE, TIME)
  * take the scroller's own `stickToBottom`, which says the same thing about a
  * list whose newest row is always its last.
+ *
+ * A list set inline into a surface that scrolls, as the arc's reading is in
+ * its entry in the cycle shade, does not scroll itself: the surface does. So
+ * the reveal is made in the nearest box that scrolls, the list's own scroller
+ * or the first ancestor that does, and it lands at once whatever that box's
+ * `scroll-behavior`, since the list opens on the row rather than travelling
+ * to it.
  */
 function useRevealRow(
   scrollerRef: React.RefObject<HTMLDivElement | null>,
@@ -1495,13 +1517,14 @@ function useRevealRow(
     if (revealIndex < 0) return;
     const root = scrollerRef.current;
     if (root === null) return;
+    const scroller = scrollRootOf(root);
     const reveal = (): void => {
       const rows = root.querySelectorAll<HTMLElement>(".tug-popup-list-item");
       const row: HTMLElement | undefined = rows[revealIndex];
       if (row === undefined) return;
 
       // Layout px: the centring meets `clientHeight` and lands in `scrollTop`.
-      const rootRect = layoutRectOf(root);
+      const rootRect = layoutRectOf(scroller);
       const rowRect = layoutRectOf(row);
       const margin = rowRect.height;
       if (
@@ -1513,8 +1536,10 @@ function useRevealRow(
       // Centred, so the rows on either side of the revealed one are readable;
       // the browser clamps the result at both ends, which is what puts a first
       // or last revealed row flush against its edge.
-      root.scrollTop +=
-        rowRect.top - rootRect.top - (root.clientHeight - rowRect.height) / 2;
+      scroller.scrollTo({
+        top: scroller.scrollTop + rowRect.top - rootRect.top - (scroller.clientHeight - rowRect.height) / 2,
+        behavior: "instant",
+      });
     };
     reveal();
     if (typeof ResizeObserver === "undefined") return;

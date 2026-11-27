@@ -564,21 +564,7 @@
   padding-inline-start: calc(var(--tug-space-lg) + 1.5em);
 }
 
-/* ---- A cycle of one, and no cycle --------------------------------------- */
-
-.sp-cycle-panels {
-  padding: var(--tug-space-sm);
-}
-
-.sp-cycle-decisions {
-  display: flex;
-  flex-direction: column;
-  gap: var(--tug-space-2xs);
-}
-
-.sp-cycle-arc-head {
-  padding: var(--tug-space-xs) var(--tug-space-sm);
-}
+/* ---- No cycle ----------------------------------------------------------- */
 
 .sp-cycle-none {
   display: flex;

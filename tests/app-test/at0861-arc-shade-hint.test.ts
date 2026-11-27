@@ -5,7 +5,7 @@
  * What is read:
  *
  *   1. A press on the ARC cell of a session with no arc raises the shade,
- *      and the shade holds no panels.
+ *      and the shade holds no cycle body.
  *   2. The shade says `None` in the shared empty line, centered, with no
  *      link and no button.
  *   3. The project has an arc no session is working, and the shade neither
@@ -96,14 +96,14 @@ describe.skipIf(!SHOULD_RUN)("AT0861: the arc shade with no arc", () => {
           { timeoutMs: 20_000 },
         );
 
-        // ── The cell raises the shade, with no panels ─────────────────────
+        // ── The cell raises the shade, with no cycle body ─────────────────
         await app.body("A").click(ARC_CELL);
         await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHADE)})?.getAttribute("data-raised") === "true"`,
           { timeoutMs: 10_000 },
         );
         const shade = await app.body("A").evalJS<{
-          panels: boolean;
+          cycle: boolean;
           none: string;
           justify: string;
           links: number;
@@ -115,7 +115,7 @@ describe.skipIf(!SHOULD_RUN)("AT0861: the arc shade with no arc", () => {
              const none = document.querySelector(${JSON.stringify(NONE)});
              const text = (el) => (el?.textContent ?? "").replace(/\\s+/g, " ").trim();
              return {
-               panels: shade.querySelector('[data-slot="session-arc-panels"]') !== null,
+               cycle: shade.querySelector('[data-slot="session-cycle-shade"]') !== null,
                none: text(none),
                justify: getComputedStyle(none).justifyContent,
                links: shade.querySelectorAll("a").length,
@@ -125,7 +125,7 @@ describe.skipIf(!SHOULD_RUN)("AT0861: the arc shade with no arc", () => {
            })()`,
         );
         note("at0861 shade", JSON.stringify(shade));
-        expect(shade.panels, "no arc, no panels").toBe(false);
+        expect(shade.cycle, "no arc and no cycle, so no cycle body").toBe(false);
         expect(shade.none, "the shade says None").toBe("None");
         expect(shade.justify, "centered").toBe("center");
         expect(shade.links, "no link").toBe(0);

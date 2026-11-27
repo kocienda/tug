@@ -1590,14 +1590,6 @@ export const LAYOUT_MOTION_CARVE_OUTS: ReadonlyMap<string, LayoutMotionCarveOut>
       },
     ],
     [
-      "tugdeck/src/components/tugways/cards/session-arc-panels.tsx",
-      {
-        properties: ["grid-template-columns", "grid-template-rows"],
-        ending:
-          "main-thread by design: an arc panel expanding or going back in the arc shade, where the text has to rewrap as the column edge passes and only layout rewraps it; one-shot on a press, four panels in a shade outside any settle",
-      },
-    ],
-    [
       "tugdeck/src/components/tugways/tug-tab-bar.css",
       {
         properties: ["left", "min-height"],
