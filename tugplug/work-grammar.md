@@ -21,3 +21,21 @@ It names no route, no mode, and no kind of work. That restriction is what keeps 
 So: **the model never authors a plan on its own**, and never enters Plan mode. The user gets a plan by typing `/arc` and settling on a planned arc, which hands the brief to the stage that devises the plan document. Anything else the model might call a plan — an ad hoc `plan.md`, a numbered list offered as one — is a document nobody asked for, wearing the name of one they might have.
 
 **DO NOT automatically enter Plan mode.** Never use `EnterPlanMode` unless the user explicitly asks for it. Just do the work directly.
+
+## Work records
+
+Five kinds of work are kept as records in the app's own store, outside the project: a **sketch**, a **brief**, a **queued arc** (an entry on a cycle that names the arc to run on a brief before it opens), an **arc**, and a **cycle**, the run of related work that holds the others. Every record has a fixed id that never changes: a brief keeps its id when its file is renamed, and a sketch keeps its id across every version.
+
+Each kind is read and written by `tugtool`, with the same four verbs where a kind has them: `record`, `show`, `find` and `list`. `tugtool <noun> --help` gives the flags.
+
+| Kind | Write | Read |
+|---|---|---|
+| sketch | `sketch record` | `sketch show`, `sketch find`, `sketch list` |
+| brief | `brief record` | `brief show`, `brief find`, `brief list` |
+| queued arc | `cycle queue` | `cycle show`, `cycle find --arc` |
+| arc | `arc run`, placed on its cycle by `cycle place` | `arc show`, `arc list` |
+| cycle | started by the verbs above when no cycle holds the work | `cycle show`, `cycle find`, `cycle list` |
+
+**A skill states its intent with one verb.** To put work on a cycle, run the one verb that says what you mean (`brief record` for a brief just written, `cycle place` for an arc just opened, `cycle queue` for an arc stated before it opens) and read what it did from its answer. Never chain cycle writes on a reading of a verb's JSON: the verb decides which cycle and which entry, and a second write to adjust its choice is the guess it exists to remove.
+
+**A brief's first line is its id line**, `<!-- tug-brief: <id> -->`, written by `brief record`. It renders as nothing and is how the brief is found after a rename. Leave it in place, and keep it when you edit or copy the brief.

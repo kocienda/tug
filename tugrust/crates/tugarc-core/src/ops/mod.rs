@@ -24,7 +24,7 @@ mod listing;
 mod show;
 mod steps;
 // Test-only by its own `#![cfg(test)]`, which the workspace's source scans read.
-mod test_support;
+pub(crate) mod test_support;
 
 pub use commit::*;
 pub use create::*;

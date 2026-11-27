@@ -19,6 +19,17 @@ pub mod sketch;
 /// The cycle record: a container of related arcs, briefs and sketches.
 pub mod cycle;
 
+/// The brief record: a brief's own id, every path it has had, and the
+/// commits that changed it.
+pub mod brief;
+
+/// The one lock every work record is written under.
+pub mod record_lock;
+
+/// The work log: one JSON line per change to a sketch, a brief, a queued arc
+/// or an arc, which tugcast reads into facts.
+pub mod work_log;
+
 /// The arc record — the server-driven arc's stages, document, and plan, kept
 /// as arc log lines keyed by name so the record exists before a branch does.
 pub mod arc;

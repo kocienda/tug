@@ -154,7 +154,13 @@ pub fn archive_documents(
     // recorded it. A sketch that cannot be recorded leaves the entry without
     // an id, never the archive unwritten.
     let sketch_id = if source.join("sketch.md").is_file() {
-        crate::sketch::record_arc_sketch(paths, repo, name)
+        crate::sketch::record_arc_sketch(
+            paths,
+            repo,
+            name,
+            &crate::work_log::By::none(),
+            crate::sketch::Written::AtTheTime,
+        )
             .ok()
             .map(|r| r.id)
     } else {

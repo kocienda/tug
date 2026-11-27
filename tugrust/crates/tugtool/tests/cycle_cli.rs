@@ -563,3 +563,41 @@ fn an_old_entry_is_repaired_and_the_check_reads_the_whole_machine() {
         format!("{id}  B")
     );
 }
+
+/// The queued-work fence names an arc for a brief; the `/arc` door, opening
+/// that arc, fills the same entry rather than adding one, and a second
+/// opening finds it already placed.
+#[test]
+fn a_queued_arc_is_filled_by_its_place_and_found_by_name() {
+    let s = Scratch::new();
+    let id = s.ok(&["cycle", "create", "--name", "Queue"]);
+    let sketch = record_on_stdin(&s, &[], "# Sketch\n\nWant a queue.\n");
+    let sketch_id = sketch["id"].as_str().unwrap().to_string();
+    assert_eq!(s.ok(&["cycle", "add-sketch", &id, &sketch_id]), "A");
+
+    let queued = s.json(&[
+        "cycle", "queue", "alpha", "--brief", "briefs/one.md", "--cycle", &id, "--from", "A",
+        "--label", "the first", "--turn", "4",
+    ]);
+    assert_eq!(queued["cycle"], id.as_str());
+    assert_eq!(queued["n"], 1);
+    assert_eq!(queued["outcome"], "added");
+    let refused = s.out(&["cycle", "queue", "alpha", "--brief", "briefs/one.md", "--cycle", &id]);
+    assert!(!refused.status.success(), "one unsettled entry per name");
+
+    s.write_log("2026-11-01T00:00:00.000Z  alpha  arc-start  briefs/one.md");
+    assert_eq!(
+        s.ok(&["cycle", "place", "alpha", "--brief", "briefs/one.md"]),
+        format!("{id}  1  filled")
+    );
+    assert_eq!(s.ok(&["cycle", "find", "--arc", "alpha"]), format!("{id}  1"));
+    assert_eq!(
+        s.ok(&["cycle", "place", "alpha", "--brief", "briefs/one.md"]),
+        format!("{id}  1  already")
+    );
+
+    let shown = s.json(&["cycle", "show", &id]);
+    let entries = shown["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 1, "one entry, filled: {shown}");
+    assert_eq!(s.ok(&["cycle", "find", "--arc", "nobody"]), "");
+}

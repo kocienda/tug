@@ -171,6 +171,12 @@ pub fn detect_default_branch(repo_root: &Path) -> Result<String, TugError> {
 /// commit hash for a commit round (or `discarded` for a discarded arc) and
 /// `<note>` is the verbatim instruction (or the terminal action). The directory
 /// is created on first write.
+///
+/// The line that opens an arc (`arc-start`) and every line that ends one
+/// ([`is_terminal`]) also leave a line in the work log, so tugcast records
+/// that the arc opened, joined or was discarded. Every arc opening, join and
+/// discard writes through here, which is what makes this the one place to
+/// say so. The work-log line is evidence and never fails the arc log write.
 pub fn append_arc_log(
     paths: &Paths,
     repo_root: &Path,
@@ -178,8 +184,41 @@ pub fn append_arc_log(
     marker: &str,
     note: &str,
 ) -> Result<(), TugError> {
+    let terminal = is_terminal(marker, note);
+    let started = if terminal {
+        let log = fs::read_to_string(tugtool_core::paths::arc_log_path_at(paths, repo_root))
+            .unwrap_or_default();
+        generation_started_at(&log, arc)
+    } else {
+        None
+    };
     let mut file = open_arc_log(paths, repo_root)?;
-    write_arc_log_line(&mut file, arc, marker, note)
+    let at = now_iso8601();
+    write_arc_log_line_at(&mut file, &at, arc, marker, note)?;
+    let line = if marker == "arc-start" {
+        Some((crate::work_log::WorkKind::ArcOpened, Some(at), serde_json::json!({})))
+    } else if terminal && (marker == "discarded" || marker == "released") {
+        Some((crate::work_log::WorkKind::ArcDiscarded, started, serde_json::json!({})))
+    } else if terminal {
+        Some((
+            crate::work_log::WorkKind::ArcJoined,
+            started,
+            serde_json::json!({ "sha": marker }),
+        ))
+    } else {
+        None
+    };
+    if let Some((kind, created, detail)) = line {
+        let object = crate::work_log::WorkObject::Arc {
+            arc: arc.to_string(),
+            created,
+        };
+        let by = crate::work_log::By::none();
+        if let Err(e) = crate::work_log::append(paths, repo_root, kind, object, detail, &by) {
+            eprintln!("could not append {} to the work log: {e}", kind.as_str());
+        }
+    }
+    Ok(())
 }
 
 /// Open the project's arc log for appending, creating the file and its
@@ -213,8 +252,19 @@ pub fn write_arc_log_line(
     marker: &str,
     note: &str,
 ) -> Result<(), TugError> {
+    write_arc_log_line_at(file, &now_iso8601(), arc, marker, note)
+}
+
+/// [`write_arc_log_line`] with the line's timestamp given.
+fn write_arc_log_line_at(
+    file: &mut std::fs::File,
+    at: &str,
+    arc: &str,
+    marker: &str,
+    note: &str,
+) -> Result<(), TugError> {
     let note = note.replace('\n', " ");
-    let line = format!("{}  {}  {}  {}\n", now_iso8601(), arc, marker, note.trim());
+    let line = format!("{at}  {arc}  {marker}  {}\n", note.trim());
     file.write_all(line.as_bytes()).map_err(TugError::Io)
 }
 

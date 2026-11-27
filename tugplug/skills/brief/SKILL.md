@@ -42,9 +42,9 @@ No sharpening of its own. No plan, no task list, no arc, no worktree, and no fil
 
 ## Put it on a cycle
 
-A **cycle** is the record of a run of related work: lettered **sketches**, which say where it came from, and numbered **entries**, one brief each, which an arc carries once it opens. Every brief this skill writes is an entry on a cycle. The record lives in the app's own store, outside the project, so none of this touches the working tree, and the brief's commit below still carries the brief alone.
+A **cycle** is the record of a run of related work: lettered **sketches**, which say where it came from, and numbered **entries**, one brief each, which an arc carries once it opens. Every brief this skill writes is an entry on a cycle. The records live in the app's own store, outside the project, so the one mark this leaves in the working tree is the id line at the top of the brief, and the brief's commit below still carries the brief alone.
 
-Do it after the brief is written and before it is committed, in three moves.
+Do it after the brief is written and before it is committed, in two moves: record the sketch, then record the brief, which puts it on its cycle in the same call.
 
 ### 1. Record the conversation's sketch
 
@@ -68,48 +68,26 @@ SKETCH
 
 `data.id` is the sketch's id. On a later brief in the same conversation, record nothing new while the direction holds: the brief comes from the sketch already on the cycle. Where the shape of that same direction has grown, keep the rewrite as a new version under the same id with `tugtool sketch record --id <sketch> --json`. Where the conversation has turned in a new direction since that sketch, record a fresh one with no `--id`; it becomes the cycle's next letter.
 
-### 2. Choose the cycle
-
-A cycle is found through the records the brief comes from, never through the session writing it: a session works on records and never owns one, and work that crosses several sessions is still one cycle. Take the first that applies:
-
-1. **A cycle the user named**, by its id, in this conversation.
-2. **The cycle that holds the sketch the brief comes from.** When the sketch was kept as a new version of one already recorded, it is on a cycle already:
-
-   ```bash
-   tugtool cycle find --sketch <sketch> --json
-   ```
-
-   When `data` names a cycle, that is the one.
-3. **The cycle that holds the brief this one was written from.** When the conversation started from another brief, the user handing it in or citing it, ask for that brief's path:
-
-   ```bash
-   tugtool cycle find --brief <the brief it was written from> --json
-   ```
-
-   When `data` names a cycle, whether by an entry (`data.n`), by the letters a new entry for that brief would come from (`data.from`), or by a sketch that brief wrote up (`data.letter`), that is the one.
-4. **A new cycle**, named by the rule below from the sketch just recorded:
-
-   ```bash
-   tugtool cycle create --name "<name by the rule>" --json
-   ```
-
-   `data.id` is the cycle's id.
-
-Then put the sketch on it, which on a new cycle makes it sketch A:
+### 2. Record the brief and put it on its cycle
 
 ```bash
-tugtool cycle add-sketch <cycle> <sketch> --json
+tugtool brief record <path> --sketch <sketch> [--from-brief <path>] [--cycle <id>] --name "<name by the rule>" [--wait <n>]… [--note "<gate>"] --json
 ```
 
-`data.letter` is the sketch's letter. A sketch already on the cycle keeps the letter it has, so this is safe to run every time.
+`<path>` is the brief you wrote, relative to the project root. The verb gives the brief its record and writes the brief's id line, `<!-- tug-brief: <id> -->`, as the file's first line. Leave that line where it is: it is how the brief is found again after a rename, it renders as nothing, and it is part of what the commit below lands.
 
-**A brief that leads to more briefs is recorded on its sketch, not as an entry.** When the brief this one was written from is on no cycle and has no arc of its own, because it was written to be split into the briefs that follow it, it is the link between the sketch and them. Record it on the sketch as you add it, and the entries reach the sketch through it:
+Give it what the conversation states and nothing more, and the verb chooses the cycle:
 
-```bash
-tugtool cycle add-sketch <cycle> <sketch> --brief <the brief it was written from> --json
-```
+- `--sketch` is the sketch from step 1, by `data.id`.
+- `--from-brief` is the brief this one was written from, when the conversation started from another brief, the user handing it in or citing it.
+- `--cycle` is a cycle the user named, by its id, in this conversation.
+- `--name` is used only when no cycle holds the work and the verb starts one, so give it every time.
 
-It never becomes an entry: an entry with no arc would read as ready forever.
+A cycle is found through the records the brief comes from, never through the session writing it: the named cycle, else the one holding the sketch, else the one holding the brief it was written from, else a new one. A brief written from one on no cycle, with no arc of its own, was written to be split into the briefs that follow it, and the verb records it on the sketch as their link rather than as an entry.
+
+Add a `--wait` for each earlier entry whose work must land before this one's, and a `--note` for a gate that is not an entry ("after you approve the spike"), **only when the conversation or the brief states it**. Never infer a wait from the files two briefs touch: a wait changes whether an entry reads as ready, and the order of the work is the user's statement to make.
+
+`data.brief.id` is the brief's record id, and `data.placed` says where it went: `cycle` and `name` name the cycle, `n` the entry, and `outcome` what the verb did, `added` for a new entry, `started` for a new cycle whose entry 1 it is, `already` when an entry already held it, and `linked` when the brief it was written from became the sketch's link and no entry was added. Never follow the call with a cycle write of your own to adjust what it chose.
 
 **The naming rule.** A cycle is named once, when it is created, from the opening sentence of its sketch A. The name is the thing the work changes, as a noun phrase of two to four words in sentence case. It has no verb, uses the sketch's own plain words, and keeps proper nouns. It never carries an arc name, kebab-case, an id, a date, the project's name, or the words "cycle" or "work". It is what a header and a sidebar row show, so it has to read at a glance as the subject.
 
@@ -121,17 +99,7 @@ It never becomes an entry: an entry with no arc would read as ready forever.
 
 **A later sketch never renames a cycle**: a name that moves while the cycle is on screen stops being the thing the user recognises. A cycle is renamed only by hand, when the user asks, with the name the user gave — `tugtool cycle rename <cycle> --name "<name>"` — and never on this skill's own judgment.
 
-### 3. Add the entry
-
-```bash
-tugtool cycle add-entry <cycle> --brief <path> --from <letter> [--wait <n>]… [--note "<gate>"] --json
-```
-
-`<path>` is the brief you wrote, relative to the project root; `--from` is the letter of the sketch it came from, and it is required: the record refuses an entry that names no sketch. `data.n` is the entry's number.
-
-Add a `--wait` for each earlier entry whose work must land before this one's, and a `--note` for a gate that is not an entry ("after you approve the spike") — **only when the conversation or the brief states it**. Never infer a wait from the files two briefs touch: a wait changes whether an entry reads as ready, and the order of the work is the user's statement to make.
-
-**Cycle writes are bookkeeping, and they never stop the work.** If `tugtool sketch record` or any `tugtool cycle` verb refuses, say so in one sentence with its output and carry on: the brief is still committed and handed off. A brief without its cycle line can be put right by hand; a skill that stopped on one would lose the document the user asked for.
+**Cycle writes are bookkeeping, and they never stop the work.** If `tugtool sketch record` or `tugtool brief record` refuses, say so in one sentence with its output and carry on: the brief is still committed and handed off. A brief without its cycle line can be put right by hand; a skill that stopped on one would lose the document the user asked for.
 
 ## Land it
 
@@ -153,7 +121,7 @@ If `tugtool commit` fails, say so with its output and still hand off; a written 
 
 ## Hand off
 
-Name the path you wrote, the sha it landed as — the bare sha in backticks, `` `63de5762a` ``, never `commit 63de5762a` — and the entry it became, by number and cycle name ("entry 3 of *Dockets of many briefs*"), then name the next link of the chain, an arc opened on the brief, by printing the command below, and stop. When a cycle write refused, say that instead of the entry. What happens to the brief next — an arc opened on it by `/arc`, a spike, or nothing at all — is the user's call, and the document is what makes it theirs to make. Whether that arc walks a task list or devises a plan first is the door's decision, made from the brief's content when it is handed over; this skill does not pre-empt it, and the brief's Exit section names an arc rather than a plan for that reason.
+Name the path you wrote, the sha it landed as — the bare sha in backticks, `` `63de5762a` ``, never `commit 63de5762a` — and the entry it became, by number and cycle name from `data.placed` ("entry 3 of *Dockets of many briefs*"), then name the next link of the chain, an arc opened on the brief, by printing the command below, and stop. When a cycle write refused, say that instead of the entry. What happens to the brief next — an arc opened on it by `/arc`, a spike, or nothing at all — is the user's call, and the document is what makes it theirs to make. Whether that arc walks a task list or devises a plan first is the door's decision, made from the brief's content when it is handed over; this skill does not pre-empt it, and the brief's Exit section names an arc rather than a plan for that reason.
 
 **The command goes last, on its own line, written as inline code:**
 

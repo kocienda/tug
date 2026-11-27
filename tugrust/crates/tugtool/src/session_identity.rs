@@ -56,6 +56,9 @@ pub(crate) struct Resolved {
     /// Whether an instance answered at all. `false` is the soft fallback:
     /// the posted id, unexpanded, because there was nobody to ask.
     pub resolved: bool,
+    /// Whether the session is private, as the ledger says. `None` when
+    /// nobody answered, or the instance predates the field: cannot tell.
+    pub private: Option<bool>,
 }
 
 impl Resolved {
@@ -71,6 +74,7 @@ impl Resolved {
             segments: Vec::new(),
             rotated: false,
             resolved: false,
+            private: None,
         }
     }
 
@@ -194,6 +198,36 @@ pub(crate) fn resolve_soft(session: Option<&str>) -> Option<Resolved> {
     Some(ask_instance(&posted).unwrap_or_else(|_| Resolved::unresolved(posted)))
 }
 
+/// Who a record write is by: the calling session, resolved, its turn when
+/// the caller knows it, and its privacy as the ledger says — `Unknown` when
+/// nobody could say. The one place a verb builds the `By` it hands the core,
+/// so every record a session writes is attributed on the same terms.
+pub(crate) fn work_by(turn: Option<u32>) -> tugarc_core::work_log::By {
+    use tugarc_core::work_log::{By, Privacy};
+    match resolve_soft(None) {
+        None => By {
+            turn,
+            ..By::none()
+        },
+        Some(resolved) => By {
+            privacy: match resolved.private {
+                Some(true) => Privacy::Private,
+                Some(false) => Privacy::Public,
+                None => Privacy::Unknown,
+            },
+            segments: resolved
+                .segments
+                .iter()
+                .chain(std::iter::once(&resolved.posted))
+                .filter(|s| **s != resolved.session_id)
+                .cloned()
+                .collect(),
+            session: Some(resolved.session_id),
+            turn,
+        },
+    }
+}
+
 /// Ask the owning instance a session-addressed question **whose op resolves at
 /// its own door**, with the posted id filled in from this process's identity.
 ///
@@ -293,5 +327,6 @@ fn ask_instance(posted: &str) -> Result<Resolved, String> {
             })
             .unwrap_or_default(),
         resolved: true,
+        private: response.get("private").and_then(|v| v.as_bool()),
     })
 }

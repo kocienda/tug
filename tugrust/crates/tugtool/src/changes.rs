@@ -434,7 +434,7 @@ pub fn run_commit(
     };
     let receipt = tugchanges_core::commit(CommitOptions {
         session,
-        project,
+        project: project.clone(),
         message,
         paths: if paths.is_empty() { None } else { Some(paths) },
         all,
@@ -445,6 +445,7 @@ pub fn run_commit(
         unstage,
     })
     .map_err(refusal_to_app_error)?;
+    note_brief_versions(project, &receipt);
     if json {
         print_ok("commit", &receipt);
     } else {
@@ -461,6 +462,34 @@ pub fn run_commit(
         print_left_behind(&receipt.left_behind);
     }
     Ok(())
+}
+
+/// Add the commit as a version of every brief it touched. A record the
+/// commit cannot reach is reported on stderr and never fails the commit,
+/// which has already landed.
+fn note_brief_versions(project: Option<PathBuf>, receipt: &tugchanges_core::CommitReceipt) {
+    let repo = match project {
+        Some(project) => project,
+        None => match tugtool_core::find_repo_root() {
+            Ok(repo) => repo,
+            Err(e) => {
+                eprintln!("commit: could not note brief versions: {e}");
+                return;
+            }
+        },
+    };
+    let files: Vec<String> = receipt.files.iter().map(|f| f.path.clone()).collect();
+    let paths = tugcore::instance::Paths::from_env();
+    // Most commits touch no brief; asking the instance who the session is
+    // would cost every one of them a walk for an answer nothing reads.
+    let touched = tugarc_core::brief::briefs(&paths, &repo)
+        .iter()
+        .any(|b| files.contains(&b.path));
+    if !touched {
+        return;
+    }
+    let by = crate::session_identity::work_by(None);
+    tugarc_core::brief::note_commit(&paths, &repo, &receipt.sha, &files, &by);
 }
 
 /// Read the `--hunks` map (Spec S03) from a file, or from stdin when `source`

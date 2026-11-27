@@ -2154,7 +2154,9 @@ fn cycle_wire(
     callsign_by_arc: &HashMap<String, String>,
 ) -> CycleWire {
     use tugarc_core::cycle::EntryState;
-    use tugcast_core::types::{CycleArcWire, CycleEntryWire, CycleSketchWire, CycleStageWire};
+    use tugcast_core::types::{
+        CycleArcWire, CycleEntryWire, CycleSketchWire, CycleStageWire, CycleStatedByWire,
+    };
     let project = PathBuf::from(&view.project_dir);
     let entries = view
         .entries
@@ -2173,7 +2175,12 @@ fn cycle_wire(
                 .filter(|_| bound_session.is_some())
                 .and_then(|k| callsign_by_arc.get(k))
                 .cloned();
-            let brief_file = project.join(&entry.entry.brief);
+            // The record answers for the brief's path, so a renamed brief
+            // travels under its new one; the entry's cached path stands in
+            // when no record answers.
+            let brief = brief_of(paths, &view.project_dir, &entry.entry.brief_id)
+                .unwrap_or_else(|| entry.entry.brief.clone());
+            let brief_file = project.join(&brief);
             let (brief_path, brief_title) = if brief_file.is_file() {
                 let title = std::fs::read_to_string(&brief_file)
                     .ok()
@@ -2184,9 +2191,17 @@ fn cycle_wire(
             };
             CycleEntryWire {
                 n: entry.entry.n,
-                brief: entry.entry.brief,
+                brief,
                 brief_path,
                 brief_title,
+                brief_id: Some(entry.entry.brief_id).filter(|id| !id.is_empty()),
+                name: entry.entry.arc_name,
+                label: entry.entry.label,
+                stated_by: entry.entry.stated_by.map(|by| CycleStatedByWire {
+                    session: by.session,
+                    turn: by.turn,
+                }),
+                listed: entry.entry.listed,
                 arc: entry.entry.arc.map(|link| CycleArcWire {
                     name: link.name,
                     created: link.created,
@@ -2231,11 +2246,28 @@ fn cycle_wire(
                     letter: s.letter,
                     id: s.id,
                     added: s.added,
+                    brief_id: s.brief_id,
                 }
             })
             .collect(),
         landed: view.landed as u32,
+        run_landed: view.run_landed as u32,
+        run_total: view.run_total as u32,
     }
+}
+
+/// The current path of brief record `id`, relative to its checkout: the
+/// record in `project_dir` when there is one, else the first that answers.
+fn brief_of(paths: &Paths, project_dir: &str, id: &str) -> Option<String> {
+    if id.is_empty() {
+        return None;
+    }
+    let mut found = tugarc_core::brief::find_brief(paths, id);
+    let at = found
+        .iter()
+        .position(|(_, r)| r.project_dir == project_dir)
+        .unwrap_or(0);
+    (!found.is_empty()).then(|| found.swap_remove(at).1.path)
 }
 
 /// Base paths a live session **other than this arc's own** is working, mapped
@@ -5670,6 +5702,7 @@ Some context.
             waits: waits.to_vec(),
             from: vec!["A".into()],
             note: None,
+            ..NewEntry::default()
         };
         std::fs::create_dir_all(root.join("briefs")).unwrap();
         std::fs::write(root.join("briefs/a.md"), "# The first brief\n\nBody.\n").unwrap();
@@ -5681,6 +5714,8 @@ Some context.
             root,
             "# Sketch\n\nShow the cycle.\n\nSource: session s, turns 1–1\n",
             None,
+            &tugarc_core::work_log::By::none(),
+            tugarc_core::sketch::Written::AtTheTime,
         )
         .unwrap()
         .id;
@@ -5783,6 +5818,64 @@ Some context.
         assert!(cycles[0].entries[1].bound_callsign.is_none());
     }
 
+    /// A queued entry travels with its arc's name, its label, who stated it
+    /// and its listed mark; a brief renamed in its record travels under its
+    /// new path; and the run counts only listed entries.
+    #[test]
+    fn a_queued_entry_and_a_renamed_brief_compose_from_their_records() {
+        use tugarc_core::work_log::{By, Privacy};
+        let data = tempfile::tempdir().unwrap();
+        let paths = Paths::under(data.path());
+        let (_dir, root) = init_repo();
+        let id = scratch_cycle(&paths, &root);
+
+        let by = By {
+            session: Some("sess-q".into()),
+            turn: Some(3),
+            privacy: Privacy::Public,
+            segments: Vec::new(),
+        };
+        tugarc_core::brief::record(&paths, &root, "briefs/a.md", &[], &by).unwrap();
+        std::fs::rename(root.join("briefs/a.md"), root.join("briefs/renamed.md")).unwrap();
+        tugarc_core::brief::ensure(&paths, &root, "briefs/renamed.md", &by).unwrap();
+        let queued = tugarc_core::cycle::queue_arc(
+            &paths,
+            &root,
+            tugarc_core::cycle::QueueArc {
+                arc: "cc",
+                brief: "briefs/e.md",
+                cycle: Some(&id),
+                label: Some("the next"),
+                waits: Vec::new(),
+                after: None,
+                from: vec!["A".into()],
+                by: &by,
+            },
+        )
+        .unwrap();
+
+        let none = HashMap::new();
+        let cycles = cycle_entries_in(&paths, &root, &none, &none);
+        let cycle = &cycles[0];
+        let renamed = &cycle.entries[0];
+        assert_eq!(renamed.brief, "briefs/renamed.md");
+        assert_eq!(renamed.brief_title.as_deref(), Some("The first brief"));
+        assert!(renamed.brief_id.is_some());
+        assert!(renamed.listed);
+
+        let entry = cycle
+            .entries
+            .iter()
+            .find(|e| Some(e.n) == queued.n)
+            .expect("the queued entry");
+        assert_eq!(entry.name.as_deref(), Some("cc"));
+        assert_eq!(entry.label.as_deref(), Some("the next"));
+        let stated = entry.stated_by.as_ref().expect("stated by a session");
+        assert_eq!((stated.session.as_str(), stated.turn), ("sess-q", Some(3)));
+        assert!(entry.listed);
+        assert_eq!((cycle.run_landed, cycle.run_total), (1, 5));
+    }
+
     /// A cycle whose work is finished is left out of the list, and comes
     /// back when its landing is undone. An entry whose arc was discarded
     /// travels as `dropped` while the cycle is still open, and settles it.
@@ -5798,6 +5891,8 @@ Some context.
             &root,
             "# Sketch\n\nClose the cycle.\n\nSource: session s, turns 1–1\n",
             None,
+            &tugarc_core::work_log::By::none(),
+            tugarc_core::sketch::Written::AtTheTime,
         )
         .unwrap()
         .id;
@@ -5807,6 +5902,7 @@ Some context.
             waits: Vec::new(),
             from: vec!["A".into()],
             note: None,
+            ..NewEntry::default()
         };
         add_entry(&paths, &root, &id, entry("briefs/a.md")).unwrap();
         tugarc_core::append_arc_start(&paths, &root, "aa", ".tug/arcs/aa/brief.md").unwrap();
@@ -5863,9 +5959,9 @@ Some context.
         let (_dir, root) = init_repo();
         let id = create_cycle(&paths, &root, "Cycle", None).unwrap().id;
         let first = "# Sketch\n\nAn early want.\n\nSource: session s, turns 1–1\n";
-        let sketch = record_free_sketch(&paths, &root, first, None).unwrap().id;
+        let sketch = record_free_sketch(&paths, &root, first, None, &tugarc_core::work_log::By::none(), tugarc_core::sketch::Written::AtTheTime).unwrap().id;
         let second = "# Sketch\n\nShow related arcs together.\n\nOne group per run.\n\n- A map\n- A row per part\n\nSource: session s, turns 1–2\n";
-        record_free_sketch(&paths, &root, second, Some(&sketch)).unwrap();
+        record_free_sketch(&paths, &root, second, Some(&sketch), &tugarc_core::work_log::By::none(), tugarc_core::sketch::Written::AtTheTime).unwrap();
         assert_eq!(add_sketch(&paths, &root, &id, &sketch, None).unwrap(), "A");
 
         let none = HashMap::new();

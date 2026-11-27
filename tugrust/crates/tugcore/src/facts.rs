@@ -25,12 +25,28 @@ pub enum FactKind {
     Shell,
     TestRun,
     EditFailed,
+    /// A sketch's record gained a version.
+    SketchRecorded,
+    /// A brief was given its record, or found at a new path.
+    BriefRecorded,
+    /// A commit changed a brief.
+    BriefCommitted,
+    /// An arc was named for a brief on a cycle.
+    ArcQueued,
+    /// An arc was opened.
+    ArcOpened,
+    /// An arc joined its base.
+    ArcJoined,
+    /// An arc was discarded.
+    ArcDiscarded,
+    /// A cycle entry was given up by hand.
+    EntryDropped,
 }
 
 impl FactKind {
     /// Every kind, in the order a reader sees them listed. This is the whole
     /// vocabulary and nothing is held back.
-    pub const ALL: [FactKind; 12] = [
+    pub const ALL: [FactKind; 20] = [
         FactKind::Prompt,
         FactKind::Shell,
         FactKind::TestRun,
@@ -43,6 +59,14 @@ impl FactKind {
         FactKind::SessionReset,
         FactKind::SessionRenamed,
         FactKind::SessionCompacted,
+        FactKind::SketchRecorded,
+        FactKind::BriefRecorded,
+        FactKind::BriefCommitted,
+        FactKind::ArcQueued,
+        FactKind::ArcOpened,
+        FactKind::ArcJoined,
+        FactKind::ArcDiscarded,
+        FactKind::EntryDropped,
     ];
 
     /// The exact inverse of [`FactKind::as_str`] — what turns a stored `kind`
@@ -67,6 +91,14 @@ impl FactKind {
             FactKind::Shell => "shell",
             FactKind::TestRun => "test_run",
             FactKind::EditFailed => "edit_failed",
+            FactKind::SketchRecorded => "sketch.recorded",
+            FactKind::BriefRecorded => "brief.recorded",
+            FactKind::BriefCommitted => "brief.committed",
+            FactKind::ArcQueued => "arc.queued",
+            FactKind::ArcOpened => "arc.opened",
+            FactKind::ArcJoined => "arc.joined",
+            FactKind::ArcDiscarded => "arc.discarded",
+            FactKind::EntryDropped => "entry.dropped",
         }
     }
 }

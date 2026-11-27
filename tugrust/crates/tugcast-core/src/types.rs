@@ -1348,6 +1348,13 @@ pub struct CycleWire {
     pub sketches: Vec<CycleSketchWire>,
     /// How many entries have joined.
     pub landed: u32,
+    /// How many listed entries have joined: the run's progress, which an
+    /// entry nobody listed does not count toward.
+    #[serde(default)]
+    pub run_landed: u32,
+    /// How many listed entries there are that were not dropped.
+    #[serde(default)]
+    pub run_total: u32,
 }
 
 /// One entry of a cycle: a brief, the arc it is tied to, and its state.
@@ -1365,6 +1372,23 @@ pub struct CycleEntryWire {
     /// The brief's first heading, read beside `brief_path`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub brief_title: Option<String>,
+    /// The brief record's id, the entry's link to its brief; absent on an
+    /// entry no record answers for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brief_id: Option<String>,
+    /// The arc the entry was queued for, or the one that carries it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// A short label a person gave the queued arc.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// The session, and its turn, that stated the queued arc.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stated_by: Option<CycleStatedByWire>,
+    /// Whether the entry was put on the cycle as planned work; an entry an
+    /// arc opened on with nobody listing it is not counted against the run.
+    #[serde(default = "listed_by_default")]
+    pub listed: bool,
     /// The arc the entry is tied to, by name and generation start.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub arc: Option<CycleArcWire>,
@@ -1400,6 +1424,20 @@ pub struct CycleEntryWire {
     /// or when the ledger has not named the line yet.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bound_callsign: Option<String>,
+}
+
+/// An entry written before the mark existed was planned work.
+fn listed_by_default() -> bool {
+    true
+}
+
+/// Who stated a queued arc: a session and, when known, its turn. The session
+/// id travels bare; the deck's session identity stores resolve it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CycleStatedByWire {
+    pub session: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn: Option<u32>,
 }
 
 /// The arc a cycle entry is tied to: its name and its generation's start.
@@ -1440,6 +1478,10 @@ pub struct CycleSketchWire {
     /// The sketch's whole body, with its heading and `Source:` line taken off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    /// The record id of the brief that wrote the sketch up, when that brief
+    /// led to further briefs and has no arc of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brief_id: Option<String>,
 }
 
 /// One project's slice of the account-global aggregate changeset snapshot.

@@ -20,6 +20,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use tempfile::TempDir;
+use tugcore::test_fixtures::git::{GitFixture, git};
 
 /// A project that declares itself with a `.tugtool/` directory and no git.
 fn project() -> (TempDir, PathBuf) {
@@ -170,4 +171,67 @@ fn an_absolute_template_is_one_directory_for_every_project() {
     let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("json");
     assert_eq!(json["data"]["source"], "setting");
     assert_eq!(json["data"]["dir"], all.display().to_string());
+}
+
+/// A git checkout and a data directory of its own, for the verbs that keep a
+/// brief's record.
+fn checkout() -> (TempDir, TempDir, PathBuf, PathBuf) {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let state_dir = tempfile::tempdir().unwrap();
+    let root = repo_dir.path().canonicalize().unwrap();
+    let state = state_dir.path().canonicalize().unwrap();
+    GitFixture::init(&root);
+    fs::write(root.join("a.txt"), "base\n").unwrap();
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-q", "-m", "base"]);
+    (repo_dir, state_dir, root, state)
+}
+
+fn in_checkout(state: &Path, root: &Path, args: &[&str]) -> std::process::Output {
+    tugtool()
+        .env("TMPDIR", state)
+        .env("TUG_DATA_DIR", state)
+        .current_dir(root)
+        .args(args)
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn record_writes_the_id_line_and_show_reads_the_record_back() {
+    let (_repo, _state, root, state) = checkout();
+    fs::create_dir_all(root.join("briefs")).unwrap();
+    fs::write(root.join("briefs/store.md"), "# The brief store\n\nFound.\n").unwrap();
+
+    let out = in_checkout(&state, &root, &["brief", "record", "briefs/store.md"]);
+    assert!(out.status.success(), "{out:?}");
+    let id = stdout_of(&out);
+    assert_eq!(id.len(), 8, "an id: {id}");
+    let text = fs::read_to_string(root.join("briefs/store.md")).unwrap();
+    assert_eq!(text.lines().next(), Some(format!("<!-- tug-brief: {id} -->").as_str()));
+
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-q", "-m", "brief"]);
+    let sha = git(&root, &["rev-parse", "HEAD"]).trim().to_string();
+
+    let shown = in_checkout(&state, &root, &["brief", "show", &id, "--json"]);
+    assert!(shown.status.success(), "{shown:?}");
+    let data: serde_json::Value = serde_json::from_slice(&shown.stdout).unwrap();
+    let data = &data["data"];
+    assert_eq!(data["id"], id.as_str());
+    assert_eq!(data["path"], "briefs/store.md");
+    assert_eq!(data["title"], "The brief store");
+    assert_eq!(data["sketches"], serde_json::json!([]));
+    assert_eq!(data["versions"][0]["sha"], sha.as_str(), "{data}");
+
+    let by_path = in_checkout(&state, &root, &["brief", "show", "briefs/store.md"]);
+    assert!(stdout_of(&by_path).starts_with(&format!("{id}  briefs/store.md")));
+
+    let listed = in_checkout(&state, &root, &["brief", "list"]);
+    assert!(stdout_of(&listed).starts_with(&id), "{listed:?}");
+
+    let absent = in_checkout(&state, &root, &["brief", "show", "00ff00ff"]);
+    assert_eq!(absent.status.code(), Some(3), "{absent:?}");
+    let missing = in_checkout(&state, &root, &["brief", "record", "briefs/none.md"]);
+    assert!(!missing.status.success(), "no file, no record");
 }

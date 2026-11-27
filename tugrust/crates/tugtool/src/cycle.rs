@@ -1,4 +1,4 @@
-//! `tugtool cycle create|rename|add-entry|add-from|add-sketch|attach|drop|find|list|show|check` —
+//! `tugtool cycle create|rename|add-entry|add-from|add-sketch|attach|place|queue|drop|find|list|show|check` —
 //! a cycle's record, written and read back.
 //!
 //! A cycle is a container of related arcs, briefs and sketches. The writing
@@ -14,7 +14,8 @@ use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use tugarc_core::cycle::{
-    self, ChainBreak, CycleArc, CycleView, DroppedItem, EntryState, NewEntry, UnattachedArc,
+    self, ChainBreak, CycleArc, CycleView, DroppedItem, EntryState, NewEntry, Outcome, PlaceArc,
+    Placed, QueueArc, UnattachedArc,
 };
 use tugcore::instance::Paths;
 
@@ -53,10 +54,44 @@ pub fn dispatch(cmd: CycleCommands, json: bool) -> ExitCode {
         CycleCommands::Rename { id, name } => {
             ("cycle rename", run_rename(&paths, &id, &name, json))
         }
-        CycleCommands::Find { brief, sketch } => (
+        CycleCommands::Find { brief, sketch, arc } => (
             "cycle find",
-            run_find(&paths, brief.as_deref(), sketch.as_deref(), json),
+            match arc {
+                Some(arc) => run_find_arc(&paths, &arc, json),
+                None => run_find(&paths, brief.as_deref(), sketch.as_deref(), json),
+            },
         ),
+        CycleCommands::Place {
+            arc,
+            brief,
+            sketch,
+            name,
+        } => (
+            "cycle place",
+            run_place(&paths, &arc, &brief, sketch.as_deref(), name.as_deref(), json),
+        ),
+        CycleCommands::Queue {
+            arc,
+            brief,
+            cycle,
+            label,
+            wait,
+            after,
+            from,
+            turn,
+        } => {
+            let req = QueueRequest {
+                arc: &arc,
+                brief: &brief,
+                cycle: cycle.as_deref(),
+                label: label.as_deref(),
+                waits: wait,
+                after: after.as_deref(),
+                from,
+                turn,
+            };
+            ("cycle queue", run_queue(&paths, req, json))
+        }
         CycleCommands::Drop { id, item } => ("cycle drop", run_drop(&paths, &id, &item, json)),
         CycleCommands::List { all } => ("cycle list", run_list(&paths, all, json)),
         CycleCommands::Show { id } => return run_show(&paths, &id, json),
@@ -147,10 +182,123 @@ fn run_find(
     Ok(())
 }
 
+/// The entry in this checkout queued for arc `arc`, or carrying it: the
+/// most recently changed cycle first, and within it the latest entry, so a
+/// rerun answers before the run it repeats.
+fn run_find_arc(paths: &Paths, arc: &str, json: bool) -> Result<(), AppError> {
+    let repo = repo()?;
+    let found = cycle::cycles(paths, &repo).into_iter().find_map(|record| {
+        record
+            .entries
+            .iter()
+            .rev()
+            .find(|e| {
+                e.arc_name.as_deref() == Some(arc) || e.arc.as_ref().is_some_and(|a| a.name == arc)
+            })
+            .map(|e| cycle::BriefFound {
+                id: record.id.clone(),
+                n: Some(e.n),
+                letter: None,
+                from: Vec::new(),
+            })
+    });
+    if json {
+        print_ok("cycle find", found);
+    } else if let Some(found) = found {
+        println!("{}  {}", found.id, found.n.unwrap_or_default());
+    }
+    Ok(())
+}
+
+/// Print a placement: `<cycle>  <n or letter>  <outcome>`.
+fn print_placed(command: &str, placed: Placed, json: bool) {
+    if json {
+        print_ok(command, placed);
+        return;
+    }
+    let at = match (placed.n, &placed.letter) {
+        (Some(n), _) => n.to_string(),
+        (None, Some(letter)) => letter.clone(),
+        (None, None) => "-".to_string(),
+    };
+    println!("{}  {at}  {}", placed.cycle, outcome_word(placed.outcome));
+}
+
+fn outcome_word(outcome: Outcome) -> &'static str {
+    match outcome {
+        Outcome::Already => "already",
+        Outcome::Filled => "filled",
+        Outcome::Added => "added",
+        Outcome::Started => "started",
+        Outcome::Named => "named",
+        Outcome::Linked => "linked",
+    }
+}
+
+fn run_place(
+    paths: &Paths,
+    arc: &str,
+    brief: &str,
+    sketch: Option<&str>,
+    name: Option<&str>,
+    json: bool,
+) -> Result<(), AppError> {
+    let repo = repo()?;
+    let by = crate::session_identity::work_by(None);
+    let brief = brief_path(&repo, brief);
+    let placed = cycle::place_arc(
+        paths,
+        &repo,
+        PlaceArc {
+            arc,
+            brief: &brief,
+            sketch,
+            name,
+            by: &by,
+        },
+    )?;
+    print_placed("cycle place", placed, json);
+    Ok(())
+}
+
+/// What `cycle queue` was given.
+struct QueueRequest<'a> {
+    arc: &'a str,
+    brief: &'a str,
+    cycle: Option<&'a str>,
+    label: Option<&'a str>,
+    waits: Vec<u32>,
+    after: Option<&'a str>,
+    from: Vec<String>,
+    turn: Option<u32>,
+}
+
+fn run_queue(paths: &Paths, req: QueueRequest, json: bool) -> Result<(), AppError> {
+    let repo = repo()?;
+    let by = crate::session_identity::work_by(req.turn);
+    let brief = brief_path(&repo, req.brief);
+    let placed = cycle::queue_arc(
+        paths,
+        &repo,
+        QueueArc {
+            arc: req.arc,
+            brief: &brief,
+            cycle: req.cycle,
+            label: req.label,
+            waits: req.waits,
+            after: req.after,
+            from: req.from,
+            by: &by,
+        },
+    )?;
+    print_placed("cycle queue", placed, json);
+    Ok(())
+}
+
 /// The brief as the record keeps it: relative to the project root. An
 /// absolute path inside the checkout is made relative; any other path is
 /// passed on as given, for the record to accept or refuse.
-fn brief_path(repo: &Path, brief: &str) -> String {
+pub(crate) fn brief_path(repo: &Path, brief: &str) -> String {
     let path = Path::new(brief);
     if path.is_absolute() {
         let root = tugcore::pathform::resolve_to_claude_form(repo);
@@ -187,6 +335,7 @@ fn run_add_entry(
             waits,
             from,
             note,
+            ..NewEntry::default()
         },
     )?;
     if json {

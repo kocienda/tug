@@ -32,6 +32,10 @@ const CYCLE_JSON: &str = tugarc_core::cycle::CYCLE_JSON;
 /// The arc log's file name, whose writes move an entry's state.
 const ARC_LOG: &str = tugtool_core::paths::ARC_LOG;
 
+/// The brief record's file name, whose writes move the path and title an
+/// entry shows for its brief.
+const BRIEF_JSON: &str = tugarc_core::brief::BRIEF_JSON;
+
 /// The directory every project's state lives under, created if absent so the
 /// watch has something to attach to before the first cycle exists.
 fn projects_root() -> PathBuf {
@@ -43,11 +47,11 @@ fn projects_root() -> PathBuf {
 /// Whether a write to `path` can change what a cycle reads as.
 fn moves_a_cycle(path: &Path) -> bool {
     path.file_name()
-        .is_some_and(|name| name == CYCLE_JSON || name == ARC_LOG)
+        .is_some_and(|name| name == CYCLE_JSON || name == ARC_LOG || name == BRIEF_JSON)
 }
 
 /// The watcher's callback body: leave one pending wake when the event names a
-/// cycle record or an arc log. Runs on notify's own thread, so it never
+/// cycle record, a brief record or an arc log. Runs on notify's own thread, so it never
 /// blocks — a wake already pending covers this event.
 fn on_event(event: notify::Result<notify::Event>, wake: &Sender<()>) {
     let Ok(event) = event else { return };
@@ -113,9 +117,10 @@ mod tests {
     }
 
     #[test]
-    fn a_cycle_record_or_an_arc_log_write_leaves_a_wake() {
+    fn a_cycle_record_a_brief_record_or_an_arc_log_write_leaves_a_wake() {
         for path in [
             "/data/projects/abc/cycles/3f9a1c2e/cycle.json",
+            "/data/projects/abc/briefs/0a1b2c3d/brief.json",
             "/data/projects/abc/arc-log.md",
         ] {
             let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(1);
@@ -154,6 +159,7 @@ mod tests {
     fn the_watched_names_are_the_ones_the_writers_use() {
         assert_eq!(CYCLE_JSON, "cycle.json");
         assert_eq!(ARC_LOG, "arc-log.md");
+        assert_eq!(BRIEF_JSON, "brief.json");
     }
 
     /// A matched event, carried through the forwarding loop, fires the bump;

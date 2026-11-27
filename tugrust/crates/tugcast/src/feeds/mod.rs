@@ -62,4 +62,5 @@ pub mod shell_words;
 pub mod terminal;
 pub mod text_ref;
 pub mod walk;
+pub mod work_log;
 pub mod workspace_registry;

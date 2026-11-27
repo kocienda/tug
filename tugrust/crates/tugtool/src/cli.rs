@@ -686,6 +686,10 @@ pub enum SketchCommands {
         /// An arc-less sketch to keep the text as a new version of.
         #[arg(long, conflicts_with = "arc")]
         id: Option<String>,
+        /// The sketch was filled in after its conversation, from what was
+        /// left of it, rather than written while it went on.
+        #[arg(long)]
+        afterwards: bool,
     },
     /// Print a sketch's text, verbatim, by its id.
     ///
@@ -701,6 +705,23 @@ pub enum SketchCommands {
         #[arg(long)]
         versions: bool,
     },
+    /// List the sketches in this checkout that match: the ones recorded for
+    /// an arc, the ones a session's turns are a source of, or the ones
+    /// written from a brief rather than a conversation. The most recently
+    /// changed first; nothing when none match.
+    Find {
+        /// The arc a sketch was recorded for.
+        #[arg(long, conflicts_with_all = ["session", "brief_sourced"])]
+        arc: Option<String>,
+        /// A session whose turns a sketch came from.
+        #[arg(long, conflicts_with = "brief_sourced")]
+        session: Option<String>,
+        /// Sketches whose `Source:` line names a brief.
+        #[arg(long)]
+        brief_sourced: bool,
+    },
+    /// List every sketch in this checkout, the most recently changed first.
+    List,
 }
 
 #[derive(Subcommand)]
@@ -808,11 +829,70 @@ pub enum CycleCommands {
     Find {
         /// The brief's path, relative to the project root or absolute
         /// inside the checkout.
-        #[arg(long, required_unless_present = "sketch", conflicts_with = "sketch")]
+        #[arg(
+            long,
+            required_unless_present_any = ["sketch", "arc"],
+            conflicts_with_all = ["sketch", "arc"]
+        )]
         brief: Option<String>,
         /// A sketch's id, as `tugtool sketch record` printed it.
+        #[arg(long, conflicts_with = "arc")]
+        sketch: Option<String>,
+        /// An arc's name: the entry queued for it, or the one it carries.
+        #[arg(long)]
+        arc: Option<String>,
+    },
+    /// Put an opened arc on the entry that is its work, and print the cycle
+    /// and entry: an entry queued under the arc's name, a free entry holding
+    /// its brief, a new unlisted entry on the cycle the brief or sketch is
+    /// on, or a new cycle. Prints `already` when the arc is already placed.
+    ///
+    /// Refused when the arc log has no such arc, or when an entry queued
+    /// under the arc's name holds a different brief.
+    Place {
+        /// The arc's name.
+        arc: String,
+        /// The brief the arc opened on, relative to the project root or
+        /// absolute inside the checkout.
+        #[arg(long)]
+        brief: String,
+        /// The sketch the arc came from.
         #[arg(long)]
         sketch: Option<String>,
+        /// The name of a cycle to start, when no cycle holds the work.
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// Queue an arc for a brief: name the entry that will carry it, or add
+    /// one, and print the cycle and entry.
+    ///
+    /// One unsettled entry per arc name: queuing a name already queued is
+    /// refused. The cycle is the one holding the brief unless `--cycle`
+    /// names it.
+    Queue {
+        /// The arc's name.
+        arc: String,
+        /// The brief the arc will run.
+        #[arg(long)]
+        brief: String,
+        /// The cycle's id.
+        #[arg(long)]
+        cycle: Option<String>,
+        /// A short label for the queued arc.
+        #[arg(long)]
+        label: Option<String>,
+        /// An entry the arc waits on, by number. Repeatable.
+        #[arg(long)]
+        wait: Vec<u32>,
+        /// A queued or carried arc this one waits on, by name.
+        #[arg(long)]
+        after: Option<String>,
+        /// The letter of a sketch the entry comes from. Repeatable.
+        #[arg(long)]
+        from: Vec<String>,
+        /// The turn of the calling session that stated the arc.
+        #[arg(long)]
+        turn: Option<u32>,
     },
     /// Mark an entry or a sketch as dropped: one that will never run.
     ///
@@ -1189,6 +1269,61 @@ pub enum BriefCommands {
         #[arg(long)]
         ensure: bool,
     },
+    /// Record the brief at a path: give it a record id, write the id line at
+    /// the top of the file when it has none, and print the id.
+    ///
+    /// With `--sketch` or `--from-brief` the brief is also put on its cycle
+    /// as listed work, starting one when no cycle holds the sketch. Refused
+    /// when there is no file at the path.
+    Record {
+        /// The brief's path, relative to the project root or absolute inside
+        /// the checkout.
+        path: String,
+        /// A sketch the brief came from, by id. Repeatable.
+        #[arg(long)]
+        sketch: Vec<String>,
+        /// The brief this one followed, when it came from a brief rather
+        /// than a sketch.
+        #[arg(long)]
+        from_brief: Option<String>,
+        /// The cycle's id, when the caller knows it.
+        #[arg(long)]
+        cycle: Option<String>,
+        /// The name of a cycle to start, when no cycle holds the work.
+        #[arg(long)]
+        name: Option<String>,
+        /// An entry the brief's entry waits on, by number. Repeatable.
+        #[arg(long)]
+        wait: Vec<u32>,
+        /// Free text, for a gate that is not an entry.
+        #[arg(long)]
+        note: Option<String>,
+    },
+    /// Print a brief's record — its path, title, the sketches it came from,
+    /// and every commit that changed it — and where it sits on cycles.
+    ///
+    /// Takes the record's id, which is read from any checkout on this
+    /// machine, or a path in this checkout. Exits 3 when no record answers.
+    Show {
+        /// The brief's id (eight hex characters) or its path.
+        brief: String,
+    },
+    /// List the briefs in this checkout that match: the one at a path, the
+    /// ones a sketch led to, or the ones a session wrote. Nothing when none
+    /// match.
+    Find {
+        /// The brief's path, followed through a rename.
+        #[arg(long, conflicts_with_all = ["sketch", "session"])]
+        path: Option<String>,
+        /// A sketch the brief came from, by id.
+        #[arg(long, conflicts_with = "session")]
+        sketch: Option<String>,
+        /// The session that wrote the brief.
+        #[arg(long)]
+        session: Option<String>,
+    },
+    /// List every brief in this checkout, the most recently changed first.
+    List,
 }
 
 #[derive(Subcommand)]

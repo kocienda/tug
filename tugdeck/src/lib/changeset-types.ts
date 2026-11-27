@@ -1240,6 +1240,12 @@ export interface CycleStageWire {
   at: string;
 }
 
+/** Who stated a queued arc: a session and, when known, its turn. The session id travels bare. */
+export interface CycleStatedByWire {
+  session: string;
+  turn?: number;
+}
+
 /** One entry of a cycle: a brief, the arc it is tied to, and its state. */
 export interface CycleEntryWire {
   /** The entry's number, from 1, in the order added. */
@@ -1250,6 +1256,20 @@ export interface CycleEntryWire {
   brief_path?: string;
   /** The brief's first heading, read beside `brief_path`. */
   brief_title?: string;
+  /** The brief record's id, the entry's link to its brief. */
+  brief_id?: string;
+  /** The arc the entry was queued for, or the one that carries it. */
+  name?: string;
+  /** A short label a person gave the queued arc. */
+  label?: string;
+  /** The session, and its turn, that stated the queued arc. */
+  stated_by?: CycleStatedByWire;
+  /**
+   * Whether the entry was put on the cycle as planned work; an entry an arc
+   * opened on with nobody listing it is not counted against the run. Absent
+   * from an older server, which reads as listed.
+   */
+  listed?: boolean;
   arc?: CycleArcWire;
   /** The entries this one waits on, by number. */
   waits: number[];
@@ -1285,6 +1305,8 @@ export interface CycleSketchWire {
   want?: string;
   /** The sketch's whole body, heading and `Source:` line taken off. */
   text?: string;
+  /** The record id of the brief that wrote the sketch up, when one did. */
+  brief_id?: string;
 }
 
 /**
@@ -1305,6 +1327,10 @@ export interface CycleWire {
   sketches?: CycleSketchWire[];
   /** How many entries have joined. */
   landed: number;
+  /** How many listed entries have joined: the run's progress. */
+  run_landed?: number;
+  /** How many listed entries there are that were not dropped. */
+  run_total?: number;
 }
 
 const CYCLE_ENTRY_STATES: ReadonlySet<string> = new Set([
@@ -1334,6 +1360,15 @@ export function isCycleEntryWire(value: unknown): value is CycleEntryWire {
     typeof value.brief === "string" &&
     isOptionalString(value.brief_path) &&
     isOptionalString(value.brief_title) &&
+    isOptionalString(value.brief_id) &&
+    isOptionalString(value.name) &&
+    isOptionalString(value.label) &&
+    (value.stated_by === undefined ||
+      (isRecord(value.stated_by) &&
+        typeof value.stated_by.session === "string" &&
+        (value.stated_by.turn === undefined ||
+          typeof value.stated_by.turn === "number"))) &&
+    (value.listed === undefined || typeof value.listed === "boolean") &&
     (value.arc === undefined ||
       (isRecord(value.arc) &&
         typeof value.arc.name === "string" &&
@@ -1360,7 +1395,8 @@ export function isCycleSketchWire(value: unknown): value is CycleSketchWire {
     typeof value.id === "string" &&
     typeof value.added === "string" &&
     isOptionalString(value.text) &&
-    isOptionalString(value.want)
+    isOptionalString(value.want) &&
+    isOptionalString(value.brief_id)
   );
 }
 
@@ -1378,7 +1414,9 @@ export function isCycleWire(value: unknown): value is CycleWire {
     (value.sketches === undefined ||
       (Array.isArray(value.sketches) &&
         value.sketches.every(isCycleSketchWire))) &&
-    typeof value.landed === "number"
+    typeof value.landed === "number" &&
+    (value.run_landed === undefined || typeof value.run_landed === "number") &&
+    (value.run_total === undefined || typeof value.run_total === "number")
   );
 }
 

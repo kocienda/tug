@@ -544,7 +544,7 @@ mod tests {
             "sketch.md",
             "# Sketch\n\nWant the atoms.\n\nSource: session x, turns 1–2\n",
         );
-        let recorded = sketch::record_arc_sketch(&s.paths, &s.repo, "drawn").unwrap();
+        let recorded = sketch::record_arc_sketch(&s.paths, &s.repo, "drawn", &tugarc_core::work_log::By::none(), sketch::Written::AtTheTime).unwrap();
 
         // Asked from a different checkout: the id is found where it lives.
         let elsewhere = tempfile::tempdir().unwrap();
@@ -572,7 +572,7 @@ mod tests {
                 "sketch.md",
                 &format!("# Sketch\n\n{want}\n\nSource: x\n"),
             );
-            sketch::record_arc_sketch(&s.paths, &s.repo, arc).unwrap();
+            sketch::record_arc_sketch(&s.paths, &s.repo, arc, &tugarc_core::work_log::By::none(), sketch::Written::AtTheTime).unwrap();
         }
         let body = search_sketches_body(&s.paths, &s.repo, s.project(), "ATOMS", Some("q2"));
         assert_eq!(body["request_id"], "q2");

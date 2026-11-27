@@ -909,6 +909,17 @@ pub(crate) async fn supervisor(
         },
     ));
 
+    // Every work-record change as a fact. The record writers run out of
+    // process and append to each project's work log; this follows the logs
+    // of the projects this instance holds open.
+    tokio::spawn(feeds::work_log::run_work_log_follower(
+        feeds::work_log::WorkLogContext {
+            registry: Arc::clone(&registry),
+            sessions: Arc::clone(&ledger),
+            cancel: cancel.clone(),
+        },
+    ));
+
     // The machine-wide session index is written by every instance on this
     // machine, so a reference that answered `absent` here can become
     // answerable with nothing happening in this process. One watch, one

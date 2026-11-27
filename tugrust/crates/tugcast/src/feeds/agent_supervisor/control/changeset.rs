@@ -1244,6 +1244,34 @@ impl AgentSupervisor {
                     );
                     self.record_commit_fact(fact, "commit").await;
                 }
+                // The commit as a version of every brief it touched. The
+                // record keeps the session id alone, so privacy is unknown
+                // here: the ledger's refusal covers the fact the line becomes.
+                {
+                    let repo = dir.to_path_buf();
+                    let sha = receipt.sha.clone();
+                    let files = files.clone();
+                    let by = tugarc_core::work_log::By {
+                        session: request
+                            .session_id
+                            .clone()
+                            .filter(|s| !s.is_empty()),
+                        ..tugarc_core::work_log::By::none()
+                    };
+                    let noted = tokio::task::spawn_blocking(move || {
+                        tugarc_core::brief::note_commit(
+                            &tugcore::instance::Paths::from_env(),
+                            &repo,
+                            &sha,
+                            &files,
+                            &by,
+                        )
+                    })
+                    .await;
+                    if let Err(e) = noted {
+                        warn!(error = %e, "noting the commit on its briefs failed");
+                    }
+                }
                 let body = serde_json::json!({
                     "action": "changeset_commit_ok",
                     "project_dir": project_dir,

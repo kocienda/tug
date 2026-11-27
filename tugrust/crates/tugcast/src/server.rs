@@ -1373,12 +1373,13 @@ fn resolve_session_identity(
         .and_then(|line| ledger.line_ownership(line).ok().flatten())
         .map(|own| own.segment_ids)
         .unwrap_or_else(|| vec![posted.to_string()]);
-    let live_state = ledger
-        .get(&live)
-        .ok()
-        .flatten()
-        .map(|r| r.state.as_str())
-        .unwrap_or("live");
+    let live_row = ledger.get(&live).ok().flatten();
+    let live_state = live_row.as_ref().map(|r| r.state.as_str()).unwrap_or("live");
+    // **Whether the session is private**, as the ledger's privacy refusal
+    // reads it: a record a private session writes keeps no words and no
+    // author. The seated segment answers; the posted row stands in when the
+    // live one cannot be read.
+    let private = live_row.as_ref().map(|r| r.private).unwrap_or(row.private);
     Ok(serde_json::json!({
         "status": "ok",
         "session_id": live,
@@ -1396,6 +1397,7 @@ fn resolve_session_identity(
         // field simply omits it, and the caller falls back to what it did
         // before: attempt, and warn.
         "project_dir": row.project_dir,
+        "private": private,
     }))
 }
 
@@ -2830,6 +2832,18 @@ mod tests {
         let answer = resolve_session_identity(&l, "seg-new").expect("resolves");
         assert_eq!(answer["session_id"], "seg-new");
         assert_eq!(answer["rotated"], false);
+    }
+
+    /// The answer says whether the session is private, so a record the
+    /// session writes can leave its words and its author out.
+    #[test]
+    fn resolve_answers_private_for_a_private_session_and_not_for_a_public_one() {
+        let l = rotated_ledger();
+        let answer = resolve_session_identity(&l, "seg-new").expect("resolves");
+        assert_eq!(answer["private"], false);
+        l.set_session_private("seg-new", true).unwrap();
+        let answer = resolve_session_identity(&l, "seg-old").expect("resolves");
+        assert_eq!(answer["private"], true, "the seated segment answers");
     }
 
     /// The two refusals are different sentences on purpose: one sends the

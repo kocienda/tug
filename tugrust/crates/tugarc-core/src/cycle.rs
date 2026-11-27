@@ -34,7 +34,9 @@ use crate::log::{
     ArcFate, arc_fates, generation_started_at, is_terminal, split_log_line, validate_arc_name,
 };
 use crate::ops::main_repo_root;
+use crate::record_lock::{LockMode, hold};
 use crate::sketch::{find_sketch, valid_id, write_atomically};
+use crate::work_log::{self, By, Privacy, WorkKind, WorkObject};
 
 /// The record file in a cycle's directory.
 pub const CYCLE_JSON: &str = "cycle.json";
@@ -48,8 +50,26 @@ pub type CycleArc = crate::sketch::SketchArc;
 pub struct CycleEntry {
     /// The entry's number, from 1, in the order added.
     pub n: u32,
-    /// The brief's path, relative to the project root.
+    /// The brief's path, relative to the project root: a display cache,
+    /// refreshed from the brief record whenever the core writes the entry.
     pub brief: String,
+    /// The brief record's id: the link every comparison goes through.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub brief_id: String,
+    /// The arc this entry was queued for, or the arc that carries it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arc_name: Option<String>,
+    /// A short label a person gave the queued arc.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// The session, and its turn, that stated the queued arc.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stated_by: Option<StatedBy>,
+    /// Whether the entry was put on the cycle as planned work. An entry added
+    /// because an arc opened on work no entry held is unlisted: it waits on
+    /// nothing and is not counted against the run.
+    #[serde(default = "listed_by_default")]
+    pub listed: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub arc: Option<CycleArc>,
     /// The entries this one waits on, by number.
@@ -69,6 +89,39 @@ pub struct CycleEntry {
     pub dropped: Option<String>,
 }
 
+/// Every entry written before the mark existed was planned work.
+fn listed_by_default() -> bool {
+    true
+}
+
+impl Default for CycleEntry {
+    fn default() -> Self {
+        CycleEntry {
+            n: 0,
+            brief: String::new(),
+            brief_id: String::new(),
+            arc_name: None,
+            label: None,
+            stated_by: None,
+            listed: true,
+            arc: None,
+            waits: Vec::new(),
+            from: Vec::new(),
+            note: None,
+            added: String::new(),
+            dropped: None,
+        }
+    }
+}
+
+/// Who stated a queued arc: a session and, when known, its turn.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StatedBy {
+    pub session: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn: Option<u32>,
+}
+
 /// One sketch on a cycle: the sketch store's id under the cycle's letter.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CycleSketch {
@@ -79,6 +132,9 @@ pub struct CycleSketch {
     /// an entry: an entry with no arc would read as ready forever.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub brief: Option<String>,
+    /// The record id of that brief: the link, beside the path it caches.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brief_id: Option<String>,
     pub added: String,
     /// When the sketch was dropped by hand, as one no entry will come from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -121,6 +177,12 @@ pub struct NewEntry {
     pub waits: Vec<u32>,
     pub from: Vec<String>,
     pub note: Option<String>,
+    /// The arc the entry is queued for.
+    pub arc_name: Option<String>,
+    pub label: Option<String>,
+    pub stated_by: Option<StatedBy>,
+    /// `Some(false)` for an entry nobody listed; `None` is listed.
+    pub listed: Option<bool>,
 }
 
 /// `<project_state_dir>/cycles`.
@@ -204,6 +266,10 @@ pub struct BriefFound {
 /// the project root: through an entry that holds it, or through a sketch
 /// that carries it as the brief that wrote it up.
 ///
+/// The path is resolved to its brief record first and every comparison is by
+/// the record's id, so a brief that was renamed is still found; a path no
+/// record answers for finds nothing.
+///
 /// The most recently changed cycle is asked first. Within a cycle the
 /// earliest entry that can still take an arc answers: one with no arc, or
 /// one whose arc was discarded. When every entry holding the brief already
@@ -216,13 +282,14 @@ pub fn find_by_brief(paths: &Paths, repo: &Path, brief: &str) -> Option<BriefFou
     if wanted.is_empty() {
         return None;
     }
+    let id = crate::brief::resolve(paths, repo, wanted)?.id;
     let log_path = tugtool_core::paths::arc_log_path_at(paths, repo);
     let log = fs::read_to_string(&log_path).unwrap_or_default();
     cycles(paths, repo).into_iter().find_map(|record| {
         let holding: Vec<&CycleEntry> = record
             .entries
             .iter()
-            .filter(|e| normal_brief(&e.brief) == wanted)
+            .filter(|e| e.brief_id == id)
             .collect();
         let free = holding
             .iter()
@@ -233,7 +300,7 @@ pub fn find_by_brief(paths: &Paths, repo: &Path, brief: &str) -> Option<BriefFou
             record
                 .sketches
                 .iter()
-                .find(|s| s.brief.as_deref().map(normal_brief) == Some(wanted))
+                .find(|s| s.brief_id.as_deref() == Some(id.as_str()))
                 .map(|s| s.letter.clone())
         };
         let (n, letter, from) = match (free, holding.iter().max_by_key(|e| e.n)) {
@@ -287,7 +354,7 @@ pub fn find_by_sketch(paths: &Paths, repo: &Path, sketch_id: &str) -> Option<Bri
 
 /// A brief path in the one spelling entries are compared in: trimmed, with
 /// any leading `./` taken off.
-fn normal_brief(brief: &str) -> &str {
+pub(crate) fn normal_brief(brief: &str) -> &str {
     let mut path = brief.trim();
     while let Some(rest) = path.strip_prefix("./") {
         path = rest;
@@ -306,26 +373,27 @@ fn normal_brief(brief: &str) -> &str {
 pub fn add_entry(paths: &Paths, repo: &Path, id: &str, entry: NewEntry) -> Result<u32, ArcError> {
     let _held = hold_cycle(paths, repo, id)?;
     let mut record = load(paths, repo, id)?;
+    let n = add_entry_held(paths, repo, &mut record, entry, &By::none())?;
+    save(&mut record)?;
+    Ok(n)
+}
+
+/// [`add_entry`] on a record whose lock the caller holds, without the save.
+/// The entry's brief is reached through its record ([`crate::brief::ensure`]),
+/// so it carries the brief's id and its current path.
+fn add_entry_held(
+    paths: &Paths,
+    repo: &Path,
+    record: &mut CycleRecord,
+    entry: NewEntry,
+    by: &By,
+) -> Result<u32, ArcError> {
+    let id = record.id.clone();
     let brief = relative_brief(&entry.brief)?;
     let n = record.entries.iter().map(|e| e.n).max().unwrap_or(0) + 1;
-    let mut waits: Vec<u32> = Vec::new();
-    for w in entry.waits {
-        if w == n {
-            return Err(ArcError::Refused(format!(
-                "entry {n} cannot wait on itself"
-            )));
-        }
-        if record.entry(w).is_none() {
-            return Err(ArcError::Refused(format!(
-                "cycle {id} has no entry {w} to wait on"
-            )));
-        }
-        if !waits.contains(&w) {
-            waits.push(w);
-        }
-    }
+    let waits = checked_waits(record, n, entry.waits)?;
     let mut from: Vec<String> = Vec::new();
-    merge_letters(&record, &mut from, entry.from)?;
+    merge_letters(record, &mut from, entry.from)?;
     if from.is_empty() {
         return Err(ArcError::Refused(format!(
             "an entry needs the sketch it came from: add one to cycle {id} and name its letter"
@@ -335,6 +403,14 @@ pub fn add_entry(paths: &Paths, repo: &Path, id: &str, entry: NewEntry) -> Resul
     entries.push(CycleEntry {
         n,
         brief: brief.to_string(),
+        brief_id: String::new(),
+        arc_name: entry.arc_name,
+        label: entry
+            .label
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()),
+        stated_by: entry.stated_by,
+        listed: entry.listed.unwrap_or(true),
         arc: None,
         waits,
         from,
@@ -350,10 +426,37 @@ pub fn add_entry(paths: &Paths, repo: &Path, id: &str, entry: NewEntry) -> Resul
             "the waits would close a loop through entry {at}"
         )));
     }
+    let found = crate::brief::ensure(paths, repo, &brief, by)?;
+    if let Some(last) = entries.last_mut() {
+        last.brief = found.path;
+        last.brief_id = found.id;
+    }
     record.entries = entries;
-    undrop_sketches(&mut record, n);
-    save(&mut record)?;
+    undrop_sketches(record, n);
     Ok(n)
+}
+
+/// `waits` for entry `n` of `record`, each once. Refused when one names `n`
+/// itself or an entry the record does not have.
+fn checked_waits(record: &CycleRecord, n: u32, waits: Vec<u32>) -> Result<Vec<u32>, ArcError> {
+    let mut out: Vec<u32> = Vec::new();
+    for w in waits {
+        if w == n {
+            return Err(ArcError::Refused(format!(
+                "entry {n} cannot wait on itself"
+            )));
+        }
+        if record.entry(w).is_none() {
+            return Err(ArcError::Refused(format!(
+                "cycle {} has no entry {w} to wait on",
+                record.id
+            )));
+        }
+        if !out.contains(&w) {
+            out.push(w);
+        }
+    }
+    Ok(out)
 }
 
 /// Add `letters` to the sketches entry `n` of cycle `id` came from, and
@@ -458,11 +561,17 @@ pub fn add_sketch(
     let _held = hold_cycle(paths, repo, id)?;
     let mut record = load(paths, repo, id)?;
     let brief = brief.map(relative_brief).transpose()?;
+    let brief_id = brief
+        .as_deref()
+        .map(|b| crate::brief::ensure(paths, repo, b, &By::none()))
+        .transpose()?
+        .map(|o| o.id);
     if let Some(at) = record.sketches.iter().position(|s| s.id == sketch_id) {
         let letter = record.sketches[at].letter.clone();
+        let held_id = record.sketches[at].brief_id.clone();
         match (&record.sketches[at].brief, brief) {
             (_, None) => {}
-            (Some(held), Some(given)) if *held == given => {}
+            (Some(held), Some(given)) if *held == given || held_id == brief_id => {}
             (Some(held), Some(_)) => {
                 return Err(ArcError::Refused(format!(
                     "sketch {letter} already carries the brief {held}"
@@ -470,6 +579,7 @@ pub fn add_sketch(
             }
             (None, Some(given)) => {
                 record.sketches[at].brief = Some(given);
+                record.sketches[at].brief_id = brief_id;
                 save(&mut record)?;
             }
         }
@@ -485,6 +595,7 @@ pub fn add_sketch(
         letter: letter.clone(),
         id: sketch_id.to_string(),
         brief,
+        brief_id,
         added: now_iso8601(),
         dropped: None,
     });
@@ -515,7 +626,26 @@ pub fn attach(
     let mut record = load(paths, repo, id)?;
     let log_path = tugtool_core::paths::arc_log_path_at(paths, repo);
     let log = fs::read_to_string(&log_path).unwrap_or_default();
-    let Some(start) = generation_started_at(&log, arc) else {
+    let (link, changed) = attach_held(paths, repo, &mut record, n, arc, &log)?;
+    if changed {
+        save(&mut record)?;
+    }
+    Ok(link)
+}
+
+/// [`attach`] on a record whose lock the caller holds, against arc log text
+/// already read, without the save. Returns the link and whether the record
+/// changed. The entry takes the arc's name as its own.
+fn attach_held(
+    paths: &Paths,
+    repo: &Path,
+    record: &mut CycleRecord,
+    n: u32,
+    arc: &str,
+    log: &str,
+) -> Result<(CycleArc, bool), ArcError> {
+    let id = record.id.clone();
+    let Some(start) = generation_started_at(log, arc) else {
         return Err(ArcError::Refused(format!(
             "the arc log has no arc named {arc}"
         )));
@@ -540,9 +670,13 @@ pub fn attach(
         return Err(ArcError::Refused(format!("cycle {id} has no entry {n}")));
     };
     match &entry.arc {
-        Some(held) if *held == link && entry.dropped.is_none() => return Ok(link),
+        Some(held) if *held == link && entry.dropped.is_none() => {
+            let named = entry.arc_name.as_deref() != Some(arc);
+            entry.arc_name = Some(arc.to_string());
+            return Ok((link, named));
+        }
         Some(held) if *held == link => {}
-        Some(held) => match link_status(&log, held) {
+        Some(held) => match link_status(log, held) {
             LinkStatus::Open => {
                 return Err(ArcError::Refused(format!(
                     "entry {n} is already carried by arc {}, which is still open",
@@ -562,9 +696,610 @@ pub fn attach(
         None => {}
     }
     entry.arc = Some(link.clone());
+    entry.arc_name = Some(arc.to_string());
     entry.dropped = None;
+    Ok((link, true))
+}
+
+/// What a placement did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Outcome {
+    /// The work was already where it was asked to go; nothing was written.
+    Already,
+    /// An entry already on a cycle took the arc.
+    Filled,
+    /// A new entry was added to a cycle already there.
+    Added,
+    /// A new cycle was started for the work.
+    Started,
+    /// An entry already holding the brief was named for a queued arc.
+    Named,
+    /// A brief was recorded on a sketch as the brief that wrote it up.
+    Linked,
+}
+
+/// Where a placement put the work.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Placed {
+    /// The cycle's id.
+    pub cycle: String,
+    /// The cycle's name.
+    pub name: String,
+    /// The entry the work is, when it is one.
+    pub n: Option<u32>,
+    /// The first letter the entry came from, or the sketch a brief was linked to.
+    pub letter: Option<String>,
+    pub outcome: Outcome,
+}
+
+/// What the `/arc` door says when an arc opens: the arc, the brief it opened
+/// on, the sketch it came from, and a name for a cycle it may have to start.
+#[derive(Debug, Clone, Copy)]
+pub struct PlaceArc<'a> {
+    pub arc: &'a str,
+    pub brief: &'a str,
+    pub sketch: Option<&'a str>,
+    pub name: Option<&'a str>,
+    pub by: &'a By,
+}
+
+/// What the brief skill says when it writes a brief: the brief, the sketch it
+/// came from or the brief it followed, the cycle when the caller knows it, a
+/// name for a cycle it may have to start, and the entry's waits and note.
+#[derive(Debug, Clone)]
+pub struct PlaceBrief<'a> {
+    pub brief: &'a str,
+    pub sketch: Option<&'a str>,
+    pub from_brief: Option<&'a str>,
+    pub cycle: Option<&'a str>,
+    pub name: Option<&'a str>,
+    pub waits: Vec<u32>,
+    pub note: Option<&'a str>,
+    pub by: &'a By,
+}
+
+/// What a statement of queued work says: the arc to run, the brief it runs,
+/// the cycle when the caller knows it, a label, what it waits on, and the
+/// letters it came from.
+#[derive(Debug, Clone)]
+pub struct QueueArc<'a> {
+    pub arc: &'a str,
+    pub brief: &'a str,
+    pub cycle: Option<&'a str>,
+    pub label: Option<&'a str>,
+    pub waits: Vec<u32>,
+    /// The arc whose entry this one waits on, by name.
+    pub after: Option<&'a str>,
+    pub from: Vec<String>,
+    pub by: &'a By,
+}
+
+/// Put an opened arc on the entry that is its work, the first rule that
+/// answers winning:
+///
+/// 1. An entry already links the arc's current generation: nothing changes.
+/// 2. An entry is queued under the arc's name and nothing carries it: the arc
+///    fills it. The name is the match, never the brief, and an entry queued
+///    for this name with another brief is refused rather than guessed past.
+/// 3. The brief is on a cycle: a free entry nobody queued takes the arc; a
+///    sketch the brief wrote up, or the latest entry holding it, gives the
+///    letters of a new entry. An entry queued under another name is never
+///    taken.
+/// 4. The sketch is on a cycle: a new entry from its letter.
+/// 5. Otherwise a new cycle named `name`, with the sketch as A and the arc's
+///    entry as 1.
+///
+/// An entry added by rules 3 and 4 was on nobody's list, so it is unlisted
+/// and waits on nothing.
+pub fn place_arc(paths: &Paths, repo: &Path, req: PlaceArc) -> Result<Placed, ArcError> {
+    validate_arc_name(req.arc).map_err(ArcError::InvalidName)?;
+    let log = arc_log_text(paths, repo);
+    let Some(start) = generation_started_at(&log, req.arc) else {
+        return Err(ArcError::Refused(format!(
+            "the arc log has no arc named {}",
+            req.arc
+        )));
+    };
+    let link = CycleArc {
+        name: req.arc.to_string(),
+        created: Some(start),
+    };
+    let all = cycles(paths, repo);
+    for record in &all {
+        if let Some(e) = record.entries.iter().find(|e| e.arc.as_ref() == Some(&link)) {
+            return Ok(placed(record, Some(e.n), Outcome::Already));
+        }
+    }
+
+    let brief = crate::brief::ensure(paths, repo, req.brief, req.by)?;
+    refresh_brief(paths, repo, &brief.id);
+
+    for record in &all {
+        let queued = record
+            .entries
+            .iter()
+            .find(|e| e.arc_name.as_deref() == Some(req.arc) && !is_carried(&log, e));
+        if let Some(e) = queued {
+            if e.brief_id != brief.id {
+                return Err(ArcError::Refused(format!(
+                    "entry {} of cycle {} is queued for arc {} with the brief {}, not {}",
+                    e.n, record.id, req.arc, e.brief, brief.path
+                )));
+            }
+            return fill(paths, repo, &record.id, e.n, req.arc, &log);
+        }
+    }
+
+    for record in &all {
+        let holding: Vec<&CycleEntry> = record
+            .entries
+            .iter()
+            .filter(|e| e.brief_id == brief.id)
+            .collect();
+        let free = holding
+            .iter()
+            .filter(|e| e.arc_name.is_none() && !is_carried(&log, e))
+            .min_by_key(|e| e.n);
+        if let Some(e) = free {
+            return fill(paths, repo, &record.id, e.n, req.arc, &log);
+        }
+        let from = match holding.iter().max_by_key(|e| e.n) {
+            Some(last) => last.from.clone(),
+            None => match record
+                .sketches
+                .iter()
+                .find(|s| s.brief_id.as_deref() == Some(brief.id.as_str()))
+            {
+                Some(s) => vec![s.letter.clone()],
+                None => continue,
+            },
+        };
+        return add_carried(paths, repo, &record.id, &brief.path, from, req.arc, false, &log);
+    }
+
+    if let Some(found) = req.sketch.and_then(|s| find_by_sketch(paths, repo, s)) {
+        let from = found.letter.into_iter().collect();
+        return add_carried(paths, repo, &found.id, &brief.path, from, req.arc, false, &log);
+    }
+
+    let Some(sketch) = req.sketch else {
+        return Err(ArcError::Refused(format!(
+            "arc {} is on no cycle: name the sketch it came from to start one",
+            req.arc
+        )));
+    };
+    let Some(name) = req.name else {
+        return Err(ArcError::Refused(format!(
+            "arc {} is on no cycle: name the cycle to start for it",
+            req.arc
+        )));
+    };
+    let record = create_cycle(paths, repo, name, creator(req.by))?;
+    let letter = add_sketch(paths, repo, &record.id, sketch, None)?;
+    let mut out = add_carried(paths, repo, &record.id, &brief.path, vec![letter], req.arc, true, &log)?;
+    out.outcome = Outcome::Started;
+    Ok(out)
+}
+
+/// Record a brief the brief skill wrote, and put it on its cycle as listed
+/// work.
+///
+/// The brief is recorded first ([`crate::brief::record`], which writes its id
+/// line and names the sketch it came from). Its cycle is `cycle` when given,
+/// else the one holding `sketch`, else the one holding `from_brief`, else a
+/// new cycle named `name`. A `from_brief` that is on no cycle and is no arc's
+/// brief is recorded on the sketch as the brief that wrote it up. The brief
+/// then gets an entry from the sketch's letter, or from `from_brief`'s,
+/// unless a free entry already holds it.
+pub fn place_brief(paths: &Paths, repo: &Path, req: PlaceBrief) -> Result<Placed, ArcError> {
+    let sketches: Vec<String> = req.sketch.map(str::to_string).into_iter().collect();
+    let brief = crate::brief::record(paths, repo, req.brief, &sketches, req.by)?;
+    let from_brief = req
+        .from_brief
+        .map(|p| crate::brief::ensure(paths, repo, p, req.by))
+        .transpose()?;
+    let all = cycles(paths, repo);
+    let holds = |record: &CycleRecord, id: &str| {
+        record.entries.iter().any(|e| e.brief_id == id)
+            || record.sketches.iter().any(|s| s.brief_id.as_deref() == Some(id))
+    };
+    let from_placed = from_brief
+        .as_ref()
+        .and_then(|f| all.iter().find(|r| holds(r, &f.id)))
+        .map(|r| r.id.clone());
+
+    let mut started = false;
+    let cycle_id = if let Some(id) = req.cycle {
+        load(paths, repo, id)?.id
+    } else if let Some(found) = req.sketch.and_then(|s| find_by_sketch(paths, repo, s)) {
+        found.id
+    } else if let Some(id) = &from_placed {
+        id.clone()
+    } else {
+        // A new cycle's entry comes from its sketch, and only `sketch` can
+        // be one, so a cycle with nothing to come from is never started.
+        if req.sketch.is_none() {
+            return Err(ArcError::Refused(format!(
+                "brief {} is on no cycle: name the sketch it was written from to start one",
+                brief.path
+            )));
+        }
+        let Some(name) = req.name else {
+            return Err(ArcError::Refused(format!(
+                "brief {} is on no cycle: name the cycle to start for it",
+                brief.path
+            )));
+        };
+        started = true;
+        create_cycle(paths, repo, name, creator(req.by))?.id
+    };
+    let letter = req
+        .sketch
+        .map(|s| add_sketch(paths, repo, &cycle_id, s, None))
+        .transpose()?;
+
+    let _held = hold_cycle(paths, repo, &cycle_id)?;
+    let mut record = load(paths, repo, &cycle_id)?;
+    let log = arc_log_text(paths, repo);
+
+    let mut linked = false;
+    if let Some(f) = &from_brief {
+        if from_placed.is_none() && !holds(&record, &f.id) && !is_arcs_brief(repo, &log, &f.path) {
+            let Some(letter) = &letter else {
+                return Err(ArcError::Refused(format!(
+                    "brief {} follows {}, which is on no cycle: name the sketch {} wrote up",
+                    brief.path, f.path, f.path
+                )));
+            };
+            let Some(s) = record.sketches.iter_mut().find(|s| &s.letter == letter) else {
+                return Err(ArcError::Refused(format!("cycle {cycle_id} has no sketch {letter}")));
+            };
+            match &s.brief_id {
+                None => {
+                    s.brief = Some(f.path.clone());
+                    s.brief_id = Some(f.id.clone());
+                    linked = true;
+                }
+                Some(held) if *held == f.id => {}
+                Some(_) => {
+                    return Err(ArcError::Refused(format!(
+                        "sketch {letter} already carries the brief {}",
+                        s.brief.clone().unwrap_or_default()
+                    )));
+                }
+            }
+        }
+    }
+
+    let free = record
+        .entries
+        .iter()
+        .find(|e| e.brief_id == brief.id && e.arc_name.is_none() && !is_carried(&log, e))
+        .map(|e| e.n);
+    if let Some(n) = free {
+        if linked {
+            save(&mut record)?;
+        }
+        let outcome = if linked { Outcome::Linked } else { Outcome::Already };
+        return Ok(placed(&record, Some(n), outcome));
+    }
+
+    let from: Vec<String> = match (&letter, &from_brief) {
+        (Some(l), _) => vec![l.clone()],
+        (None, Some(f)) => letters_of(&record, &f.id),
+        (None, None) => Vec::new(),
+    };
+    if from.is_empty() {
+        return Err(ArcError::Refused(format!(
+            "brief {} has no sketch to come from: name the sketch it was written from",
+            brief.path
+        )));
+    }
+    let n = add_entry_held(
+        paths,
+        repo,
+        &mut record,
+        NewEntry {
+            brief: brief.path.clone(),
+            waits: req.waits,
+            from,
+            note: req.note.map(str::to_string),
+            listed: Some(true),
+            ..NewEntry::default()
+        },
+        req.by,
+    )?;
     save(&mut record)?;
-    Ok(link)
+    let outcome = if started {
+        Outcome::Started
+    } else if linked {
+        Outcome::Linked
+    } else {
+        Outcome::Added
+    };
+    Ok(placed(&record, Some(n), outcome))
+}
+
+/// Queue arc `arc` to run brief `brief` on its cycle, as listed work.
+///
+/// Refused when the name is not an arc name, or another entry of this
+/// checkout holds it and is neither joined nor dropped: a name is held by one
+/// unsettled entry at a time. The cycle is `cycle` when given, else the one
+/// holding the brief. `after` names the arc whose entry this one waits on.
+/// A free entry nobody queued that holds the brief is named in place;
+/// otherwise a new entry is added, from `from` or from the letters the brief
+/// already came from.
+pub fn queue_arc(paths: &Paths, repo: &Path, req: QueueArc) -> Result<Placed, ArcError> {
+    validate_arc_name(req.arc).map_err(ArcError::InvalidName)?;
+    let log = arc_log_text(paths, repo);
+    let all = cycles(paths, repo);
+    for record in &all {
+        let states = entry_states(&log, record);
+        for (e, (_, state)) in record.entries.iter().zip(states) {
+            if e.arc_name.as_deref() == Some(req.arc) && !state.is_settled() {
+                return Err(ArcError::Refused(format!(
+                    "arc {} is already queued as entry {} of cycle {}",
+                    req.arc, e.n, record.id
+                )));
+            }
+        }
+    }
+    let brief = crate::brief::ensure(paths, repo, req.brief, req.by)?;
+    let cycle_id = match req.cycle {
+        Some(id) => load(paths, repo, id)?.id,
+        None => all
+            .iter()
+            .find(|r| {
+                r.entries.iter().any(|e| e.brief_id == brief.id)
+                    || r.sketches.iter().any(|s| s.brief_id.as_deref() == Some(brief.id.as_str()))
+            })
+            .map(|r| r.id.clone())
+            .ok_or_else(|| {
+                ArcError::Refused(format!("no cycle holds {}; name one", brief.path))
+            })?,
+    };
+
+    let _held = hold_cycle(paths, repo, &cycle_id)?;
+    let mut record = load(paths, repo, &cycle_id)?;
+    let mut waits = req.waits;
+    if let Some(after) = req.after {
+        let Some(e) = record.entries.iter().find(|e| e.arc_name.as_deref() == Some(after)) else {
+            return Err(ArcError::Refused(format!(
+                "cycle {cycle_id} has no entry queued for arc {after}"
+            )));
+        };
+        if !waits.contains(&e.n) {
+            waits.push(e.n);
+        }
+    }
+    let stated_by = match req.by.privacy {
+        Privacy::Private => None,
+        _ => req.by.session.clone().map(|session| StatedBy {
+            session,
+            turn: req.by.turn,
+        }),
+    };
+    let label = req
+        .label
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    let free = record
+        .entries
+        .iter()
+        .position(|e| e.brief_id == brief.id && e.arc_name.is_none() && !is_carried(&log, e));
+    let (n, outcome) = if let Some(at) = free {
+        let n = record.entries[at].n;
+        let waits = checked_waits(&record, n, waits)?;
+        let mut entries = record.entries.clone();
+        let e = &mut entries[at];
+        e.arc_name = Some(req.arc.to_string());
+        e.label = label.clone();
+        e.stated_by = stated_by;
+        e.listed = true;
+        for w in waits {
+            if !e.waits.contains(&w) {
+                e.waits.push(w);
+            }
+        }
+        if let Some(at) = wait_loop(&entries) {
+            return Err(ArcError::Refused(format!(
+                "the waits would close a loop through entry {at}"
+            )));
+        }
+        record.entries = entries;
+        (n, Outcome::Named)
+    } else {
+        let from = if req.from.is_empty() {
+            queued_letters(paths, &record, &brief.id)
+        } else {
+            req.from
+        };
+        let n = add_entry_held(
+            paths,
+            repo,
+            &mut record,
+            NewEntry {
+                brief: brief.path.clone(),
+                waits,
+                from,
+                arc_name: Some(req.arc.to_string()),
+                label: label.clone(),
+                stated_by,
+                listed: Some(true),
+                ..NewEntry::default()
+            },
+            req.by,
+        )?;
+        (n, Outcome::Added)
+    };
+    save(&mut record)?;
+    let mut detail = serde_json::json!({ "arc": req.arc, "brief": brief.id });
+    if let Some(label) = &label {
+        detail["label"] = serde_json::Value::String(label.clone());
+    }
+    log_work(
+        paths,
+        repo,
+        WorkKind::ArcQueued,
+        WorkObject::Cycle {
+            cycle: record.id.clone(),
+            n,
+        },
+        detail,
+        req.by,
+    );
+    Ok(placed(&record, Some(n), outcome))
+}
+
+/// The letters a queued arc for brief `brief_id` comes from on `record`: the
+/// latest entry already holding the brief, else a sketch the brief's record
+/// names as one it came from, else the sketch the brief wrote up.
+fn queued_letters(paths: &Paths, record: &CycleRecord, brief_id: &str) -> Vec<String> {
+    if let Some(e) = record
+        .entries
+        .iter()
+        .filter(|e| e.brief_id == brief_id)
+        .max_by_key(|e| e.n)
+    {
+        return e.from.clone();
+    }
+    let came_from: Vec<String> = crate::brief::find_brief(paths, brief_id)
+        .into_iter()
+        .flat_map(|(_, r)| r.sketches)
+        .collect();
+    if let Some(s) = record.sketches.iter().find(|s| came_from.contains(&s.id)) {
+        return vec![s.letter.clone()];
+    }
+    letters_of(record, brief_id)
+}
+
+/// The letters brief `brief_id` came from on `record`: the latest entry
+/// holding it, else the sketch it wrote up.
+fn letters_of(record: &CycleRecord, brief_id: &str) -> Vec<String> {
+    if let Some(e) = record
+        .entries
+        .iter()
+        .filter(|e| e.brief_id == brief_id)
+        .max_by_key(|e| e.n)
+    {
+        return e.from.clone();
+    }
+    record
+        .sketches
+        .iter()
+        .find(|s| s.brief_id.as_deref() == Some(brief_id))
+        .map(|s| vec![s.letter.clone()])
+        .unwrap_or_default()
+}
+
+/// Attach `arc` to entry `n` of cycle `id` under the cycle's lock.
+fn fill(
+    paths: &Paths,
+    repo: &Path,
+    id: &str,
+    n: u32,
+    arc: &str,
+    log: &str,
+) -> Result<Placed, ArcError> {
+    let _held = hold_cycle(paths, repo, id)?;
+    let mut record = load(paths, repo, id)?;
+    let (_, changed) = attach_held(paths, repo, &mut record, n, arc, log)?;
+    if changed {
+        save(&mut record)?;
+    }
+    Ok(placed(&record, Some(n), Outcome::Filled))
+}
+
+/// Add an entry for `brief` from `from` to cycle `id` and attach `arc` to it,
+/// under one hold of the cycle's lock and in one write. An entry nobody
+/// listed waits on nothing.
+#[allow(clippy::too_many_arguments)]
+fn add_carried(
+    paths: &Paths,
+    repo: &Path,
+    id: &str,
+    brief: &str,
+    from: Vec<String>,
+    arc: &str,
+    listed: bool,
+    log: &str,
+) -> Result<Placed, ArcError> {
+    let _held = hold_cycle(paths, repo, id)?;
+    let mut record = load(paths, repo, id)?;
+    let n = add_entry_held(
+        paths,
+        repo,
+        &mut record,
+        NewEntry {
+            brief: brief.to_string(),
+            from,
+            arc_name: Some(arc.to_string()),
+            listed: Some(listed),
+            ..NewEntry::default()
+        },
+        &By::none(),
+    )?;
+    attach_held(paths, repo, &mut record, n, arc, log)?;
+    save(&mut record)?;
+    Ok(placed(&record, Some(n), Outcome::Added))
+}
+
+/// A placement's answer for entry `n` of `record`.
+fn placed(record: &CycleRecord, n: Option<u32>, outcome: Outcome) -> Placed {
+    Placed {
+        cycle: record.id.clone(),
+        name: record.name.clone(),
+        n,
+        letter: n
+            .and_then(|n| record.entry(n))
+            .and_then(|e| e.from.first().cloned()),
+        outcome,
+    }
+}
+
+/// Who a new cycle is created by: the caller's session, unless it is private.
+fn creator(by: &By) -> Option<&str> {
+    match by.privacy {
+        Privacy::Private => None,
+        _ => by.session.as_deref(),
+    }
+}
+
+/// Add every commit that changed brief `id` and its record does not hold.
+fn refresh_brief(paths: &Paths, repo: &Path, id: &str) {
+    let root = crate::brief::brief_root(paths, repo);
+    let found = crate::brief::find_brief(paths, id)
+        .into_iter()
+        .map(|(_, r)| r)
+        .find(|r| r.dir.starts_with(&root));
+    if let Some(mut record) = found {
+        if let Err(e) = crate::brief::refresh_versions(paths, repo, &mut record) {
+            eprintln!("could not read brief {id}'s commits: {e}");
+        }
+    }
+}
+
+/// Whether some arc in `log` was opened on the brief at `path`.
+fn is_arcs_brief(repo: &Path, log: &str, path: &str) -> bool {
+    let root = main_repo_root(repo);
+    log.lines().filter_map(split_log_line).any(|(_, _, marker, note)| {
+        if marker != "arc-start" {
+            return false;
+        }
+        let note = normal_brief(note);
+        let rel = Path::new(note)
+            .strip_prefix(&root)
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| note.to_string());
+        rel == path
+    })
+}
+
+/// This checkout's arc log, as text.
+fn arc_log_text(paths: &Paths, repo: &Path) -> String {
+    fs::read_to_string(tugtool_core::paths::arc_log_path_at(paths, repo)).unwrap_or_default()
 }
 
 /// What [`drop_item`] marked: an entry by its number, or a sketch by its
@@ -620,6 +1355,18 @@ pub fn drop_item(
         if record.entries[at].dropped.is_none() {
             record.entries[at].dropped = Some(now_iso8601());
             save(&mut record)?;
+            let detail = serde_json::json!({ "brief": record.entries[at].brief_id });
+            log_work(
+                paths,
+                repo,
+                WorkKind::EntryDropped,
+                WorkObject::Cycle {
+                    cycle: record.id.clone(),
+                    n,
+                },
+                detail,
+                &By::none(),
+            );
         }
         return Ok(DroppedItem::Entry(n));
     }
@@ -656,7 +1403,7 @@ pub fn find_cycle(paths: &Paths, id: &str) -> Vec<(PathBuf, CycleRecord)> {
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .filter_map(|state| {
-            let record = read_record(&state.join("cycles").join(id))?;
+            let record = read_current(paths, &state.join("cycles").join(id))?;
             Some((state, record))
         })
         .collect();
@@ -673,7 +1420,7 @@ pub fn cycles(paths: &Paths, repo: &Path) -> Vec<CycleRecord> {
     let mut all: Vec<CycleRecord> = read
         .filter_map(|e| e.ok())
         .filter(|e| valid_id(&e.file_name().to_string_lossy()))
-        .filter_map(|e| read_record(&e.path()))
+        .filter_map(|e| read_current(paths, &e.path()))
         .collect();
     all.sort_by(|a, b| b.updated.cmp(&a.updated).then_with(|| a.id.cmp(&b.id)));
     all
@@ -692,7 +1439,7 @@ pub fn all_cycles(paths: &Paths) -> Vec<CycleRecord> {
         .filter_map(|root| fs::read_dir(root).ok())
         .flat_map(|dirs| dirs.filter_map(|e| e.ok()))
         .filter(|e| valid_id(&e.file_name().to_string_lossy()))
-        .filter_map(|e| read_record(&e.path()))
+        .filter_map(|e| read_current(paths, &e.path()))
         .collect();
     all.sort_by(|a, b| {
         a.project_dir
@@ -713,12 +1460,15 @@ pub struct ChainBreak {
 }
 
 /// The links `record` breaks by itself: an entry with no brief, an entry
-/// that names no sketch, and a letter that names no sketch on the cycle.
+/// that names no sketch, an entry whose brief has no record, and a letter
+/// that names no sketch on the cycle.
 pub fn chain_breaks(record: &CycleRecord) -> Vec<String> {
     let mut problems = Vec::new();
     for e in &record.entries {
         if e.brief.trim().is_empty() {
             problems.push(format!("entry {} has no brief", e.n));
+        } else if e.brief_id.is_empty() {
+            problems.push(format!("entry {} has no brief record", e.n));
         }
         if e.from.is_empty() {
             problems.push(format!("entry {} names no sketch", e.n));
@@ -1125,6 +1875,11 @@ pub struct CycleView {
     pub sketches: Vec<CycleSketch>,
     /// How many entries have joined.
     pub landed: usize,
+    /// How many listed entries have joined: the run's progress, which an
+    /// entry nobody listed does not count toward.
+    pub run_landed: usize,
+    /// How many listed entries there are that were not dropped.
+    pub run_total: usize,
     /// Whether the cycle's work is finished ([`cycle_closed`]).
     pub closed: bool,
 }
@@ -1178,6 +1933,14 @@ pub fn view_cycle_in(log: &str, record: &CycleRecord) -> CycleView {
             .iter()
             .filter(|e| e.state == EntryState::Joined)
             .count(),
+        run_landed: entries
+            .iter()
+            .filter(|e| e.entry.listed && e.state == EntryState::Joined)
+            .count(),
+        run_total: entries
+            .iter()
+            .filter(|e| e.entry.listed && e.state != EntryState::Dropped)
+            .count(),
         closed,
         entries,
         sketches: record.sketches.clone(),
@@ -1196,40 +1959,122 @@ const CYCLE_LOCK: &str = "cycle.json.lock";
 /// lock is on a sibling file, never on `cycle.json` itself, because the write
 /// renames a new file into place and a lock on the old one would guard
 /// nothing. A cycle that is not here is not locked; `load` refuses it next.
-fn hold_cycle(paths: &Paths, repo: &Path, id: &str) -> Result<Option<fs::File>, ArcError> {
-    use std::os::fd::AsRawFd;
+fn hold_cycle(
+    paths: &Paths,
+    repo: &Path,
+    id: &str,
+) -> Result<Option<crate::record_lock::Held>, ArcError> {
     let dir = cycle_root(paths, repo).join(id);
     if !valid_id(id) || !dir.is_dir() {
         return Ok(None);
     }
-    let path = dir.join(CYCLE_LOCK);
-    let file = fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(&path)
-        .map_err(|e| ArcError::io("could not open the cycle's lock", &path, e))?;
-    // SAFETY: `flock` takes the descriptor of a file this function owns and
-    // keeps open; the kernel releases the lock when the file is closed.
-    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
-        return Err(ArcError::io(
-            "could not lock the cycle",
-            &path,
-            std::io::Error::last_os_error(),
-        ));
-    }
-    Ok(Some(file))
+    crate::record_lock::hold(&dir, CYCLE_LOCK, crate::record_lock::LockMode::Wait)
 }
 
 /// This checkout's cycle `id`; refused when it is not here.
+///
+/// The caller holds the cycle's lock, so a record that predates the brief
+/// record is brought forward and written here.
 fn load(paths: &Paths, repo: &Path, id: &str) -> Result<CycleRecord, ArcError> {
     if !valid_id(id) {
         return Err(ArcError::Refused(format!(
             "{id} is not a cycle id: eight lowercase hex characters"
         )));
     }
-    read_record(&cycle_root(paths, repo).join(id))
-        .ok_or_else(|| ArcError::Refused(format!("this checkout has no cycle {id}")))
+    let mut record = read_record(&cycle_root(paths, repo).join(id))
+        .ok_or_else(|| ArcError::Refused(format!("this checkout has no cycle {id}")))?;
+    if needs_bring_forward(&record) && bring_forward(paths, &mut record) {
+        write_record(&record)?;
+    }
+    Ok(record)
+}
+
+/// Whether `record` names a brief by path alone, as records written before
+/// the brief record did.
+fn needs_bring_forward(record: &CycleRecord) -> bool {
+    record
+        .entries
+        .iter()
+        .any(|e| e.brief_id.is_empty() && !e.brief.trim().is_empty())
+        || record
+            .sketches
+            .iter()
+            .any(|s| s.brief.is_some() && s.brief_id.is_none())
+}
+
+/// Give every entry and sketch that names a brief by path alone the brief's
+/// record ([`crate::brief::ensure`], which never touches the brief), and the
+/// record's current path. Returns whether anything changed.
+fn bring_forward(paths: &Paths, record: &mut CycleRecord) -> bool {
+    let repo = PathBuf::from(&record.project_dir);
+    let mut changed = false;
+    for e in &mut record.entries {
+        if !e.brief_id.is_empty() || e.brief.trim().is_empty() {
+            continue;
+        }
+        match crate::brief::ensure(paths, &repo, &e.brief, &By::none()) {
+            Ok(found) => {
+                e.brief = found.path;
+                e.brief_id = found.id;
+                changed = true;
+            }
+            Err(err) => eprintln!("could not record the brief of entry {}: {err}", e.n),
+        }
+    }
+    for s in &mut record.sketches {
+        let (Some(brief), None) = (&s.brief, &s.brief_id) else {
+            continue;
+        };
+        match crate::brief::ensure(paths, &repo, brief, &By::none()) {
+            Ok(found) => {
+                s.brief = Some(found.path);
+                s.brief_id = Some(found.id);
+                changed = true;
+            }
+            Err(err) => eprintln!("could not record the brief of sketch {}: {err}", s.letter),
+        }
+    }
+    changed
+}
+
+/// The record in `dir`, brought forward for a reader that holds no lock.
+///
+/// The record's own lock is only tried, never waited on: a reader may hold
+/// another cycle's lock already, and waiting here could leave two processes
+/// each waiting on the other. When the lock is free the record is read again
+/// under it, brought forward and written; when it is not, the record is
+/// brought forward in memory and the write is left to its writer.
+fn read_current(paths: &Paths, dir: &Path) -> Option<CycleRecord> {
+    let mut record = read_record(dir)?;
+    if !needs_bring_forward(&record) {
+        return Some(record);
+    }
+    if let Ok(Some(_held)) = hold(dir, CYCLE_LOCK, LockMode::Try) {
+        let mut fresh = read_record(dir)?;
+        if bring_forward(paths, &mut fresh) {
+            if let Err(e) = write_record(&fresh) {
+                eprintln!("could not write cycle {} brought forward: {e}", fresh.id);
+            }
+        }
+        return Some(fresh);
+    }
+    bring_forward(paths, &mut record);
+    Some(record)
+}
+
+/// Append a work-log line, saying so on stderr rather than failing when it
+/// cannot: the record is the decision, the line is evidence.
+fn log_work(
+    paths: &Paths,
+    repo: &Path,
+    kind: WorkKind,
+    object: WorkObject,
+    detail: serde_json::Value,
+    by: &By,
+) {
+    if let Err(e) = work_log::append(paths, repo, kind, object, detail, by) {
+        eprintln!("could not append {} to the work log: {e}", kind.as_str());
+    }
 }
 
 fn save(record: &mut CycleRecord) -> Result<(), ArcError> {
@@ -1314,7 +2159,13 @@ mod tests {
         let dir = documents_dir(repo, arc);
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("sketch.md"), format!("# Sketch\n\n{arc}\n")).unwrap();
-        crate::sketch::record_arc_sketch(paths, repo, arc)
+        crate::sketch::record_arc_sketch(
+            paths,
+            repo,
+            arc,
+            &crate::work_log::By::none(),
+            crate::sketch::Written::AtTheTime,
+        )
             .unwrap()
             .id
     }
@@ -1415,12 +2266,8 @@ mod tests {
         let at = |n: u32, waits: &[u32]| CycleEntry {
             n,
             brief: format!("b{n}.md"),
-            arc: None,
             waits: waits.to_vec(),
-            from: Vec::new(),
-            note: None,
-            added: String::new(),
-            dropped: None,
+            ..CycleEntry::default()
         };
         assert_eq!(wait_loop(&[at(1, &[]), at(2, &[1]), at(3, &[1, 2])]), None);
         assert!(wait_loop(&[at(1, &[3]), at(2, &[1]), at(3, &[2])]).is_some());
@@ -1869,6 +2716,7 @@ mod tests {
             letter: "A".into(),
             id: "0000aaaa".into(),
             brief: None,
+            brief_id: None,
             added: String::new(),
             dropped: None,
         });
@@ -1945,15 +2793,13 @@ mod tests {
         CycleEntry {
             n,
             brief: format!("briefs/{n}.md"),
+            brief_id: format!("0000{n:04x}"),
             arc: arc.map(|(name, created)| CycleArc {
                 name: name.into(),
                 created: Some(created.into()),
             }),
             waits: waits.to_vec(),
-            from: Vec::new(),
-            note: None,
-            added: String::new(),
-            dropped: None,
+            ..CycleEntry::default()
         }
     }
 
@@ -2107,6 +2953,7 @@ mod tests {
             letter: letter.into(),
             id: "0000aaaa".into(),
             brief: None,
+            brief_id: None,
             added: String::new(),
             dropped: dropped.then(|| T0.to_string()),
         }
@@ -2386,5 +3233,351 @@ mod tests {
         assert_eq!(two.entries[0].state, EntryState::Running);
         assert_eq!(two.entries[0].stages[0].session_id, "sess-b");
         assert_eq!(two.entries[1].state, EntryState::Waiting);
+    }
+
+    /// A cycle record in the shape written before entries carried a brief
+    /// record: briefs by path alone, no listed mark.
+    fn old_cycle(paths: &Paths, repo: &Path, id: &str, sketch: &str) -> PathBuf {
+        let dir = cycle_root(paths, repo).join(id);
+        fs::create_dir_all(&dir).unwrap();
+        let json = format!(
+            r#"{{
+  "id": "{id}",
+  "name": "Old",
+  "created": "2026-11-01T00:00:00Z",
+  "updated": "2026-11-01T00:00:00Z",
+  "project_dir": "{}",
+  "entries": [
+    {{ "n": 1, "brief": "briefs/a.md", "waits": [], "from": ["A"], "added": "2026-11-01T00:00:00Z",
+       "arc": {{ "name": "aa", "created": "2026-11-01T00:00:00Z" }} }},
+    {{ "n": 2, "brief": "briefs/b.md", "waits": [1], "from": ["A"], "added": "2026-11-01T00:00:00Z" }}
+  ],
+  "sketches": [
+    {{ "letter": "A", "id": "{sketch}", "brief": "briefs/up.md", "added": "2026-11-01T00:00:00Z" }}
+  ]
+}}
+"#,
+            repo.display()
+        );
+        fs::write(dir.join(CYCLE_JSON), json).unwrap();
+        dir
+    }
+
+    fn work_kinds(paths: &Paths, repo: &Path) -> Vec<WorkKind> {
+        work_log::read_lines(
+            &fs::read_to_string(work_log::work_log_path(paths, repo)).unwrap_or_default(),
+        )
+        .into_iter()
+        .map(|l| l.kind)
+        .collect()
+    }
+
+    #[test]
+    fn an_old_record_is_brought_forward_once_and_reads_the_same() {
+        let (_t, repo, paths) = scratch();
+        fs::create_dir_all(repo.join("briefs")).unwrap();
+        fs::write(repo.join("briefs/a.md"), "# A\n").unwrap();
+        let sketch = record_sketch(&paths, &repo, "old-sketch");
+        log_append(&paths, &repo, "2026-11-01T00:00:00Z  aa  arc-start  briefs/a.md");
+        let dir = old_cycle(&paths, &repo, "0ddc0de1", &sketch);
+        let before = fs::read_to_string(dir.join(CYCLE_JSON)).unwrap();
+        let log = fs::read_to_string(tugtool_core::paths::arc_log_path_at(&paths, &repo)).unwrap();
+        let old: CycleRecord = serde_json::from_str(&before).unwrap();
+        let old_states = entry_states(&log, &old);
+
+        let record = cycles(&paths, &repo).remove(0);
+        assert!(record.entries.iter().all(|e| !e.brief_id.is_empty() && e.listed));
+        assert!(record.sketches[0].brief_id.is_some());
+        assert_eq!(entry_states(&log, &record), old_states);
+        let after = fs::read_to_string(dir.join(CYCLE_JSON)).unwrap();
+        assert_ne!(after, before, "the record is written brought forward");
+        assert!(after.contains("\"brief_id\""));
+        assert_eq!(fs::read_to_string(repo.join("briefs/a.md")).unwrap(), "# A\n");
+
+        let minted = crate::brief::briefs(&paths, &repo).len();
+        assert_eq!(minted, 3, "one record for each brief named");
+        let again = cycles(&paths, &repo).remove(0);
+        assert_eq!(again.entries, record.entries);
+        assert_eq!(crate::brief::briefs(&paths, &repo).len(), minted, "a second read mints nothing");
+    }
+
+    #[test]
+    fn a_record_another_holds_is_brought_forward_in_memory_only() {
+        let (_t, repo, paths) = scratch();
+        let sketch = record_sketch(&paths, &repo, "held-sketch");
+        let dir = old_cycle(&paths, &repo, "0ddc0de2", &sketch);
+        let before = fs::read_to_string(dir.join(CYCLE_JSON)).unwrap();
+        let held = hold(&dir, CYCLE_LOCK, LockMode::Wait).unwrap();
+        let record = std::thread::scope(|scope| {
+            scope
+                .spawn(|| cycles(&paths, &repo).remove(0))
+                .join()
+                .unwrap()
+        });
+        assert!(record.entries.iter().all(|e| !e.brief_id.is_empty()));
+        assert_eq!(fs::read_to_string(dir.join(CYCLE_JSON)).unwrap(), before);
+        drop(held);
+    }
+
+    #[test]
+    fn queue_names_an_arc_once_and_after_becomes_a_wait() {
+        let (_t, repo, paths) = scratch();
+        let id = sketched(&paths, &repo, "C");
+        add_entry(&paths, &repo, &id, entry("briefs/a.md", &[])).unwrap();
+        let by = By {
+            session: Some("sess-q".into()),
+            turn: Some(4),
+            privacy: Privacy::Public,
+            segments: Vec::new(),
+        };
+        let first = queue_arc(
+            &paths,
+            &repo,
+            QueueArc {
+                arc: "first-arc",
+                brief: "briefs/a.md",
+                cycle: None,
+                label: Some("The first"),
+                waits: Vec::new(),
+                after: None,
+                from: Vec::new(),
+                by: &by,
+            },
+        )
+        .unwrap();
+        assert_eq!((first.n, first.outcome), (Some(1), Outcome::Named), "the free entry is named");
+
+        let second = queue_arc(
+            &paths,
+            &repo,
+            QueueArc {
+                arc: "second-arc",
+                brief: "briefs/a.md",
+                cycle: Some(&id),
+                label: None,
+                waits: Vec::new(),
+                after: Some("first-arc"),
+                from: Vec::new(),
+                by: &by,
+            },
+        )
+        .unwrap();
+        assert_eq!((second.n, second.outcome), (Some(2), Outcome::Added));
+        let record = cycles(&paths, &repo).remove(0);
+        let e = record.entry(2).unwrap();
+        assert_eq!(e.arc_name.as_deref(), Some("second-arc"));
+        assert!(e.listed);
+        assert_eq!(e.waits, [1]);
+        assert_eq!(e.from, ["A"]);
+        assert_eq!(
+            e.stated_by,
+            Some(StatedBy {
+                session: "sess-q".into(),
+                turn: Some(4)
+            })
+        );
+        assert_eq!(record.entry(1).unwrap().label.as_deref(), Some("The first"));
+
+        let again = queue_arc(
+            &paths,
+            &repo,
+            QueueArc {
+                arc: "second-arc",
+                brief: "briefs/a.md",
+                cycle: None,
+                label: None,
+                waits: Vec::new(),
+                after: None,
+                from: Vec::new(),
+                by: &by,
+            },
+        );
+        assert!(matches!(again, Err(ArcError::Refused(m)) if m.contains("already queued")));
+        let queued = work_kinds(&paths, &repo)
+            .into_iter()
+            .filter(|k| *k == WorkKind::ArcQueued)
+            .count();
+        assert_eq!(queued, 2);
+    }
+
+    fn place<'a>(arc: &'a str, brief: &'a str, by: &'a By) -> PlaceArc<'a> {
+        PlaceArc {
+            arc,
+            brief,
+            sketch: None,
+            name: None,
+            by,
+        }
+    }
+
+    #[test]
+    fn place_fills_the_entry_queued_by_name_and_refuses_another_brief() {
+        let (_t, repo, paths) = scratch();
+        let id = sketched(&paths, &repo, "C");
+        add_entry(&paths, &repo, &id, entry("briefs/a.md", &[])).unwrap();
+        add_entry(&paths, &repo, &id, entry("briefs/b.md", &[])).unwrap();
+        let by = By::none();
+        let queued = QueueArc {
+            arc: "named-arc",
+            brief: "briefs/b.md",
+            cycle: Some(&id),
+            label: None,
+            waits: Vec::new(),
+            after: None,
+            from: Vec::new(),
+            by: &by,
+        };
+        queue_arc(&paths, &repo, queued).unwrap();
+
+        log_append(&paths, &repo, "2026-11-02T00:00:00Z  named-arc  arc-start  briefs/b.md");
+        let wrong = place_arc(&paths, &repo, place("named-arc", "briefs/a.md", &by));
+        assert!(
+            matches!(&wrong, Err(ArcError::Refused(m)) if m.contains("briefs/b.md") && m.contains("briefs/a.md")),
+            "{wrong:?}"
+        );
+        let filled = place_arc(&paths, &repo, place("named-arc", "briefs/b.md", &by)).unwrap();
+        assert_eq!((filled.n, filled.outcome), (Some(2), Outcome::Filled));
+        let again = place_arc(&paths, &repo, place("named-arc", "briefs/b.md", &by)).unwrap();
+        assert_eq!((again.n, again.outcome), (Some(2), Outcome::Already));
+        let record = cycles(&paths, &repo).remove(0);
+        assert!(record.entry(1).unwrap().arc.is_none(), "the free entry is untouched");
+    }
+
+    #[test]
+    fn place_adds_an_unlisted_entry_for_a_brief_run_again_and_starts_a_cycle_of_one() {
+        let (_t, repo, paths) = scratch();
+        let id = sketched(&paths, &repo, "C");
+        add_entry(&paths, &repo, &id, entry("briefs/a.md", &[])).unwrap();
+        let by = By::none();
+        log_append(&paths, &repo, "2026-11-01T00:00:00Z  aa  arc-start  briefs/a.md");
+        assert_eq!(place_arc(&paths, &repo, place("aa", "briefs/a.md", &by)).unwrap().outcome, Outcome::Filled);
+        log_append(&paths, &repo, "2026-11-01T01:00:00Z  aa  abc123  joined");
+
+        log_append(&paths, &repo, "2026-11-02T00:00:00Z  again  arc-start  briefs/a.md");
+        let rerun = place_arc(&paths, &repo, place("again", "briefs/a.md", &by)).unwrap();
+        assert_eq!((rerun.n, rerun.outcome), (Some(2), Outcome::Added));
+        let record = cycles(&paths, &repo).remove(0);
+        let e = record.entry(2).unwrap();
+        assert!(!e.listed && e.waits.is_empty());
+        assert_eq!(e.from, ["A"]);
+        let view = view_cycle(&paths, &record);
+        assert_eq!((view.run_landed, view.run_total), (1, 1), "the rerun is not counted");
+
+        let fresh = record_sketch(&paths, &repo, "fresh-sketch");
+        log_append(&paths, &repo, "2026-11-03T00:00:00Z  lone  arc-start  briefs/lone.md");
+        let refused = place_arc(&paths, &repo, place("lone", "briefs/lone.md", &by));
+        assert!(matches!(refused, Err(ArcError::Refused(m)) if m.contains("sketch")));
+        let started = place_arc(
+            &paths,
+            &repo,
+            PlaceArc {
+                sketch: Some(&fresh),
+                name: Some("Lone"),
+                ..place("lone", "briefs/lone.md", &by)
+            },
+        )
+        .unwrap();
+        assert_eq!((started.n, started.outcome), (Some(1), Outcome::Started));
+        assert_eq!(started.name, "Lone");
+        let lone = find_cycle(&paths, &started.cycle).remove(0).1;
+        assert!(lone.entry(1).unwrap().listed);
+        assert_eq!(lone.entry(1).unwrap().arc_name.as_deref(), Some("lone"));
+    }
+
+    #[test]
+    fn place_brief_adds_listed_work_once_and_links_an_unplaced_brief() {
+        let (_t, repo, paths) = scratch();
+        fs::create_dir_all(repo.join("briefs")).unwrap();
+        fs::write(repo.join("briefs/next.md"), "# Next\n").unwrap();
+        fs::write(repo.join("briefs/up.md"), "# Up\n").unwrap();
+        let id = sketched(&paths, &repo, "C");
+        let sketch = cycles(&paths, &repo).remove(0).sketches[0].id.clone();
+        let by = By::none();
+        let req = PlaceBrief {
+            brief: "briefs/next.md",
+            sketch: Some(&sketch),
+            from_brief: Some("briefs/up.md"),
+            cycle: None,
+            name: None,
+            waits: Vec::new(),
+            note: None,
+            by: &by,
+        };
+        let first = place_brief(&paths, &repo, req.clone()).unwrap();
+        assert_eq!((first.cycle.as_str(), first.n, first.outcome), (id.as_str(), Some(1), Outcome::Linked));
+        let record = cycles(&paths, &repo).remove(0);
+        assert!(record.entry(1).unwrap().listed);
+        assert_eq!(record.sketches[0].brief.as_deref(), Some("briefs/up.md"));
+        assert!(
+            crate::brief::id_line(&fs::read_to_string(repo.join("briefs/next.md")).unwrap()).is_some(),
+            "the brief skill's verb writes the id line"
+        );
+        assert_eq!(fs::read_to_string(repo.join("briefs/up.md")).unwrap(), "# Up\n");
+
+        let again = place_brief(&paths, &repo, req).unwrap();
+        assert_eq!((again.n, again.outcome), (Some(1), Outcome::Already));
+        assert_eq!(cycles(&paths, &repo).remove(0).entries.len(), 1);
+    }
+
+    #[test]
+    fn place_brief_with_nothing_to_come_from_starts_no_cycle() {
+        let (_t, repo, paths) = scratch();
+        fs::create_dir_all(repo.join("briefs")).unwrap();
+        fs::write(repo.join("briefs/next.md"), "# Next\n").unwrap();
+        fs::write(repo.join("briefs/up.md"), "# Up\n").unwrap();
+        let by = By::none();
+        let refused = place_brief(
+            &paths,
+            &repo,
+            PlaceBrief {
+                brief: "briefs/next.md",
+                sketch: None,
+                from_brief: Some("briefs/up.md"),
+                cycle: None,
+                name: Some("Nowhere"),
+                waits: Vec::new(),
+                note: None,
+                by: &by,
+            },
+        );
+        assert!(refused.is_err(), "a new cycle needs a sketch for its entry");
+        assert!(cycles(&paths, &repo).is_empty(), "the refusal leaves no empty cycle");
+    }
+
+    #[test]
+    fn opening_and_joining_an_arc_each_leave_one_work_line() {
+        let (_t, repo, paths) = scratch();
+        crate::log::append_arc_log(&paths, &repo, "wl", "arc-start", "briefs/a.md").unwrap();
+        crate::log::append_arc_log(&paths, &repo, "wl", "abc1234", "a round").unwrap();
+        crate::log::append_arc_log(&paths, &repo, "wl", "def5678", "joined").unwrap();
+        let lines = work_log::read_lines(
+            &fs::read_to_string(work_log::work_log_path(&paths, &repo)).unwrap(),
+        );
+        let kinds: Vec<WorkKind> = lines.iter().map(|l| l.kind).collect();
+        assert_eq!(kinds, [WorkKind::ArcOpened, WorkKind::ArcJoined]);
+        let log = fs::read_to_string(tugtool_core::paths::arc_log_path_at(&paths, &repo)).unwrap();
+        let start = generation_started_at(&log, "wl");
+        for line in &lines {
+            assert_eq!(
+                line.object,
+                WorkObject::Arc {
+                    arc: "wl".into(),
+                    created: start.clone()
+                },
+                "both name the generation by its start"
+            );
+        }
+        assert_eq!(lines[1].detail["sha"], "def5678");
+    }
+
+    #[test]
+    fn an_entry_with_no_brief_record_breaks_the_chain() {
+        let mut record = of(vec![CycleEntry {
+            from: vec!["A".into()],
+            brief_id: String::new(),
+            ..linked(1, &[], None)
+        }]);
+        record.sketches.push(sketch("A", false));
+        assert_eq!(chain_breaks(&record), vec!["entry 1 has no brief record"]);
     }
 }

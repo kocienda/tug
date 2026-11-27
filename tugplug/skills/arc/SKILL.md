@@ -184,47 +184,24 @@ An arc whose receipt names no live session is bound to nothing, and every stage 
 
 With the receipt confirmed, run `tugtool sketch record <name> --json`, which gives the sketch its id (`data.id`) and keeps the text you wrote as its first version. It comes after the opening and never before it: only the opening starts a new generation of a name that was used before, and a record made earlier would file this arc's sketch under the previous arc's id. When step 3 wrote no record, there is nothing to run.
 
-**Then put the arc on its cycle.** A cycle is the record of a run of related work: lettered sketches, which say where it came from, and numbered entries, one brief each, each carried by the arc opened on it. Every arc is on one. `arc run` has already written the arc's opening into the arc log, which is what `attach` reads, so the attach follows the receipt directly.
+**Then put the arc on its cycle, with one call.** A cycle is the record of a run of related work: lettered sketches, which say where it came from, and numbered entries, one brief each, each carried by the arc opened on it. Every arc is on one. `arc run` has already written the arc's opening into the arc log, which is what the placing reads, so it follows the receipt directly.
 
-- **A continuation changes nothing.** When the receipt says `resumed`, the arc was put on its cycle when it first opened: run no cycle verb.
-- **A handed-in brief finds its entry by the path you were handed** (grammar rule 1), never by the copy under the arc's directory, since that is the path `/tugplug:brief` recorded:
+A continuation changes nothing: when the receipt says `resumed`, the arc was put on its cycle when it first opened, so run no cycle verb. Otherwise run:
 
-  ```bash
-  tugtool cycle find --brief <the path they handed you> --json
-  ```
+```bash
+tugtool cycle place <name> --brief <path> [--sketch <data.id from sketch record>] --name "<name by the rule>" --json
+```
 
-  When `data.n` names an entry, attach this arc to it, and do nothing more: the cycle's own sketches already say where the entry came from, so this arc's sketch is not added to it.
+`<path>` is the path you were handed (grammar rule 1), never the copy under the arc's directory, since that is the path `/tugplug:brief` recorded; when nothing was handed in, it is the arc's own brief, `.tug/arcs/<name>/brief.md`. Pass `--sketch` whenever `sketch record` gave you an id: the conversation's, or for a handed-in brief with no source, the one written from the brief (step 3). `--name` is used only when no cycle holds the work and the verb starts one, so give it every time.
 
-  ```bash
-  tugtool cycle attach <data.id> <data.n> <name> --json
-  ```
+The verb decides which entry the arc fills, and `data.outcome` says what it did:
 
-  When `data` names a cycle by a sketch's letter instead (`data.letter`), the brief was recorded on that sketch as the one that led to more briefs; add this arc as the cycle's next entry from that letter, and attach it to the number `add-entry` prints:
+- `already`: an entry already carries this arc, and nothing was written.
+- `filled`: the arc took the entry that was waiting for it, one queued under its name or a free one holding its brief.
+- `added`: the brief or the sketch was on a cycle with no entry free for this arc, so a new entry was added for it there.
+- `started`: nothing held the work, so a cycle of one was started, with the sketch as A and the arc on entry 1.
 
-  ```bash
-  tugtool cycle add-entry <data.id> --brief <the path they handed you> --from <data.letter> --json
-  tugtool cycle attach <data.id> <n> <name> --json
-  ```
-
-  When `data` names a cycle with no entry and a list of letters instead (`data.from`), every entry that holds the brief already has an arc of its own, open or landed, and this arc is the brief run again. It is a new entry, never a second arc on an old one: add it from those letters, one `--from` each, and attach this arc to the number `add-entry` prints:
-
-  ```bash
-  tugtool cycle add-entry <data.id> --brief <the path they handed you> --from <each letter of data.from> --json
-  tugtool cycle attach <data.id> <n> <name> --json
-  ```
-
-  One arc goes on one entry. `attach` refuses an entry whose arc has landed and an arc another entry carries, and its message says what to run; never answer a refusal by attaching the arc to a second entry.
-
-- **Anything else becomes a cycle of one**: a bare idea, a brief on no cycle, a brief written before cycles were kept. Name it by the rule below, create it, add this arc's sketch as A, add entry 1, and attach it:
-
-  ```bash
-  tugtool cycle create --name "<name by the rule>" --json
-  tugtool cycle add-sketch <cycle> <sketch> --json
-  tugtool cycle add-entry <cycle> --brief <path> --from A --json
-  tugtool cycle attach <cycle> 1 <name> --json
-  ```
-
-  `<path>` is the path you were handed, or the arc's own brief, `.tug/arcs/<name>/brief.md`, when nothing was handed in. There is always a sketch to add: the conversation's, or for a handed-in brief with no source, the one written from the brief (step 3). The record refuses an entry with no sketch, so an arc is never put on a cycle without one.
+`data.cycle` and `data.n` name the cycle and the entry. Never follow the call with another cycle write to adjust what it chose: an entry queued under another arc's name is never taken, and a refusal says why in words to relay, not a state to repair.
 
 **The naming rule.** A cycle is named once, when it is created, from the opening sentence of its sketch A: the want that opens the sketch you just recorded. The name is the thing the work changes, as a noun phrase of two to four words in sentence case. It has no verb, uses the source's own plain words, and keeps proper nouns. It never carries an arc name, kebab-case, an id, a date, the project's name, or the words "cycle" or "work".
 

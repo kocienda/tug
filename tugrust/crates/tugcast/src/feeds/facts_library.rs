@@ -212,8 +212,70 @@ pub fn render_text(kind: FactKind, payload: &serde_json::Value) -> String {
                 }
             }
         }
+        FactKind::SketchRecorded
+        | FactKind::BriefRecorded
+        | FactKind::BriefCommitted
+        | FactKind::ArcQueued
+        | FactKind::ArcOpened
+        | FactKind::ArcJoined
+        | FactKind::ArcDiscarded
+        | FactKind::EntryDropped => render_work(kind, payload),
     };
     truncate(rendered.as_str(), TEXT_CAP)
+}
+
+/// The sentence a work-record fact says, from the work-log line's `object`
+/// and `detail` the payload carries.
+fn render_work(kind: FactKind, payload: &serde_json::Value) -> String {
+    let field = |part: &str, name: &str| {
+        payload
+            .get(part)
+            .and_then(|v| v.get(name))
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string()
+    };
+    let n = payload
+        .get("object")
+        .and_then(|o| o.get("n"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or_default();
+    let cycle = field("object", "cycle");
+    let arc = field("object", "arc");
+    match kind {
+        FactKind::SketchRecorded => {
+            let version = payload
+                .get("detail")
+                .and_then(|d| d.get("version"))
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or_default();
+            format!("sketch {} recorded, version {version}", field("object", "sketch"))
+        }
+        FactKind::BriefRecorded => {
+            let path = field("detail", "path");
+            let title = field("detail", "title");
+            let name = if title.is_empty() { &path } else { &title };
+            let moved = field("detail", "moved_from");
+            if moved.is_empty() {
+                format!("brief {name} recorded at {path}")
+            } else {
+                format!("brief {name} recorded at {path}, moved from {moved}")
+            }
+        }
+        FactKind::BriefCommitted => {
+            let sha: String = field("detail", "sha").chars().take(SHA_TEXT_LEN).collect();
+            format!("brief {} committed in {sha}", field("detail", "path"))
+        }
+        FactKind::ArcQueued => format!(
+            "arc {} queued as entry {n} of cycle {cycle}",
+            field("detail", "arc")
+        ),
+        FactKind::ArcOpened => format!("arc {arc} opened"),
+        FactKind::ArcJoined => format!("arc {arc} joined"),
+        FactKind::ArcDiscarded => format!("arc {arc} discarded"),
+        FactKind::EntryDropped => format!("entry {n} of cycle {cycle} dropped"),
+        _ => String::new(),
+    }
 }
 
 /// The depth behind a fact's one-line rendering — a curated per-kind
@@ -297,6 +359,19 @@ pub fn render_detail(kind: FactKind, payload: &serde_json::Value) -> Option<serd
         }
         // Nothing to add: the rendering already says the whole fact.
         FactKind::SessionReset => {}
+        // The line's object and detail are already a handful of named
+        // fields: the handle the work is filed under, and what changed.
+        FactKind::SketchRecorded
+        | FactKind::BriefRecorded
+        | FactKind::BriefCommitted
+        | FactKind::ArcQueued
+        | FactKind::ArcOpened
+        | FactKind::ArcJoined
+        | FactKind::ArcDiscarded
+        | FactKind::EntryDropped => {
+            copy("object");
+            copy("detail");
+        }
         FactKind::EditFailed => {
             copy("class");
             copy("exit");
@@ -587,6 +662,50 @@ pub fn commit_fact(
             "branch": branch,
         }),
         Some(commit_key(sha)),
+    )
+}
+
+/// The key for a work-record fact. A work-log line's id names one change
+/// forever, so a log read again from its start records nothing twice.
+pub fn work_key(line_id: &str) -> String {
+    format!("work:{line_id}")
+}
+
+/// The fact a work-log line is: its kind, filed under the handle of the work
+/// it moved (a sketch id, a brief id, an arc name, or `<cycle>#<n>`), at the
+/// time the line was written.
+///
+/// `session` is the line's own session, or the one the follower filled for
+/// an arc line that names none; the ledger refuses the fact when it is a
+/// private session.
+pub fn work_fact(line: &tugarc_core::work_log::WorkLine, session: Option<&str>) -> NewFact {
+    use tugarc_core::work_log::{WorkKind, WorkObject};
+    let kind = match line.kind {
+        WorkKind::SketchRecorded => FactKind::SketchRecorded,
+        WorkKind::BriefRecorded => FactKind::BriefRecorded,
+        WorkKind::BriefCommitted => FactKind::BriefCommitted,
+        WorkKind::ArcQueued => FactKind::ArcQueued,
+        WorkKind::ArcOpened => FactKind::ArcOpened,
+        WorkKind::ArcJoined => FactKind::ArcJoined,
+        WorkKind::ArcDiscarded => FactKind::ArcDiscarded,
+        WorkKind::EntryDropped => FactKind::EntryDropped,
+    };
+    let subject = match &line.object {
+        WorkObject::Sketch { sketch } => sketch.clone(),
+        WorkObject::Brief { brief } => brief.clone(),
+        WorkObject::Arc { arc, .. } => arc.clone(),
+        WorkObject::Cycle { cycle, n } => format!("{cycle}#{n}"),
+    };
+    let at_ms = chrono::DateTime::parse_from_rfc3339(&line.at)
+        .map(|at| at.timestamp_millis())
+        .unwrap_or_else(|_| crate::session_ledger::now_millis());
+    compose(
+        at_ms,
+        kind,
+        session,
+        subject_of(&subject),
+        json!({ "object": line.object, "detail": line.detail }),
+        Some(work_key(&line.id)),
     )
 }
 

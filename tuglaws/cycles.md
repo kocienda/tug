@@ -12,7 +12,7 @@
 
 **A brief that led to more briefs is a link, not an entry.** When a sketch is written up as a brief that spawns further briefs and never has an arc of its own, that first brief is recorded on the sketch it wrote up, and the arcs reach the sketch through it. It is not an entry, because an entry with no arc would read as ready forever. *Rejected: a third kind of asset on the map for such a brief.*
 
-**A record is found through other records, never through the session** ([L41]). The brief skill finds its cycle by the sketch the brief comes from, or by the brief it was written from, and starts a new cycle when neither is on one. The arc door, handed a brief on no cycle, writes a sketch from that brief and adds it as A before the entry. *Rejected: choosing "this session's most recent cycle", which split one rollout across three cycles.*
+**A record is found through other records, never through the session** ([L41]). A brief's cycle is the one holding the sketch it comes from, or the brief it was written from, and a new cycle is started when neither is on one. The arc door, handed a brief on no cycle, writes a sketch from that brief so the new cycle has an A. The core makes that choice, not the skill ([one verb per intent](#one-verb-per-intent)). *Rejected: choosing "this session's most recent cycle", which split one rollout across three cycles.*
 
 **The user is always told what comes next.** Each skill that ends a link names the next one: after a sketch, brief it; after a brief, open an arc on it; after an arc finishes, land it. Each surface says the same for every item it shows. Naming the next step is not starting it; starting things from the surfaces stays [deferred](#drawn-and-deferred).
 
@@ -31,6 +31,26 @@ Closed is read from the record and the arc log on every read, beside the entries
 *Reversed, 2026-11-26: a cycle was first never closed. Every cycle then stayed on every surface for good, a session whose cycle had landed days before still read `1/1 : —`, and the Cycles & Arcs card only grew. The user asked for a cycle to close once its arcs have finished and to reopen when another is added.*
 
 The record is one file per cycle in the app's own store, outside the project and never committed. `tugrust/crates/tugarc-core/src/cycle.rs` holds its shape and every write to it, and `tugrust/crates/tugtool/src/cycle.rs` is the `tugtool cycle` verb over it. An entry links its arc by name and by the start of the arc's generation, because an arc name is unique only within one generation.
+
+## Work records
+
+**Each of the five nouns is a record with a fixed id.** A sketch, a brief, a queued arc, an arc and a cycle are each kept in the app's own store, and each is named by an id that does not change when its text, its file or its name does. The sketch store and the brief store sit side by side under the project's state directory (`tugrust/crates/tugarc-core/src/sketch.rs`, `tugrust/crates/tugarc-core/src/brief.rs`), and every write to any of them holds the record's lock (`record_lock.rs`).
+
+**An entry links its brief by id, and keeps the path as a cache.** A brief is the file the user types and the path `/arc` is handed, so the entry keeps `brief` as a path, and every write refreshes it from the brief record's current path; the link is `brief_id`. Every comparison resolves a path to an id first. A brief is found by the id line at its top, then by its current path, then by following a rename through git history (`brief::resolve`), so the link survives a hand edit that drops the line and an edit heavy enough to defeat rename detection. *Rejected: the path as the link, which a rename breaks.*
+
+**A queued arc is an entry named before its arc opens.** `cycle queue` gives an entry an arc name, a label and the session and turn that stated it. The name is the match: when that arc opens, the door's placing fills the entry queued under its name and never guesses one from the brief, and a queued entry whose brief is not the one the arc opened on is refused, naming both. One unsettled entry per arc name per checkout. *Rejected: matching an opening arc to the first free entry holding its brief, which put an arc on an entry queued for another.*
+
+**An entry is listed when it was put on the cycle as planned work**: queued, recorded by the brief skill, or entry 1 of a cycle the door started. An entry the door adds because an arc opened on work no entry held for it, a brief run again or a sketch's new direction, is unlisted, waits on nothing, and is not counted in the run: `run_landed` and `run_total` count the listed entries that are not dropped, beside `landed`, which counts every entry.
+
+### One verb per intent
+
+**A caller says what it means, and the core decides how the record changes.** Three functions in `tugrust/crates/tugarc-core/src/cycle.rs` place work, each taking every lock it needs and returning an outcome naming what it did: `place_arc` (the door, through `tugtool cycle place`), `place_brief` (the brief skill, through `tugtool brief record`) and `queue_arc` (`tugtool cycle queue`). A skill runs one of them and reads the outcome; it never chains verbs on a reading of JSON. The contract the model reads is the *Work records* section of `tugplug/work-grammar.md`, which rides every session's prompt. *Rejected: a branching chain of `find`, `create`, `add-sketch`, `add-entry` and `attach` in the skills' prose, which matched an arc to the wrong entry and could not be tested.*
+
+### The work log
+
+**Every record change appends one line to the project's work log**, `work-log.jsonl` beside the arc log (`tugrust/crates/tugarc-core/src/work_log.rs`): a sketch recorded, a brief recorded or committed, an arc queued, opened, joined or discarded, an entry dropped. The record is the decision and the line is evidence: a failed append is reported and never fails the write it follows. tugcast follows the logs of the projects it has open from the start of each file and records one fact per line, keyed on the line's id so a re-read records nothing twice (`tugrust/crates/tugcast/src/feeds/work_log.rs`). A line from a session this instance has no row for is skipped, so another instance's private session never becomes a public fact here. *Rejected: letting `tugtool` write the fact ledger, which tugcast alone writes.*
+
+**Records written before a field existed are brought forward on read.** An entry with no brief id gets a brief record the first time the core reads it, without opening the brief file for write, and is marked listed. A reader that does not hold the record's lock takes it only if it is free, and otherwise uses the brought-forward record in memory and writes nothing.
 
 ## State is derived
 
@@ -56,7 +76,7 @@ A cycle is named once, when it is created, by the skills, from the opening sente
 
 ## How a cycle reaches a surface
 
-Cycles ride the same aggregate frame as the arc rows, as a list on each project's changeset, composed in `tugrust/crates/tugcast/src/feeds/changeset.rs` from one read of the arc log. A closed cycle is left out of that list (`cycle_entries_in`), which is the one place every surface gets its cycles, so no surface filters for itself. An entry reading running and its arc's row arrive in one frame and cannot disagree. A write to a cycle's record is seen by a file watch (`tugrust/crates/tugcast/src/feeds/cycle_watch.rs`), never by a timer.
+Cycles ride the same aggregate frame as the arc rows, as a list on each project's changeset, composed in `tugrust/crates/tugcast/src/feeds/changeset.rs` from one read of the arc log. A closed cycle is left out of that list (`cycle_entries_in`), which is the one place every surface gets its cycles, so no surface filters for itself. An entry reading running and its arc's row arrive in one frame and cannot disagree. A write to a cycle's record or a brief's record (`brief.json`) is seen by a file watch (`tugrust/crates/tugcast/src/feeds/cycle_watch.rs`), never by a timer, and an entry's path is read from its brief's record, so a renamed brief shows its new path before any cycle write refreshes the cache. The work log reaches the fact ledger through its own follower ([the work log](#the-work-log)), not through the frame.
 
 In the deck, `tugdeck/src/lib/cycle-store.ts` projects that frame and holds no feed of its own. Sketch text is composed on the server and travels on the wire, because the deck has no filesystem.
 
