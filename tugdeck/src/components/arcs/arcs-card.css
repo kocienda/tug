@@ -328,12 +328,33 @@
 }
 
 .arcs-cycle-title {
+  min-width: 0;
   max-inline-size: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
   font-weight: var(--tug-font-weight-semibold);
+}
+
+/* A row's kind and its name: `Sketch` before a sketch's letter, `Arc` before
+   an entry's title, in the small caps the cycle shade names every kind with. */
+.arcs-cycle-heading {
+  display: flex;
+  align-items: baseline;
+  gap: var(--tug-space-xs);
+  max-inline-size: 100%;
+  min-width: 0;
+}
+
+.arcs-cycle-eyebrow {
+  flex: none;
+  font-size: var(--tug-font-size-2xs);
+  font-weight: var(--tug-font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--tug7-element-global-text-normal-subtle-rest);
 }
 
 /* A line of the row's secondary voice: who is running it, what it waits on,

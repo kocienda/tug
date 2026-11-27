@@ -19,9 +19,10 @@
 /* cycle-waits.css — a word and a run of numbered chips.
 
    A chip wears the number its tile wears on the cycle map, in a frame of the
-   tile's shape. The run sets no colour for its word or its numbers: they take
-   the host row's ink. It sets its own size, since a row's trailing slot
-   inherits the page's and would draw the run larger than the row's text.
+   tile's shape. Its word is set in small caps. The run sets no colour for
+   its word or its numbers: they take the host row's ink. It sets its own
+   size, since a row's trailing slot inherits the page's and would draw the
+   run larger than the row's text.
 
    Laws: [L06] met is `data-met`; [L16] pairings declared; [L19] component
    authoring guide; [L20] owns `--tugx-cycle-waits-*`. */
@@ -31,6 +32,16 @@
   align-items: center;
   gap: var(--tugx-cycle-waits-gap, var(--tug-space-2xs));
   font-size: var(--tugx-cycle-waits-font-size, var(--tug-font-size-xs));
+}
+
+/* The word before the numbers, in the small caps the cycle shade names a
+   kind with; it keeps the host row's ink. */
+.tug-cycle-waits-label {
+  font-size: var(--tug-font-size-2xs);
+  font-weight: var(--tug-font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */

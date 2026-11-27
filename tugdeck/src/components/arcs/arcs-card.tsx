@@ -1191,8 +1191,11 @@ function CycleEntryView({
       trailingReveal="always"
     >
       <span className="arcs-cycle-content">
-        <span className="arcs-cycle-title" data-slot="arcs-cycle-title">
-          {row.title}
+        <span className="arcs-cycle-heading">
+          <span className="arcs-cycle-eyebrow">Arc</span>
+          <span className="arcs-cycle-title" data-slot="arcs-cycle-title">
+            {row.title}
+          </span>
         </span>
         {open ? null : worker}
         {waits}
@@ -1340,7 +1343,10 @@ function CycleSketchRowView({
       trailingReveal="always"
     >
       <span className="arcs-cycle-content">
-        <span className="arcs-cycle-title">{`Sketch ${sketch.letter}`}</span>
+        <span className="arcs-cycle-heading">
+          <span className="arcs-cycle-eyebrow">Sketch</span>
+          <span className="arcs-cycle-title">{sketch.letter}</span>
+        </span>
         {open ? (
           <span className="arcs-cycle-sketch-text" data-slot="arcs-cycle-sketch-text">
             {text.trim() !== ""
