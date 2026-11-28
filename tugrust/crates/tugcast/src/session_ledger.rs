@@ -10012,6 +10012,14 @@ pub fn claude_project_dir(claude_home: &ClaudeHome, project_dir: &str) -> (PathB
     (dir, canonical)
 }
 
+/// Where claude writes session `session_id`'s transcript for a session
+/// recorded under `project_dir`: `<id>.jsonl` in the project's directory
+/// under the home. The file may not exist; the caller asks.
+pub fn transcript_path(claude_home: &ClaudeHome, project_dir: &str, session_id: &str) -> PathBuf {
+    let (dir, _) = claude_project_dir(claude_home, project_dir);
+    dir.join(format!("{session_id}.jsonl"))
+}
+
 /// The spelling a `project_dir` column stores: the Claude form from the
 /// canonicalization gateway ([L29], [`resolve_to_claude_form`]), so two
 /// spellings of one directory are one key. Every ledger write of the column

@@ -322,6 +322,14 @@ mod tests {
                 line(WorkKind::EntryDropped, cycle(), serde_json::json!({ "brief": "briefs/a.md" })),
                 "entry 2 of cycle 3f9a1c2e dropped",
             ),
+            (
+                line(
+                    WorkKind::ArcsStated,
+                    WorkObject::Stated { stated: "sess-a".into() },
+                    serde_json::json!({ "arcs": ["alpha", "beta"], "source": "fence" }),
+                ),
+                "2 arcs stated",
+            ),
         ];
         assert_eq!(cases.len(), WorkKind::ALL.len(), "every kind is covered");
         for (line, text) in &cases {

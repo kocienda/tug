@@ -193,8 +193,9 @@ export interface ClaudeSpawnConfig {
  * a landings block reports, then the working rules that hold on every project,
  * then the charts the card draws: when to chart, the fence and its forms,
  * and the verbs that emit one; then the diagrams it draws, their fence, forms
- * and refusals; and last the commands the card runs for the
- * user: when a command is an offer, and the fence that declares one.
+ * and refusals; then the commands the card runs for the
+ * user: when a command is an offer, and the fence that declares one; and
+ * last the run of arcs a session lays out, and the fence that queues it.
  */
 export const PLUGIN_PROMPT_FILES: readonly string[] = [
   "work-grammar.md",
@@ -209,6 +210,7 @@ export const PLUGIN_PROMPT_FILES: readonly string[] = [
   "graphics.md",
   "diagrams.md",
   "run-offers.md",
+  "arc-statements.md",
 ];
 
 /**

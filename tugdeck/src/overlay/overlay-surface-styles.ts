@@ -59,6 +59,7 @@ import "../components/tugways/internal/tug-progress-spinner.css";
 import "../components/tugways/internal/tug-progress-wave.css";
 import "../components/tugways/session-identity-row.css";
 import "../components/tugways/tug-markdown-block.css";
+import "../lib/markdown/enhance-arc-statement.css";
 import "../components/tugways/body-kinds/chart-block.css";
 import "../components/tugways/chart-ref-report.css";
 import "../components/tugways/use-read-only-text-surface.css";

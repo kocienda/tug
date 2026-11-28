@@ -63,4 +63,5 @@ pub mod terminal;
 pub mod text_ref;
 pub mod walk;
 pub mod work_log;
+pub mod work_statement;
 pub mod workspace_registry;

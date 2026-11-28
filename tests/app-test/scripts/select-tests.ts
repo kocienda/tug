@@ -467,7 +467,11 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     // counters moved off `active-turn.ts` into one the session owns. The same
     // code in one more file; the bridge is still one unit to the tests that
     // name it.
-    "tugcode/": 43,
+    //
+    // 43 → 44 for `teardown.ts` (`ad3afbf25`), the one teardown every kill of
+    // the claude child goes through, gathered out of `session.ts` and
+    // `main.ts`. The bridge's own lifecycle in one more file; still one unit.
+    "tugcode/": 44,
 
     // Cards and editors, where the directory genuinely IS the unit — the card is what the
     // test drives, and naming one module inside it would be the narrower fiction.
@@ -619,7 +623,11 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     // passes, so the declaration's reach is unchanged. Mermaid's transformer
     // and enhancer have since left the subtree, so it holds 22 files under a
     // ceiling of 24.
-    "tugdeck/src/lib/markdown/": 24,
+    // Re-keyed at 26 for the `tugarcs` fence's frame,
+    // `enhance-arc-statement.ts` and its sheet, which `enhanceFencedCode`
+    // builds in the same post-`innerHTML` pass as the run offer's frame. The
+    // declarers drive that pass already, so the reach is unchanged.
+    "tugdeck/src/lib/markdown/": 26,
 
     // `tugdeck/styles/themes/` was here at 7 and is gone: the directory grew to
     // ten themes, and its one declaration — `at0109`'s, since deleted — booted under the base

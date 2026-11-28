@@ -30,6 +30,7 @@
  */
 
 import { buildCopyButton, buildIcon, type IconChild } from "./enhance-block-chrome";
+import { ARC_STATEMENT_JSON_LANG, ARC_STATEMENT_LANG, isArcStatementLang } from "./enhance-arc-statement";
 import { ansiToHtml } from "@/lib/ansi/ansi-to-html";
 import { applyCarriageReturns } from "@/lib/ansi/carriage-return";
 import {
@@ -54,24 +55,38 @@ export function isRunOfferLang(lang: string | null): boolean {
   return lang !== null && lang.toLowerCase() === RUN_OFFER_LANG;
 }
 
-/** The language a fence is written out under in Markdown. */
+/**
+ * The language a fence is written out under in Markdown: a `tugrun` offer as
+ * `bash`, a `tugarcs` statement as `json`, any other as itself.
+ */
 export function markdownFenceLang(lang: string | null): string | null {
-  return isRunOfferLang(lang) ? RUN_OFFER_SHELL_LANG : lang;
+  if (isRunOfferLang(lang)) return RUN_OFFER_SHELL_LANG;
+  if (isArcStatementLang(lang)) return ARC_STATEMENT_JSON_LANG;
+  return lang;
 }
 
-/** A fence's opening line whose language is `tugrun`: indent, fence, rest. */
-const RUN_FENCE_OPENER = /^( {0,3})(`{3,}|~{3,})[ \t]*tugrun(?=[ \t]|$)(.*)$/gim;
+/** Each Tug fence language and the one it is written out under. */
+const WRITTEN_OUT_LANGS: Readonly<Record<string, string>> = {
+  [RUN_OFFER_LANG]: RUN_OFFER_SHELL_LANG,
+  [ARC_STATEMENT_LANG]: ARC_STATEMENT_JSON_LANG,
+};
+
+/** A fence's opening line whose language is `tugrun` or `tugarcs`: indent,
+ *  fence, language, rest. */
+const RUN_FENCE_OPENER = /^( {0,3})(`{3,}|~{3,})[ \t]*(tugrun|tugarcs)(?=[ \t]|$)(.*)$/gim;
 
 /**
- * Markdown source with every `tugrun` fence opened as a `bash` one, as a copy
- * or a share writes it out, so the text reads normally to somebody who has
- * never heard of Tug. Only an opening line can carry a language, so a closing
- * fence or a fence's body is never touched.
+ * Markdown source with every `tugrun` fence opened as a `bash` one and every
+ * `tugarcs` fence as a `json` one, as a copy or a share writes it out, so the
+ * text reads normally to somebody who has never heard of Tug. Only an opening
+ * line can carry a language, so a closing fence or a fence's body is never
+ * touched.
  */
 export function rewriteRunFences(markdown: string): string {
   return markdown.replace(
     RUN_FENCE_OPENER,
-    (_line, indent: string, fence: string, rest: string) => `${indent}${fence}${RUN_OFFER_SHELL_LANG}${rest}`,
+    (_line, indent: string, fence: string, lang: string, rest: string) =>
+      `${indent}${fence}${WRITTEN_OUT_LANGS[lang.toLowerCase()] ?? lang}${rest}`,
   );
 }
 

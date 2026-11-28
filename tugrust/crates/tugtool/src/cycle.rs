@@ -1,5 +1,6 @@
-//! `tugtool cycle create|rename|add-entry|add-from|add-sketch|attach|place|queue|drop|find|list|show|check` —
-//! a cycle's record, written and read back.
+//! `tugtool cycle create|rename|add-entry|add-from|add-sketch|attach|place|queue|statement|stated|drop|find|list|show|check` —
+//! a cycle's record, written and read back, and the arc statements that
+//! queue its arcs: checked before they are written, and listed after.
 //!
 //! A cycle is a container of related arcs, briefs and sketches. The writing
 //! verbs act on this checkout's cycles; `show` reads a cycle by id from any
@@ -17,6 +18,7 @@ use tugarc_core::cycle::{
     self, ChainBreak, CycleArc, CycleView, DroppedItem, EntryState, NewEntry, Outcome, PlaceArc,
     Placed, QueueArc, UnattachedArc,
 };
+use tugarc_core::statement::{self, StatedArc};
 use tugcore::instance::Paths;
 
 use crate::changes::AppError;
@@ -92,6 +94,10 @@ pub fn dispatch(cmd: CycleCommands, json: bool) -> ExitCode {
             };
             ("cycle queue", run_queue(&paths, req, json))
         }
+        CycleCommands::Statement { source } => {
+            ("cycle statement", run_statement(&paths, &source, json))
+        }
+        CycleCommands::Stated => ("cycle stated", run_stated(&paths, json)),
         CycleCommands::Drop { id, item } => ("cycle drop", run_drop(&paths, &id, &item, json)),
         CycleCommands::List { all } => ("cycle list", run_list(&paths, all, json)),
         CycleCommands::Show { id } => return run_show(&paths, &id, json),
@@ -462,6 +468,82 @@ fn run_drop(paths: &Paths, id: &str, item: &str, json: bool) -> Result<(), AppEr
         match item {
             DroppedItem::Entry(n) => println!("{n}  dropped"),
             DroppedItem::Sketch(letter) => println!("{letter}  dropped"),
+        }
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct StatementPayload {
+    arcs: Vec<StatedArc>,
+    warnings: Vec<String>,
+}
+
+/// `cycle statement`: parse a spec and check it against the disk. It
+/// writes nothing and appends nothing, so it can be run on any draft.
+fn run_statement(paths: &Paths, source: &str, json: bool) -> Result<(), AppError> {
+    let text = if source == "-" {
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut std::io::stdin(), &mut text)
+            .map_err(|e| AppError::Exit1("failed", format!("cannot read stdin: {e}")))?;
+        text
+    } else {
+        std::fs::read_to_string(source)
+            .map_err(|e| AppError::Exit1("failed", format!("cannot read {source}: {e}")))?
+    };
+    // The refusal is the check's answer, so it is printed as the answer is,
+    // with no `error:` before it.
+    let (parsed, mut warnings) = match statement::parse_fence(&statement::spec_text(&text)) {
+        Ok(parsed) => parsed,
+        Err(e) => {
+            let refused =
+                AppError::Exit2("invalid_statement", format!("not a valid arc statement: {e}"));
+            if json {
+                return Err(refused);
+            }
+            println!("{}", refused.message());
+            return Err(AppError::Reported(2));
+        }
+    };
+    let repo = repo()?;
+    warnings.extend(statement::check(paths, &repo, &parsed));
+    if json {
+        print_ok(
+            "cycle statement",
+            StatementPayload {
+                arcs: parsed.arcs,
+                warnings,
+            },
+        );
+    } else {
+        let n = parsed.arcs.len();
+        println!("ok: {n} {}", if n == 1 { "arc" } else { "arcs" });
+        for warning in &warnings {
+            println!("warning: {warning}");
+        }
+    }
+    Ok(())
+}
+
+/// `cycle stated`: every statement record of this checkout.
+fn run_stated(paths: &Paths, json: bool) -> Result<(), AppError> {
+    let repo = repo()?;
+    let records = statement::statements(paths, &repo);
+    if json {
+        print_ok("cycle stated", records);
+        return Ok(());
+    }
+    for record in &records {
+        let turn = record
+            .turn
+            .map(|t| format!("  turn {t}"))
+            .unwrap_or_default();
+        println!("{}{turn}", record.session);
+        for arc in &record.arcs {
+            match (&arc.cycle, arc.n) {
+                (Some(cycle), Some(n)) => println!("  {}  {cycle} {n}", arc.name),
+                _ => println!("  {}  held", arc.name),
+            }
         }
     }
     Ok(())

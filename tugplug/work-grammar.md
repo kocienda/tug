@@ -32,7 +32,7 @@ Each kind is read and written by `tugtool`, with the same four verbs where a kin
 |---|---|---|
 | sketch | `sketch record` | `sketch show`, `sketch find`, `sketch list` |
 | brief | `brief record` | `brief show`, `brief find`, `brief list` |
-| queued arc | `cycle queue` | `cycle show`, `cycle find --arc` |
+| queued arc | `cycle queue`, or stated in a `tugarcs` fence | `cycle show`, `cycle find --arc` |
 | arc | `arc run`, placed on its cycle by `cycle place` | `arc show`, `arc list` |
 | cycle | started by the verbs above when no cycle holds the work | `cycle show`, `cycle find`, `cycle list` |
 

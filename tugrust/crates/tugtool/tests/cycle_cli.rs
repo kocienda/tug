@@ -1,7 +1,8 @@
 //! `tugtool cycle create|rename|add-entry|add-from|add-sketch|attach|drop|find|list|show|check`:
 //! a cycle's record written in a scratch checkout, and every entry's state
 //! read back from the arc log; and an arc-less sketch recorded on stdin, the
-//! way a skill with no arc records one.
+//! way a skill with no arc records one; and an arc statement checked
+//! without a write, and the statement records listed.
 
 mod common;
 use common::tugtool;
@@ -600,4 +601,190 @@ fn a_queued_arc_is_filled_by_its_place_and_found_by_name() {
     let entries = shown["entries"].as_array().unwrap();
     assert_eq!(entries.len(), 1, "one entry, filled: {shown}");
     assert_eq!(s.ok(&["cycle", "find", "--arc", "nobody"]), "");
+}
+
+/// Run `tugtool cycle statement <args…>` with `text` on stdin.
+fn statement_on_stdin(s: &Scratch, args: &[&str], text: &str) -> Output {
+    let mut child = s
+        .tug_in(&s.root)
+        .args(["cycle", "statement"])
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(text.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+
+/// Write `briefs/<name>.md` in the scratch checkout.
+fn write_brief(s: &Scratch, name: &str) -> String {
+    let path = format!("briefs/{name}.md");
+    std::fs::create_dir_all(s.root.join("briefs")).unwrap();
+    std::fs::write(s.root.join(&path), format!("# {name}\n")).unwrap();
+    path
+}
+
+const TWO_ARCS: &str = r#"{"tugarcs": 1, "arcs": [
+  {"name": "alpha", "brief": "briefs/alpha.md", "label": "the first"},
+  {"name": "beta", "brief": "briefs/beta.md"}
+]}"#;
+
+fn stdout(out: &Output) -> String {
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+#[test]
+fn statement_answers_ok_for_a_clean_spec() {
+    let s = Scratch::new();
+    write_brief(&s, "alpha");
+    write_brief(&s, "beta");
+    let out = statement_on_stdin(&s, &["-"], TWO_ARCS);
+    assert!(out.status.success(), "{out:?}");
+    assert_eq!(stdout(&out), "ok: 2 arcs\n");
+
+    // The same spec from a file, and through the envelope.
+    let file = s.state.join("spec.json");
+    std::fs::write(&file, TWO_ARCS).unwrap();
+    let data = s.json(&["cycle", "statement", file.to_str().unwrap()]);
+    assert_eq!(data["arcs"][0]["name"], "alpha");
+    assert_eq!(data["arcs"][0]["label"], "the first");
+    assert_eq!(data["arcs"][1]["name"], "beta");
+    assert_eq!(data["warnings"], serde_json::json!([]));
+}
+
+#[test]
+fn statement_warns_of_a_missing_brief_and_exits_zero() {
+    let s = Scratch::new();
+    write_brief(&s, "alpha");
+    let out = statement_on_stdin(&s, &["-"], TWO_ARCS);
+    assert!(out.status.success(), "a warning is not a refusal: {out:?}");
+    let text = stdout(&out);
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines[0], "ok: 2 arcs");
+    assert_eq!(lines.len(), 2, "{text}");
+    assert!(
+        lines[1].starts_with("warning: ") && lines[1].contains("briefs/beta.md"),
+        "{text}"
+    );
+}
+
+#[test]
+fn statement_refuses_a_non_spec_with_its_path_and_exits_two() {
+    let s = Scratch::new();
+    let out = statement_on_stdin(
+        &s,
+        &["-"],
+        r#"{"tugarcs": 1, "arcs": [{"name": "alpha", "brief": "briefs/alpha.md"}, {"brief": "briefs/beta.md"}]}"#,
+    );
+    assert_eq!(out.status.code(), Some(2), "{out:?}");
+    assert_eq!(
+        stdout(&out),
+        "not a valid arc statement: arcs[1].name: missing\n"
+    );
+
+    let out = statement_on_stdin(&s, &["-"], "not json at all");
+    assert_eq!(out.status.code(), Some(2), "{out:?}");
+    assert!(
+        stdout(&out).starts_with("not a valid arc statement: "),
+        "{out:?}"
+    );
+}
+
+#[test]
+fn statement_takes_a_whole_fence_on_stdin() {
+    let s = Scratch::new();
+    write_brief(&s, "alpha");
+    write_brief(&s, "beta");
+    let fence = format!("```tugarcs\n{TWO_ARCS}\n```\n");
+    let out = statement_on_stdin(&s, &["-"], &fence);
+    assert!(out.status.success(), "{out:?}");
+    assert_eq!(stdout(&out), "ok: 2 arcs\n");
+}
+
+/// Every file under `dir` and its bytes, so two readings compare whole.
+fn snapshot(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            out.extend(snapshot(&path));
+        } else {
+            out.push((path.clone(), std::fs::read(&path).unwrap()));
+        }
+    }
+    out.sort();
+    out
+}
+
+#[test]
+fn statement_writes_nothing() {
+    let s = Scratch::new();
+    write_brief(&s, "alpha");
+    s.ok(&["cycle", "create", "--name", "Checked"]);
+    let state = tugtool_core::paths::project_state_dir_at(&Paths::under(&s.state), &s.root);
+    let before = snapshot(&state);
+    assert!(!before.is_empty(), "the cycle is on disk to compare against");
+
+    let out = statement_on_stdin(&s, &["-"], TWO_ARCS);
+    assert!(out.status.success(), "{out:?}");
+    let out = statement_on_stdin(&s, &["-"], "{\"tugarcs\": 2}");
+    assert_eq!(out.status.code(), Some(2), "{out:?}");
+    assert_eq!(snapshot(&state), before, "a check writes nothing");
+}
+
+#[test]
+fn stated_lists_a_held_statement() {
+    use tugarc_core::statement::{Source, StatedArc, Statement, state_arcs};
+    use tugarc_core::work_log::{By, Privacy};
+
+    let s = Scratch::new();
+    write_brief(&s, "alpha");
+    write_brief(&s, "beta");
+    assert_eq!(s.ok(&["cycle", "stated"]), "", "no statement yet");
+
+    let session = "0f3c1e5a-9b27-4c1d-8e36-5a7f2d4b6c90";
+    let arcs = ["alpha", "beta"]
+        .iter()
+        .map(|name| StatedArc {
+            name: name.to_string(),
+            brief: format!("briefs/{name}.md"),
+            label: None,
+            after: None,
+        })
+        .collect();
+    state_arcs(
+        &Paths::under(&s.state),
+        &s.root,
+        &Statement {
+            arcs,
+            source: Source::Prose,
+        },
+        &By {
+            session: Some(session.into()),
+            turn: Some(3),
+            privacy: Privacy::Public,
+            segments: Vec::new(),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        s.ok(&["cycle", "stated"]),
+        format!("{session}  turn 3\n  alpha  held\n  beta  held")
+    );
+    let records = s.json(&["cycle", "stated"]);
+    assert_eq!(records[0]["session"], session);
+    assert_eq!(records[0]["turn"], 3);
+    assert_eq!(records[0]["arcs"][1]["name"], "beta");
+    assert!(records[0]["arcs"][1].get("cycle").is_none(), "{records}");
 }

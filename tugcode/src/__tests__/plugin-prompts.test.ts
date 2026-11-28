@@ -39,6 +39,7 @@ describe("readPluginPrompts", () => {
         "graphics.md": "# Charts the Session card draws\n",
         "diagrams.md": "# Diagrams the Session card draws\n",
         "run-offers.md": "# Commands the user can run\n",
+        "arc-statements.md": "# Arcs a session lays out\n",
       },
       (dir) => {
         expect(readPluginPrompts(dir)).toEqual([
@@ -54,6 +55,7 @@ describe("readPluginPrompts", () => {
           "# Charts the Session card draws",
           "# Diagrams the Session card draws",
           "# Commands the user can run",
+          "# Arcs a session lays out",
         ]);
       },
     );

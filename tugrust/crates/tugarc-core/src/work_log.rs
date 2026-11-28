@@ -55,11 +55,13 @@ pub enum WorkKind {
     ArcDiscarded,
     #[serde(rename = "entry.dropped")]
     EntryDropped,
+    #[serde(rename = "arcs.stated")]
+    ArcsStated,
 }
 
 impl WorkKind {
     /// Every kind, in the order they are documented.
-    pub const ALL: [WorkKind; 8] = [
+    pub const ALL: [WorkKind; 9] = [
         WorkKind::SketchRecorded,
         WorkKind::BriefRecorded,
         WorkKind::BriefCommitted,
@@ -68,6 +70,7 @@ impl WorkKind {
         WorkKind::ArcJoined,
         WorkKind::ArcDiscarded,
         WorkKind::EntryDropped,
+        WorkKind::ArcsStated,
     ];
 
     /// The kind as it is spelled on the line and as a fact kind.
@@ -81,6 +84,7 @@ impl WorkKind {
             WorkKind::ArcJoined => "arc.joined",
             WorkKind::ArcDiscarded => "arc.discarded",
             WorkKind::EntryDropped => "entry.dropped",
+            WorkKind::ArcsStated => "arcs.stated",
         }
     }
 }
@@ -104,6 +108,10 @@ pub enum WorkObject {
     Arc {
         arc: String,
         created: Option<String>,
+    },
+    /// A session's arc statement, by the session that stated it.
+    Stated {
+        stated: String,
     },
 }
 
@@ -314,6 +322,9 @@ mod tests {
             WorkObject::Arc {
                 arc: "gpu-wedge".into(),
                 created: Some("2026-11-22T14:59:33.128Z".into()),
+            },
+            WorkObject::Stated {
+                stated: "048e4155-f644-46f7-a839-d22ac02a564f".into(),
             },
         ];
         for object in objects {

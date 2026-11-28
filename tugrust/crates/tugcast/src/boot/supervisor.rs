@@ -194,6 +194,9 @@ pub(crate) async fn supervisor(
     let (arc_tick_tx, arc_tick_rx) = mpsc::channel::<String>(64);
     let (wheel_tick_tx, wheel_tick_rx) = mpsc::channel::<String>(64);
     let (semantic_tick_tx, semantic_tick_rx) = mpsc::channel::<String>(64);
+    // And the turn end alone, for the arc statement follower: an answer that
+    // ended may have stated a run of arcs.
+    let (statement_tick_tx, statement_tick_rx) = mpsc::channel::<String>(64);
     // An instance that lives for one test has no history worth walking.
     let catch_up =
         !tugcore::instance::instance_id().is_some_and(|instance| instance.starts_with("apptest-"));
@@ -228,6 +231,7 @@ pub(crate) async fn supervisor(
             arc_tick_tx: Some(arc_tick_tx),
             wheel_tick_tx: Some(wheel_tick_tx),
             semantic_tick_tx: Some(semantic_tick_tx),
+            statement_tick_tx: Some(statement_tick_tx),
             wheel: Some(Arc::clone(&wheel_state)),
             pages: Arc::clone(&pages),
         },
@@ -918,6 +922,18 @@ pub(crate) async fn supervisor(
             sessions: Arc::clone(&ledger),
             cancel: cancel.clone(),
         },
+    ));
+
+    // The run of arcs a session's answer states, read from the turn that
+    // ended and queued on its cycle. Its `arcs.stated` line reaches the
+    // facts through the work-log follower above.
+    tokio::spawn(feeds::work_statement::run_statement_follower(
+        feeds::work_statement::StatementContext {
+            registry: Arc::clone(&registry),
+            sessions: Arc::clone(&ledger),
+            cancel: cancel.clone(),
+        },
+        statement_tick_rx,
     ));
 
     // The machine-wide session index is written by every instance on this

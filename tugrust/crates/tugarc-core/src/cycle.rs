@@ -11,8 +11,10 @@
 //! numbered **entries** — one brief each, and at most one arc once that brief's
 //! arc opens — and lettered **sketches**, the sketch store's own ids. Entries
 //! are numbered 1, 2, 3 and sketches lettered A, B, C in the order added, and
-//! neither is ever renumbered, re-lettered or removed. One that will never
-//! run is marked dropped by hand and stays where it is.
+//! neither is ever renumbered or re-lettered. One that will never run is
+//! marked dropped by hand and stays where it is. The one removal is a queued
+//! entry a session's statement added and a later statement of that session
+//! no longer names ([`crate::statement`]); its number is never given again.
 //!
 //! An entry links its arc by name and generation start, the same shape a
 //! sketch links its arc, because an arc name is unique only within one
@@ -120,6 +122,11 @@ pub struct StatedBy {
     pub session: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn: Option<u32>,
+    /// Whether the statement added the entry, rather than naming one the
+    /// brief skill had recorded. A statement that no longer names the arc
+    /// removes an entry it added and returns one it named to what it was.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub added: bool,
 }
 
 /// One sketch on a cycle: the sketch store's id under the cycle's letter.
@@ -158,6 +165,10 @@ pub struct CycleRecord {
     pub entries: Vec<CycleEntry>,
     #[serde(default)]
     pub sketches: Vec<CycleSketch>,
+    /// The number the next entry is given. A removed entry's number is never
+    /// given again, so this runs past every number the record has held.
+    #[serde(default)]
+    pub next_n: u32,
     /// The record's directory. Read from where it was found, never stored.
     #[serde(skip)]
     pub dir: PathBuf,
@@ -216,6 +227,7 @@ pub fn create_cycle(
             .map(String::from),
         entries: Vec::new(),
         sketches: Vec::new(),
+        next_n: 1,
     };
     write_record(&record)?;
     Ok(record)
@@ -319,7 +331,7 @@ pub fn find_by_brief(paths: &Paths, repo: &Path, brief: &str) -> Option<BriefFou
 
 /// Whether an arc already carries `entry`: its linked generation is open or
 /// ended in a join. A discarded link is history, and leaves the entry free.
-fn is_carried(log: &str, entry: &CycleEntry) -> bool {
+pub(crate) fn is_carried(log: &str, entry: &CycleEntry) -> bool {
     entry.arc.as_ref().is_some_and(|link| {
         matches!(
             link_status(log, link),
@@ -380,8 +392,9 @@ pub fn add_entry(paths: &Paths, repo: &Path, id: &str, entry: NewEntry) -> Resul
 
 /// [`add_entry`] on a record whose lock the caller holds, without the save.
 /// The entry's brief is reached through its record ([`crate::brief::ensure`]),
-/// so it carries the brief's id and its current path.
-fn add_entry_held(
+/// so it carries the brief's id and its current path. The entry is numbered
+/// past every number the record has given, removed entries' included.
+pub(crate) fn add_entry_held(
     paths: &Paths,
     repo: &Path,
     record: &mut CycleRecord,
@@ -390,7 +403,7 @@ fn add_entry_held(
 ) -> Result<u32, ArcError> {
     let id = record.id.clone();
     let brief = relative_brief(&entry.brief)?;
-    let n = record.entries.iter().map(|e| e.n).max().unwrap_or(0) + 1;
+    let n = next_number(record);
     let waits = checked_waits(record, n, entry.waits)?;
     let mut from: Vec<String> = Vec::new();
     merge_letters(record, &mut from, entry.from)?;
@@ -432,13 +445,21 @@ fn add_entry_held(
         last.brief_id = found.id;
     }
     record.entries = entries;
+    record.next_n = n + 1;
     undrop_sketches(record, n);
     Ok(n)
 }
 
+/// The number a new entry of `record` is given: past every number it holds
+/// and every number it has given.
+pub(crate) fn next_number(record: &CycleRecord) -> u32 {
+    let past = record.entries.iter().map(|e| e.n).max().unwrap_or(0) + 1;
+    past.max(record.next_n)
+}
+
 /// `waits` for entry `n` of `record`, each once. Refused when one names `n`
 /// itself or an entry the record does not have.
-fn checked_waits(record: &CycleRecord, n: u32, waits: Vec<u32>) -> Result<Vec<u32>, ArcError> {
+pub(crate) fn checked_waits(record: &CycleRecord, n: u32, waits: Vec<u32>) -> Result<Vec<u32>, ArcError> {
     let mut out: Vec<u32> = Vec::new();
     for w in waits {
         if w == n {
@@ -792,7 +813,24 @@ pub struct QueueArc<'a> {
 ///
 /// An entry added by rules 3 and 4 was on nobody's list, so it is unlisted
 /// and waits on nothing.
+///
+/// A placement that moved anything grounds every held statement naming the
+/// arc ([`crate::statement::ground_statements`]): the rest of its list joins
+/// the cycle the arc is now on. A failure there is said on stderr and never
+/// fails the placement.
 pub fn place_arc(paths: &Paths, repo: &Path, req: PlaceArc) -> Result<Placed, ArcError> {
+    let placed = place_arc_held(paths, repo, req)?;
+    if placed.outcome != Outcome::Already {
+        if let Err(e) = crate::statement::ground_statements(paths, repo, req.arc) {
+            eprintln!("could not place the statements holding arc {}: {e}", req.arc);
+        }
+    }
+    Ok(placed)
+}
+
+/// [`place_arc`]'s rules; every branch has released its cycle lock when it
+/// returns.
+fn place_arc_held(paths: &Paths, repo: &Path, req: PlaceArc) -> Result<Placed, ArcError> {
     validate_arc_name(req.arc).map_err(ArcError::InvalidName)?;
     let log = arc_log_text(paths, repo);
     let Some(start) = generation_started_at(&log, req.arc) else {
@@ -1078,6 +1116,7 @@ pub fn queue_arc(paths: &Paths, repo: &Path, req: QueueArc) -> Result<Placed, Ar
         _ => req.by.session.clone().map(|session| StatedBy {
             session,
             turn: req.by.turn,
+            added: false,
         }),
     };
     let label = req
@@ -1116,6 +1155,7 @@ pub fn queue_arc(paths: &Paths, repo: &Path, req: QueueArc) -> Result<Placed, Ar
         } else {
             req.from
         };
+        let stated_by = stated_by.map(|s| StatedBy { added: true, ..s });
         let n = add_entry_held(
             paths,
             repo,
@@ -1156,7 +1196,7 @@ pub fn queue_arc(paths: &Paths, repo: &Path, req: QueueArc) -> Result<Placed, Ar
 /// The letters a queued arc for brief `brief_id` comes from on `record`: the
 /// latest entry already holding the brief, else a sketch the brief's record
 /// names as one it came from, else the sketch the brief wrote up.
-fn queued_letters(paths: &Paths, record: &CycleRecord, brief_id: &str) -> Vec<String> {
+pub(crate) fn queued_letters(paths: &Paths, record: &CycleRecord, brief_id: &str) -> Vec<String> {
     if let Some(e) = record
         .entries
         .iter()
@@ -1298,7 +1338,7 @@ fn is_arcs_brief(repo: &Path, log: &str, path: &str) -> bool {
 }
 
 /// This checkout's arc log, as text.
-fn arc_log_text(paths: &Paths, repo: &Path) -> String {
+pub(crate) fn arc_log_text(paths: &Paths, repo: &Path) -> String {
     fs::read_to_string(tugtool_core::paths::arc_log_path_at(paths, repo)).unwrap_or_default()
 }
 
@@ -1959,7 +1999,7 @@ const CYCLE_LOCK: &str = "cycle.json.lock";
 /// lock is on a sibling file, never on `cycle.json` itself, because the write
 /// renames a new file into place and a lock on the old one would guard
 /// nothing. A cycle that is not here is not locked; `load` refuses it next.
-fn hold_cycle(
+pub(crate) fn hold_cycle(
     paths: &Paths,
     repo: &Path,
     id: &str,
@@ -1975,7 +2015,7 @@ fn hold_cycle(
 ///
 /// The caller holds the cycle's lock, so a record that predates the brief
 /// record is brought forward and written here.
-fn load(paths: &Paths, repo: &Path, id: &str) -> Result<CycleRecord, ArcError> {
+pub(crate) fn load(paths: &Paths, repo: &Path, id: &str) -> Result<CycleRecord, ArcError> {
     if !valid_id(id) {
         return Err(ArcError::Refused(format!(
             "{id} is not a cycle id: eight lowercase hex characters"
@@ -2064,7 +2104,7 @@ fn read_current(paths: &Paths, dir: &Path) -> Option<CycleRecord> {
 
 /// Append a work-log line, saying so on stderr rather than failing when it
 /// cannot: the record is the decision, the line is evidence.
-fn log_work(
+pub(crate) fn log_work(
     paths: &Paths,
     repo: &Path,
     kind: WorkKind,
@@ -2077,7 +2117,7 @@ fn log_work(
     }
 }
 
-fn save(record: &mut CycleRecord) -> Result<(), ArcError> {
+pub(crate) fn save(record: &mut CycleRecord) -> Result<(), ArcError> {
     record.updated = now_iso8601();
     write_record(record)
 }
@@ -2813,6 +2853,7 @@ mod tests {
             created_by: None,
             entries,
             sketches: Vec::new(),
+            next_n: 0,
             dir: PathBuf::new(),
         }
     }
@@ -3373,7 +3414,8 @@ mod tests {
             e.stated_by,
             Some(StatedBy {
                 session: "sess-q".into(),
-                turn: Some(4)
+                turn: Some(4),
+                added: true,
             })
         );
         assert_eq!(record.entry(1).unwrap().label.as_deref(), Some("The first"));

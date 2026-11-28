@@ -219,7 +219,8 @@ pub fn render_text(kind: FactKind, payload: &serde_json::Value) -> String {
         | FactKind::ArcOpened
         | FactKind::ArcJoined
         | FactKind::ArcDiscarded
-        | FactKind::EntryDropped => render_work(kind, payload),
+        | FactKind::EntryDropped
+        | FactKind::ArcsStated => render_work(kind, payload),
     };
     truncate(rendered.as_str(), TEXT_CAP)
 }
@@ -274,6 +275,18 @@ fn render_work(kind: FactKind, payload: &serde_json::Value) -> String {
         FactKind::ArcJoined => format!("arc {arc} joined"),
         FactKind::ArcDiscarded => format!("arc {arc} discarded"),
         FactKind::EntryDropped => format!("entry {n} of cycle {cycle} dropped"),
+        FactKind::ArcsStated => {
+            let count = payload
+                .get("detail")
+                .and_then(|d| d.get("arcs"))
+                .and_then(serde_json::Value::as_array)
+                .map_or(0, Vec::len);
+            if count == 1 {
+                "1 arc stated".to_string()
+            } else {
+                format!("{count} arcs stated")
+            }
+        }
         _ => String::new(),
     }
 }
@@ -368,7 +381,8 @@ pub fn render_detail(kind: FactKind, payload: &serde_json::Value) -> Option<serd
         | FactKind::ArcOpened
         | FactKind::ArcJoined
         | FactKind::ArcDiscarded
-        | FactKind::EntryDropped => {
+        | FactKind::EntryDropped
+        | FactKind::ArcsStated => {
             copy("object");
             copy("detail");
         }
@@ -689,12 +703,21 @@ pub fn work_fact(line: &tugarc_core::work_log::WorkLine, session: Option<&str>) 
         WorkKind::ArcJoined => FactKind::ArcJoined,
         WorkKind::ArcDiscarded => FactKind::ArcDiscarded,
         WorkKind::EntryDropped => FactKind::EntryDropped,
+        WorkKind::ArcsStated => FactKind::ArcsStated,
     };
     let subject = match &line.object {
         WorkObject::Sketch { sketch } => sketch.clone(),
         WorkObject::Brief { brief } => brief.clone(),
         WorkObject::Arc { arc, .. } => arc.clone(),
         WorkObject::Cycle { cycle, n } => format!("{cycle}#{n}"),
+        // A statement is filed under its first arc; the session is the
+        // fact's own.
+        WorkObject::Stated { stated } => line
+            .detail
+            .get("arcs")
+            .and_then(|a| a.get(0))
+            .and_then(serde_json::Value::as_str)
+            .map_or_else(|| stated.clone(), str::to_string),
     };
     let at_ms = chrono::DateTime::parse_from_rfc3339(&line.at)
         .map(|at| at.timestamp_millis())

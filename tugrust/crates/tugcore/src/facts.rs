@@ -41,12 +41,14 @@ pub enum FactKind {
     ArcDiscarded,
     /// A cycle entry was given up by hand.
     EntryDropped,
+    /// A session stated the run of arcs it means to open.
+    ArcsStated,
 }
 
 impl FactKind {
     /// Every kind, in the order a reader sees them listed. This is the whole
     /// vocabulary and nothing is held back.
-    pub const ALL: [FactKind; 20] = [
+    pub const ALL: [FactKind; 21] = [
         FactKind::Prompt,
         FactKind::Shell,
         FactKind::TestRun,
@@ -67,6 +69,7 @@ impl FactKind {
         FactKind::ArcJoined,
         FactKind::ArcDiscarded,
         FactKind::EntryDropped,
+        FactKind::ArcsStated,
     ];
 
     /// The exact inverse of [`FactKind::as_str`] — what turns a stored `kind`
@@ -99,6 +102,7 @@ impl FactKind {
             FactKind::ArcJoined => "arc.joined",
             FactKind::ArcDiscarded => "arc.discarded",
             FactKind::EntryDropped => "entry.dropped",
+            FactKind::ArcsStated => "arcs.stated",
         }
     }
 }

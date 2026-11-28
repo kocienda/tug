@@ -47,6 +47,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchTugApp } from "./_harness";
 import { sessionCardShape, SESSION_CARD_SIZE_SHORT } from "./_harness/shapes";
+import { restoreSettled } from "./overlay-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -256,6 +257,10 @@ describe.skipIf(!SHOULD_RUN)("AT0225: clickable slash commands", () => {
         await app.body("A").evalJS(
           `(() => { const el = document.querySelector(${JSON.stringify(SPAN)}); if (el) el.scrollIntoView({ block: "center" }); return !!el; })()`,
         );
+        // A native press goes through the window, and the replay above raised
+        // the restore gate over the card: wait for the card's restore to be
+        // over and the gate down, or the press lands on the gate's modal.
+        await restoreSettled(app, "A");
         await app.body("A").nativeRightClickAtElement(SPAN);
         // The context menu renders in the card's own body, and the point
         // is in that body's viewport, so the click is made there too.

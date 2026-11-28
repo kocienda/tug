@@ -1,0 +1,109 @@
+/* @tug-pairings {
+  --tug7-element-global-text-normal-default-rest | --tug7-surface-global-primary-normal-raised-rest | content
+  --tug7-element-global-text-normal-muted-rest   | --tug7-surface-global-primary-normal-raised-rest | content
+  --tug7-element-tone-text-normal-accent-rest    | --tug7-surface-global-primary-normal-raised-rest | informational
+  --tug7-element-tone-text-normal-active-rest    | --tug7-surface-global-primary-normal-raised-rest | informational
+  --tug7-element-tone-text-normal-success-rest   | --tug7-surface-global-primary-normal-raised-rest | informational
+} */
+
+/**
+ * @tug-pairings
+ * | Element                                        | Surface                                          | Role          | Context                                                  |
+ * |------------------------------------------------|--------------------------------------------------|---------------|----------------------------------------------------------|
+ * | --tug7-element-global-text-normal-default-rest | --tug7-surface-global-primary-normal-raised-rest | content       | .tugx-md-arcs (color)                                    |
+ * | --tug7-element-global-text-normal-muted-rest   | --tug7-surface-global-primary-normal-raised-rest | content       | .tugx-md-arcs-state, [data-state="waiting" | "dropped" | "none"] (color) |
+ * | --tug7-element-tone-text-normal-accent-rest    | --tug7-surface-global-primary-normal-raised-rest | informational | [data-state="ready"] .tugx-md-arcs-state (color)         |
+ * | --tug7-element-tone-text-normal-active-rest    | --tug7-surface-global-primary-normal-raised-rest | informational | [data-state="running"] .tugx-md-arcs-state (color)       |
+ * | --tug7-element-tone-text-normal-success-rest   | --tug7-surface-global-primary-normal-raised-rest | informational | [data-state="joined"] .tugx-md-arcs-state (color)        |
+ *
+ * The state word is a word as well as a colour, so no row is told apart by
+ * its tone alone.
+ */
+
+/* enhance-arc-statement.css — the frame a `tugarcs` fence wears.
+
+   The frame is the tool-block card every fence is. Its rows are one grid, so
+   labels, briefs and state words line up down the run: the label, the brief,
+   the state, and under them the command that opens an arc still waiting to
+   be opened. The tones are the ones the cycle map's tiles wear for the same
+   states: accent for ready, active for running, success for landed, muted for
+   the rest.
+
+   Laws: [L06] a row's state is `data-state` and its word, written by the
+   sync; [L16] pairings declared. */
+
+/* @tug-renders-on: --tugx-block-chrome-bg */
+.tugx-md-block .tugx-md-arcs {
+  background: var(--tugx-block-chrome-bg);
+  color: var(--tugx-block-text-color);
+  border: 1px solid var(--tugx-block-border);
+  border-radius: var(--tugx-block-radius);
+  margin: var(--tugx-md-fenced-code-margin) 0;
+  overflow: clip;
+}
+
+.tugx-md-block .tugx-md-arcs-rows {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto;
+  column-gap: var(--tug-space-md);
+  row-gap: var(--tug-space-xs);
+  align-items: baseline;
+  padding: var(--tug-space-sm) var(--tug-space-md);
+}
+
+/* A row is its cells: the grid is the rows', so the columns align across
+   the run. */
+.tugx-md-block .tugx-md-arcs-row {
+  display: contents;
+}
+
+.tugx-md-block .tugx-md-arcs-label {
+  font-weight: var(--tug-font-weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.tugx-md-block .tugx-md-arcs-brief {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* @tug-renders-on: --tugx-block-chrome-bg */
+.tugx-md-block .tugx-md-arcs-state {
+  justify-self: end;
+  white-space: nowrap;
+  color: var(--tugx-block-text-color-muted);
+}
+
+/* @tug-renders-on: --tugx-block-chrome-bg */
+.tugx-md-block .tugx-md-arcs-row[data-state="ready"] .tugx-md-arcs-state {
+  color: var(--tug7-element-tone-text-normal-accent-rest);
+}
+
+/* @tug-renders-on: --tugx-block-chrome-bg */
+.tugx-md-block .tugx-md-arcs-row[data-state="running"] .tugx-md-arcs-state {
+  color: var(--tug7-element-tone-text-normal-active-rest);
+}
+
+/* @tug-renders-on: --tugx-block-chrome-bg */
+.tugx-md-block .tugx-md-arcs-row[data-state="joined"] .tugx-md-arcs-state {
+  color: var(--tug7-element-tone-text-normal-success-rest);
+}
+
+/* The command takes its own line under the row it opens. */
+.tugx-md-block .tugx-md-arcs-command {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-xs);
+  min-width: 0;
+  margin-bottom: var(--tug-space-xs);
+}
+
+.tugx-md-block .tugx-md-arcs-command[hidden] {
+  display: none;
+}
+
+.tugx-md-block .tugx-md-arcs-command > code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

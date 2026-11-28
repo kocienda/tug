@@ -894,6 +894,21 @@ pub enum CycleCommands {
         #[arg(long)]
         turn: Option<u32>,
     },
+    /// Check an arc statement before it is written, and write nothing.
+    ///
+    /// Reads the `tugarcs` spec from a file, or from stdin for `-`; a whole
+    /// fenced block is read as its body. A clean spec prints `ok: <n> arcs`,
+    /// then one `warning: <text>` line per repair or missing brief, and exits
+    /// 0. A spec that cannot be read prints `not a valid arc statement:
+    /// <path>: <reason>` and exits 2.
+    Statement {
+        /// The spec's file, or `-` for stdin.
+        source: String,
+    },
+    /// List this checkout's statement records: per session, the turn that
+    /// stated its latest list and each arc's cycle and entry, or `held`
+    /// when the arc is on no cycle yet.
+    Stated,
     /// Mark an entry or a sketch as dropped: one that will never run.
     ///
     /// Nothing is removed or renumbered, and the item reads `dropped`. An

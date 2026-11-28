@@ -1639,9 +1639,11 @@ fn locate_transcript(
         if is_tug_noise_project(&row.project_dir) {
             return Ok(None);
         }
-        let (dir, _) =
-            crate::session_ledger::claude_project_dir(ctx.ledger.claude_home(), &row.project_dir);
-        let path = dir.join(format!("{session_id}.jsonl"));
+        let path = crate::session_ledger::transcript_path(
+            ctx.ledger.claude_home(),
+            &row.project_dir,
+            session_id,
+        );
         return Ok(Some(LocatedTranscript {
             project_dir: row.project_dir,
             callsign: row.tag,

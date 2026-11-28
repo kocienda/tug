@@ -30,6 +30,10 @@ pub mod record_lock;
 /// or an arc, which tugcast reads into facts.
 pub mod work_log;
 
+/// The arc statement: a session's declared run of arcs, read from a
+/// `tugarcs` fence or from whole command lines of its answer.
+pub mod statement;
+
 /// The arc record — the server-driven arc's stages, document, and plan, kept
 /// as arc log lines keyed by name so the record exists before a branch does.
 pub mod arc;

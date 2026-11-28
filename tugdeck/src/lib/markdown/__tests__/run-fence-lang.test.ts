@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { isRunOfferLang, isShellFenceLang } from "../enhance-run-offer";
+import { isRunOfferLang, isShellFenceLang, markdownFenceLang, rewriteRunFences } from "../enhance-run-offer";
 import { RunOfferStore, runOfferKey } from "@/lib/run-offer-store";
 
 describe("isShellFenceLang", () => {
@@ -56,5 +56,40 @@ describe("a plain fence's run", () => {
     const run = reloaded.match(key, new Set([key]));
     expect(run?.status).toBe("settled");
     expect(run?.output).toBe("from-a-fence\n");
+  });
+});
+
+describe("a fence written out as Markdown", () => {
+  test("a selection writes a tugarcs fence as json and a tugrun fence as bash", () => {
+    expect(markdownFenceLang("tugarcs")).toBe("json");
+    expect(markdownFenceLang("tugrun")).toBe("bash");
+    expect(markdownFenceLang("ts")).toBe("ts");
+  });
+
+  test("a whole turn's copy opens a tugarcs fence as json, leaving its body", () => {
+    const source = [
+      "The run:",
+      "",
+      "```tugarcs",
+      '{"tugarcs": 1, "arcs": [{"name": "one", "brief": "briefs/a.md"}]}',
+      "```",
+      "",
+      "```tugrun",
+      "npm test",
+      "```",
+    ].join("\n");
+    expect(rewriteRunFences(source)).toBe(
+      [
+        "The run:",
+        "",
+        "```json",
+        '{"tugarcs": 1, "arcs": [{"name": "one", "brief": "briefs/a.md"}]}',
+        "```",
+        "",
+        "```bash",
+        "npm test",
+        "```",
+      ].join("\n"),
+    );
   });
 });

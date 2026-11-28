@@ -23,6 +23,8 @@
  *
  * A `tugrun` fence is a runnable offer rather than code to read, and gets
  * the frame `enhance-run-offer` builds in place of this chrome.
+ * A `tugarcs` fence states a run of arcs, and gets the frame
+ * `enhance-arc-statement` builds, its rows, whenever its spec parses.
  *
  * No event-listener cleanup is needed — when a parent block element is
  * replaced (`replaceChildren`, the same `el.innerHTML = ...` write, or
@@ -48,6 +50,7 @@ import {
   RUN_OFFER_CLASS,
   RUN_OFFER_SHELL_LANG,
 } from "./enhance-run-offer";
+import { ARC_STATEMENT_CLASS, buildArcStatementFrame, isArcStatementLang } from "./enhance-arc-statement";
 import { highlightFragmentToHtml } from "@/lib/language-registry";
 import { trackEnhancement } from "./pending-enhancements";
 
@@ -62,6 +65,7 @@ import { trackEnhancement } from "./pending-enhancements";
 const FIGURE_FENCE_LABELS: Readonly<Record<string, string>> = {
   tugchart: "Drawing chart…",
   tugdiagram: "Drawing diagram…",
+  tugarcs: "Reading arcs…",
 };
 
 /** Whether a fence's text is one line: what is left once the newline
@@ -98,11 +102,15 @@ export function enhanceFencedCode(container: HTMLElement, options?: FenceHighlig
   const preEls = container.querySelectorAll("pre");
   for (const pre of preEls) {
     // Already enhanced — skip. An enhanced `<pre>` sits inside its frame:
-    // the fence wrapper, or a runnable offer's.
-    if (pre.closest(`.tugx-md-fenced-code, .${RUN_OFFER_CLASS}`) !== null) continue;
+    // the fence wrapper, a runnable offer's, or a statement of arcs'.
+    if (pre.closest(`.tugx-md-fenced-code, .${RUN_OFFER_CLASS}, .${ARC_STATEMENT_CLASS}`) !== null) continue;
 
     const codeEl = pre.querySelector(":scope > code") as HTMLElement | null;
     const lang = codeEl !== null ? readLanguage(codeEl) : null;
+
+    // A statement of arcs is drawn as its rows. One whose spec does not parse
+    // (still streaming, or a mistake) keeps the fence chrome below, folded.
+    if (codeEl !== null && isArcStatementLang(lang) && buildArcStatementFrame(pre, codeEl)) continue;
 
     // A runnable offer wears its own frame, not the fence chrome, and its
     // command is coloured as shell.

@@ -548,6 +548,11 @@ pub struct AgentSupervisor {
     /// The same idle transition once more, for the semantic index: a turn that ended
     /// is a transcript that grew.
     pub semantic_tick_tx: Option<mpsc::Sender<String>>,
+    /// The turn end once more, for the arc statement follower: an answer
+    /// that ended may have stated a run of arcs. Sent only where a turn
+    /// ends, and never for a cancelled turn or one that ended on an API
+    /// error, which state nothing.
+    pub statement_tick_tx: Option<mpsc::Sender<String>>,
     /// The wheel itself, for the stoppers that live here rather than in the
     /// arc engine ([P03]).
     ///
@@ -577,6 +582,7 @@ pub struct SupervisorDeps {
     pub arc_tick_tx: Option<mpsc::Sender<String>>,
     pub wheel_tick_tx: Option<mpsc::Sender<String>>,
     pub semantic_tick_tx: Option<mpsc::Sender<String>>,
+    pub statement_tick_tx: Option<mpsc::Sender<String>>,
     pub wheel: Option<Arc<crate::wheel::WheelState>>,
     /// The process's page registry. A fresh, empty one by default.
     pub(crate) pages: Arc<crate::pages::PageRegistry>,
@@ -2180,6 +2186,7 @@ impl AgentSupervisor {
             arc_tick_tx,
             wheel_tick_tx,
             semantic_tick_tx,
+            statement_tick_tx,
             wheel,
             pages,
         } = deps;
@@ -2214,6 +2221,7 @@ impl AgentSupervisor {
             arc_tick_tx,
             wheel_tick_tx,
             semantic_tick_tx,
+            statement_tick_tx,
             wheel,
             pages,
         };
@@ -4687,6 +4695,9 @@ impl AgentSupervisor {
                     // incremented the bracket counter by the time the batch
                     // flows through here).
                     let mut turn_ended = false;
+                    // Whether the turn that ended may have stated arcs: a
+                    // cancelled turn and an API-error turn state nothing.
+                    let mut turn_may_state = false;
                     let mut latch_entry = None;
                     if is_turn_end(&frame.payload) || is_wake_started(&frame.payload) {
                         let entry_arc = {
@@ -4739,6 +4750,8 @@ impl AgentSupervisor {
                                     entry.turn_api_error = turn_ended_in_api_error(&frame.payload);
                                     entry.turn_cancelled =
                                         turn_ended_in_user_cancel(&frame.payload);
+                                    turn_may_state =
+                                        !entry.turn_api_error && !entry.turn_cancelled;
                                     // No turn, no clock ([B02]).
                                     entry.turn_last_frame_at = None;
                                     // The turn boundary the arc demands has
@@ -4919,6 +4932,14 @@ impl AgentSupervisor {
                                 // it lands here instead of killing the claude
                                 // that asked for it.
                                 if let Some(tx) = self.wheel_tick_tx.as_ref() {
+                                    let _ = tx.try_send(id.to_string());
+                                }
+                                // And for the arc statement follower: the
+                                // answer that ended is read for the run of
+                                // arcs it states.
+                                if turn_may_state
+                                    && let Some(tx) = self.statement_tick_tx.as_ref()
+                                {
                                     let _ = tx.try_send(id.to_string());
                                 }
                             }
@@ -9175,6 +9196,145 @@ mod tests {
 
         cancel.cancel();
         let _ = merger_handle.await;
+    }
+
+    /// A merger fed by a channel, with the statement follower's tick wired,
+    /// and a sender for the session's frames.
+    async fn merger_with_statement_tick(
+        session: &'static str,
+    ) -> (
+        Arc<AgentSupervisor>,
+        Arc<Mutex<LedgerEntry>>,
+        mpsc::Sender<Frame>,
+        mpsc::Receiver<String>,
+        CancellationToken,
+        tokio::task::JoinHandle<()>,
+    ) {
+        let (statement_tick_tx, statement_tick_rx) = mpsc::channel(8);
+        let ((sup, _state_rx, _meta_rx, _control_rx), register_rx) =
+            make_supervisor_with_spawner_config(
+                stall_spawner_factory(),
+                AgentSupervisorConfig::default(),
+                SupervisorDeps {
+                    statement_tick_tx: Some(statement_tick_tx),
+                    ..Default::default()
+                },
+            );
+        let sup = Arc::new(sup);
+        let cancel = CancellationToken::new();
+        let merger = tokio::spawn(Arc::clone(&sup).merger_task(register_rx, cancel.clone()));
+        let id = TugSessionId::new(session);
+        insert_ledger_entry(&sup, &id).await;
+        let entry_arc = sup.ledger.lock().await.get(&id).cloned().unwrap();
+        let (tx, rx) = mpsc::channel::<Frame>(8);
+        sup.merger_register_tx.send((id, rx)).await.unwrap();
+        (sup, entry_arc, tx, statement_tick_rx, cancel, merger)
+    }
+
+    async fn send_frame(tx: &mpsc::Sender<Frame>, bytes: &[u8]) {
+        tx.send(Frame::new(FeedId::CODE_OUTPUT, bytes.to_vec()))
+            .await
+            .unwrap();
+    }
+
+    async fn next_tick(rx: &mut mpsc::Receiver<String>) -> String {
+        tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
+            .await
+            .expect("a statement tick")
+            .expect("the channel is open")
+    }
+
+    /// A turn that ends asks the statement follower to read its answer, once.
+    /// A frame after it, folded in order, proves no second tick followed.
+    #[tokio::test]
+    async fn a_turn_end_ticks_the_statement_follower_once() {
+        let (_sup, entry_arc, tx, mut rx, cancel, merger) =
+            merger_with_statement_tick("sess-stated-once").await;
+        send_frame(
+            &tx,
+            br#"{"tug_session_id":"sess-stated-once","type":"turn_complete","msg_id":"m","seq":0}"#,
+        )
+        .await;
+        assert_eq!(next_tick(&mut rx).await, "sess-stated-once");
+
+        send_frame(
+            &tx,
+            br#"{"tug_session_id":"sess-stated-once","type":"wake_started","session_id":"x"}"#,
+        )
+        .await;
+        wait_until(|| {
+            let entry_arc = entry_arc.clone();
+            async move { entry_arc.lock().await.turn_active() }
+        })
+        .await;
+        assert!(rx.try_recv().is_err(), "one turn end, one tick");
+        cancel.cancel();
+        let _ = merger.await;
+    }
+
+    /// A replayed turn end describes a turn that ended long ago, whose
+    /// statement was read when it was live: it sends nothing. The live end
+    /// after the bracket is the one tick.
+    #[tokio::test]
+    async fn a_replayed_turn_end_sends_no_statement_tick() {
+        let (_sup, entry_arc, tx, mut rx, cancel, merger) =
+            merger_with_statement_tick("sess-stated-replay").await;
+        send_frame(
+            &tx,
+            br#"{"tug_session_id":"sess-stated-replay","type":"replay_started","ipc_version":2}"#,
+        )
+        .await;
+        send_frame(
+            &tx,
+            br#"{"tug_session_id":"sess-stated-replay","type":"turn_complete","msg_id":"old","seq":0}"#,
+        )
+        .await;
+        send_frame(
+            &tx,
+            br#"{"tug_session_id":"sess-stated-replay","type":"replay_complete","count":1,"ipc_version":2}"#,
+        )
+        .await;
+        send_frame(
+            &tx,
+            br#"{"tug_session_id":"sess-stated-replay","type":"turn_complete","msg_id":"new","seq":0}"#,
+        )
+        .await;
+        assert_eq!(next_tick(&mut rx).await, "sess-stated-replay");
+        assert_eq!(
+            entry_arc.lock().await.turns_ended,
+            1,
+            "the replayed end was folded and ended nothing"
+        );
+        assert!(rx.try_recv().is_err(), "the replayed end sent no tick");
+        cancel.cancel();
+        let _ = merger.await;
+    }
+
+    /// A turn the user cancelled states nothing, so it sends no tick; the
+    /// turn after it, ended in order behind it, sends the one.
+    #[tokio::test]
+    async fn a_cancelled_turn_sends_no_statement_tick() {
+        let (_sup, entry_arc, tx, mut rx, cancel, merger) =
+            merger_with_statement_tick("sess-stated-cancel").await;
+        send_frame(
+            &tx,
+            br#"{"tug_session_id":"sess-stated-cancel","type":"turn_cancelled","msg_id":"m","seq":0}"#,
+        )
+        .await;
+        send_frame(
+            &tx,
+            br#"{"tug_session_id":"sess-stated-cancel","type":"turn_complete","msg_id":"n","seq":0}"#,
+        )
+        .await;
+        assert_eq!(next_tick(&mut rx).await, "sess-stated-cancel");
+        assert_eq!(
+            entry_arc.lock().await.turns_ended,
+            2,
+            "both turn ends were folded, in order"
+        );
+        assert!(rx.try_recv().is_err(), "the cancelled turn sent no tick");
+        cancel.cancel();
+        let _ = merger.await;
     }
 
     /// **A catch-up during a live turn keeps the turn busy ([B03]).** The

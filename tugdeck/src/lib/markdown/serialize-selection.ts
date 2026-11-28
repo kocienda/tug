@@ -143,11 +143,13 @@ function isBlockBoundary(el: Element): boolean {
   return BLOCK_TAGS.has(el.tagName) || el.classList.contains("tugx-md-block");
 }
 
-/** The enhancers' chrome — a label, a button — whose text is never prose. */
+/** The enhancers' chrome — a label, a button, a statement's rows — whose
+ *  text is never prose. A statement of arcs is written out by its hidden
+ *  fence, so its rows' text would be the run said twice. */
 function inChrome(el: Element | null): boolean {
   return el !== null && (
     el.closest(".tugx-md-chrome-header") !== null
-    || el.closest(".tugx-md-run-result") !== null
+    || el.closest(".tugx-md-run-result, .tugx-md-arcs-rows") !== null
     || el.closest(".footnote-definition-label") !== null
   );
 }

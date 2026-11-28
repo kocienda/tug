@@ -198,6 +198,7 @@ import {
 import { TugMarkdownBlock } from "@/components/tugways/tug-markdown-block";
 import { useAnnotationPortals } from "@/components/tugways/annotation-portals";
 import { RunOfferShellContext, useRunOffers } from "./use-run-offers";
+import { useArcStatements } from "./use-arc-statements";
 import { TugQuietLine } from "@/components/tugways/tug-quiet-line";
 import { SessionCompactionEntry } from "@/components/tugways/cards/session-compaction-entry";
 import { SessionUsageLimitNotice } from "@/components/tugways/cards/session-usage-limit-notice";
@@ -1342,6 +1343,8 @@ const StreamedTextGate: React.FC<StreamedTextGateProps> = ({
  * The same callback is what makes a runnable offer in the prose live: each
  * pass hands the block to {@link useRunOffers}, keyed under `runScope` (the
  * message), with `commandsFinal` saying whether the turn has finished.
+ * A statement of arcs in the prose is made live the same way, its rows read
+ * against the cycles of the project the annotation resolves against.
  */
 const AssistantTextBody: React.FC<{
   streamingStore: PropertyStore;
@@ -1352,12 +1355,14 @@ const AssistantTextBody: React.FC<{
 }> = ({ streamingStore, streamingPath, annotation, runScope, commandsFinal }) => {
   const { onAnnotated: portalsAnnotated, portals } = useAnnotationPortals(annotation);
   const offersAnnotated = useRunOffers(runScope, commandsFinal);
+  const arcsAnnotated = useArcStatements(annotation?.commitRoot ?? null);
   const onAnnotated = React.useCallback(
     (container: HTMLElement): void => {
       portalsAnnotated(container);
       offersAnnotated(container);
+      arcsAnnotated(container);
     },
-    [portalsAnnotated, offersAnnotated],
+    [portalsAnnotated, offersAnnotated, arcsAnnotated],
   );
   return (
     <>

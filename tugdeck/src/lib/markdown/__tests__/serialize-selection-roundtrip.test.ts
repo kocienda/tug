@@ -36,6 +36,8 @@ import { initSync } from "../../../../crates/tugmark-wasm/pkg/tugmark_wasm.js";
 import { renderIncremental } from "../render-incremental";
 import { enhanceFencedCode } from "../enhance-fenced-code";
 import { isRunOfferLang, markdownFenceLang } from "../enhance-run-offer";
+import { syncArcStatementFrame } from "../enhance-arc-statement";
+import type { ArcRowReading } from "@/lib/arc-statement";
 import {
   selectionToTranscriptMarkdown,
   selectionToTranscriptPlainSubstrate,
@@ -444,6 +446,80 @@ describe("a runnable offer — the copy", () => {
     expect(copyAll(render("```tugrun\ncd build\nmake check\n```"))).toBe(
       "```bash\ncd build\nmake check\n```",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A statement of arcs — a `tugarcs` fence
+// ---------------------------------------------------------------------------
+
+const STATEMENT_SPEC =
+  '{"tugarcs": 1, "arcs": [{"name": "search-index", "brief": "briefs/search.md", "label": "Build the index"}, {"name": "search-query", "brief": "briefs/search.md"}]}';
+const STATEMENT = "```tugarcs\n" + STATEMENT_SPEC + "\n```";
+
+describe("a statement of arcs — the frame", () => {
+  test("a `tugarcs` fence is drawn as one row per arc, its fence kept hidden inside", () => {
+    const container = render(STATEMENT);
+    const frame = container.querySelector(".tugx-md-arcs");
+    expect(frame).not.toBeNull();
+    expect(container.querySelector(".tugx-md-fenced-code")).toBeNull();
+    const pre = frame?.querySelector<HTMLElement>(":scope > pre");
+    expect(pre?.hidden).toBe(true);
+    expect(pre?.querySelector("code.language-tugarcs")?.textContent).toBe(STATEMENT_SPEC + "\n");
+    const rows = [...(frame?.querySelectorAll<HTMLElement>(".tugx-md-arcs-row") ?? [])];
+    expect(rows.map((r) => r.dataset.arc)).toEqual(["search-index", "search-query"]);
+    // The label, or the arc's name when it has none; the brief in inline code.
+    expect(rows.map((r) => r.querySelector(".tugx-md-arcs-label")?.textContent)).toEqual([
+      "Build the index",
+      "search-query",
+    ]);
+    expect(rows[0]?.querySelector(".tugx-md-arcs-brief > code")?.textContent).toBe("briefs/search.md");
+    // As built, a row says nothing of where it stands and offers no command.
+    expect(rows[0]?.querySelector(".tugx-md-arcs-state")?.textContent).toBe("");
+    expect(rows[0]?.querySelector<HTMLElement>(".tugx-md-arcs-command")?.hidden).toBe(true);
+    container.remove();
+  });
+
+  test("a sync writes each row's state and shows the command only where it opens the arc", () => {
+    const container = render(STATEMENT);
+    const frame = container.querySelector<HTMLElement>(".tugx-md-arcs");
+    if (frame === null) throw new Error("no frame");
+    syncArcStatementFrame(frame, (name): ArcRowReading =>
+      name === "search-index"
+        ? { state: "joined", word: "Landed", command: false }
+        : { state: "ready", word: "Ready", command: true },
+    );
+    const [landed, ready] = [...frame.querySelectorAll<HTMLElement>(".tugx-md-arcs-row")];
+    expect(landed?.dataset.state).toBe("joined");
+    expect(landed?.querySelector(".tugx-md-arcs-state")?.textContent).toBe("Landed");
+    expect(landed?.querySelector<HTMLElement>(".tugx-md-arcs-command")?.hidden).toBe(true);
+    expect(ready?.dataset.state).toBe("ready");
+    expect(ready?.querySelector<HTMLElement>(".tugx-md-arcs-command")?.hidden).toBe(false);
+    expect(ready?.querySelector(".tugx-md-arcs-command > code")?.textContent).toBe(
+      "/arc search-query @briefs/search.md",
+    );
+    container.remove();
+  });
+
+  test("a spec that does not parse keeps the fence chrome", () => {
+    const container = render('```tugarcs\n{"tugarcs": 1, "arcs": [\n```');
+    expect(container.querySelector(".tugx-md-arcs")).toBeNull();
+    expect(container.querySelector(".tugx-md-fenced-code")).not.toBeNull();
+    container.remove();
+  });
+
+  test("a second enhance pass over the same block builds nothing more", () => {
+    const container = render(STATEMENT);
+    const before = container.innerHTML;
+    enhanceFencedCode(container);
+    expect(container.innerHTML).toBe(before);
+    container.remove();
+  });
+});
+
+describe("a statement of arcs — the copy", () => {
+  test("copy as Markdown writes the spec as a json fence, and not its rows", () => {
+    expect(copyAll(render("The run:\n\n" + STATEMENT))).toBe("The run:\n\n```json\n" + STATEMENT_SPEC + "\n```");
   });
 });
 
