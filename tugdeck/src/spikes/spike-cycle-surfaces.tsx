@@ -29,8 +29,9 @@
 import "./spike-cycle-surfaces.css";
 
 import React, { useId, useMemo, useState } from "react";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Play } from "lucide-react";
 
+import { ArcLifecycleLine } from "@/components/tugways/arc-lifecycle-line";
 import { ArcLifecycleMark } from "@/components/tugways/arc-lifecycle-mark";
 import { ArcStepItems } from "@/components/tugways/arc-step-list";
 import { recordBody } from "@/components/tugways/cards/session-arc-record";
@@ -226,8 +227,50 @@ const STEP_TITLES = [
 
 type Moment = "devising" | "implementing";
 type Where = "here" | "elsewhere";
+/** The short cycle with every state, or the long run from the screenshots: nine of ten landed. */
+type Fixture = "short" | "long";
 
-function entriesAt(where: Where): Entry[] {
+const LONG_SKETCHES: readonly Sketch[] = [
+  { letter: "A", want: "Grow the built-in cast by a hundred members", text: "Grow the built-in cast by a hundred members, rigged, in all three styles." },
+  { letter: "B", want: "Make the people and animals of the built-in cast read as one family", text: "Make the people and animals of the built-in cast read as one family." },
+];
+
+const LONG_ARCS = ["animals", "people", "tools", "redraw", "places", "weather", "making", "ideas", "signs", "numbers"];
+
+const LONG_STEP_TITLES = [
+  "The calendar",
+  "The hourglass",
+  "The stopwatch",
+  "The coin",
+  "The card",
+  "The cart",
+  "The bar chart",
+  "The line chart",
+  "The batch three across",
+  "The documents say what landed",
+];
+
+function longEntries(where: Where): Entry[] {
+  return LONG_ARCS.map((arc, i) => {
+    const n = i + 1;
+    const fromB = n === 4;
+    return {
+      n,
+      title: fromB
+        ? "People and animals of the built-in cast, redrawn by one hand"
+        : "The cast: 100 more members, rigged, in all three styles",
+      arc: `liven-cast-${arc}`,
+      brief: fromB ? "briefs/liven-cast-redraw-brief.md" : "briefs/liven-rigged-cast-brief.md",
+      waits: [],
+      from: [fromB ? "B" : "A"],
+      state: n === 10 ? "running" : "joined",
+      ...(n === 10 ? { session: where === "here" ? KEEPER : OTHER } : {}),
+    } satisfies Entry;
+  });
+}
+
+function entriesAt(fixture: Fixture, where: Where): Entry[] {
+  if (fixture === "long") return longEntries(where);
   return [
     {
       n: 1,
@@ -274,18 +317,27 @@ function entriesAt(where: Where): Entry[] {
       state: "waiting",
       note: "Needs the keeper's act log",
     },
+    {
+      n: 6,
+      title: "The shade shows what the keeper did",
+      brief: "briefs/cycle-keeper-brief.md",
+      waits: [3],
+      from: ["A"],
+      state: "waiting",
+    },
   ];
 }
 
-function stepsAt(moment: Moment): ArcStep[] {
+function stepsAt(moment: Moment, fixture: Fixture): ArcStep[] {
   if (moment === "devising") return [];
-  return STEP_TITLES.map((title, i) => ({
+  const done = fixture === "long" ? 6 : 3;
+  return (fixture === "long" ? LONG_STEP_TITLES : STEP_TITLES).map((title, i) => ({
     title,
-    status: i < 3 ? "done" : i === 3 ? "in progress" : "pending",
+    status: i < done ? "done" : i === done ? "in progress" : "pending",
   }));
 }
 
-function trackAt(moment: Moment): ArcTrackModel {
+function trackAt(moment: Moment, fixture: Fixture): ArcTrackModel {
   const dir = "/u/src/tug/.tug/arcs/cycle-keeper";
   return moment === "devising"
     ? arcTrackModel({
@@ -300,7 +352,7 @@ function trackAt(moment: Moment): ArcTrackModel {
         arcKind: "planned",
         arc: { stage: "implement" },
         stage: "implementing",
-        steps: stepsAt(moment),
+        steps: stepsAt(moment, fixture),
         holdersBusy: true,
       });
 }
@@ -319,9 +371,10 @@ interface CycleRead {
   heads: ReadonlyMap<string, readonly number[]>;
 }
 
-function readCycle(moment: Moment, where: Where): CycleRead {
-  const entries = entriesAt(where);
-  const track = trackAt(moment);
+function readCycle(fixture: Fixture, moment: Moment, where: Where): CycleRead {
+  const entries = entriesAt(fixture, where);
+  const track = trackAt(moment, fixture);
+  const sketches = fixture === "long" ? LONG_SKETCHES : SKETCHES;
   const joined = new Set(entries.filter((e) => e.state === "joined").map((e) => e.n));
   const sources = entries.map((e) => ({ n: e.n, waits: e.waits, from: e.from }));
   const keys: string[] = [];
@@ -333,10 +386,10 @@ function readCycle(moment: Moment, where: Where): CycleRead {
     keys.push(entryKey(e.n));
   }
   return {
-    name: "Sketch, brief and arc records",
+    name: fixture === "long" ? "Hundred more cast members" : "Sketch, brief and arc records",
     landedText: `${joined.size} of ${entries.length} landed`,
     entries,
-    sketches: SKETCHES,
+    sketches,
     tiles: entries.map((e) => ({
       n: e.n,
       waits: e.waits,
@@ -346,11 +399,11 @@ function readCycle(moment: Moment, where: Where): CycleRead {
       track: e.state === "running" ? track : undefined,
       label: `${e.title} · ${e.state}`,
     })),
-    seals: SKETCHES.map((s) => ({ letter: s.letter, want: s.want })),
+    seals: sketches.map((s) => ({ letter: s.letter, want: s.want })),
     keys,
     track,
-    steps: stepsAt(moment),
-    heads: new Map(SKETCHES.map((s) => [s.letter, headsOf(s.letter, sources)])),
+    steps: stepsAt(moment, fixture),
+    heads: new Map(sketches.map((s) => [s.letter, headsOf(s.letter, sources)])),
   };
 }
 
@@ -411,7 +464,6 @@ function SketchRow({
         variant="flush"
         density={host === "rail" ? "compact" : undefined}
         selected={open}
-        leading={<CycleSeal letter={sketch.letter} />}
         trailing={
           heads.length > 0 ? (
             <CycleWaits label="Heads" items={heads.map((n) => ({ n, met: true }))} checks={false} />
@@ -423,7 +475,7 @@ function SketchRow({
         <span className="sp-cyc-content">
           <span className="sp-cyc-title">
             <span className="sp-cyc-eyebrow">Sketch</span>
-            <span className="sp-cyc-headline">{sketch.letter}</span>
+            <CycleSeal letter={sketch.letter} />
           </span>
           {open ? null : <span className="sp-cyc-want">{sketch.want}</span>}
         </span>
@@ -481,7 +533,6 @@ function EntryRow({
         variant="flush"
         density={host === "rail" ? "compact" : undefined}
         selected={open}
-        leading={<span className="sp-cyc-number">{entry.n}</span>}
         trailing={<CycleEntryMark state={entry.state} model={model} name={entry.arc ?? entry.title} />}
         trailingReveal="always"
         onClick={() => onChoose(key)}
@@ -489,6 +540,7 @@ function EntryRow({
         <span className="sp-cyc-content">
           <span className="sp-cyc-title">
             <span className="sp-cyc-eyebrow">Arc</span>
+            <span className="sp-cyc-number">{entry.n}</span>
             <span className="sp-cyc-headline">{entry.title}</span>
           </span>
           {facts !== null || waits !== null || open ? (
@@ -552,11 +604,133 @@ function Footer({ read, host }: { read: CycleRead; host: Host }): React.ReactEle
   );
 }
 
+/** An entry that is live: someone is working it, or someone could start it now. */
+const isLive = (e: Entry): boolean => e.state === "running" || e.state === "ready";
+
+/** The entries next up: waiting, and on nothing but arcs that are running now. */
+function nextUp(entries: readonly Entry[]): Entry[] {
+  const byN = new Map(entries.map((e) => [e.n, e]));
+  return entries.filter((e) => {
+    if (e.state !== "waiting") return false;
+    const open = e.waits.filter((n) => byN.get(n)?.state !== "joined");
+    return open.length > 0 && open.every((n) => byN.get(n)?.state === "running");
+  });
+}
+
+/** What the active view shows: the live entries and the ones next up, in number order. */
+function activeEntries(entries: readonly Entry[]): Entry[] {
+  const next = new Set(nextUp(entries).map((e) => e.n));
+  return entries.filter((e) => isLive(e) || next.has(e.n));
+}
+
+/**
+ * The active view's map: what has landed as one count, each live entry as a
+ * tile wide enough for its arc's track at its own size, and what still waits
+ * as one count. A press on either count shows every asset.
+ */
+function ActiveStrip({
+  read,
+  chosen,
+  onPress,
+  onAll,
+}: {
+  read: CycleRead;
+  chosen: ReadonlySet<string>;
+  onPress: (key: string) => void;
+  onAll: () => void;
+}): React.ReactElement {
+  const landed = read.entries.filter((e) => e.state === "joined").length;
+  const live = activeEntries(read.entries);
+  const waiting = read.entries.filter((e) => e.state === "waiting").length - live.filter((e) => e.state === "waiting").length;
+  return (
+    <div className="sp-cyc-active">
+      {landed > 0 ? (
+        <>
+          <TugTooltip content={`${landed} landed. Show every asset`}>
+            <button type="button" className="sp-cyc-stub" data-state="joined" onClick={onAll}>
+              <Check size={12} aria-hidden />
+              {landed}
+            </button>
+          </TugTooltip>
+          <span className="sp-cyc-wire" aria-hidden="true" />
+        </>
+      ) : null}
+      {live.length > 0 ? (
+        <span className="sp-cyc-live">
+          {live.map((e) => (
+            <button
+              key={e.n}
+              type="button"
+              className="sp-cyc-live-tile"
+              data-state={e.state}
+              data-chosen={chosen.has(entryKey(e.n)) || undefined}
+              onClick={() => onPress(entryKey(e.n))}
+            >
+              <span className="sp-cyc-live-n">{e.n}</span>
+              {e.state === "running" ? (
+                <ArcLifecycleLine model={read.track} />
+              ) : e.state === "waiting" ? (
+                <span className="sp-cyc-eyebrow">Next up</span>
+              ) : (
+                <span className="sp-cyc-live-ready">
+                  <Play size={12} aria-hidden />
+                  Ready
+                </span>
+              )}
+            </button>
+          ))}
+        </span>
+      ) : (
+        <span className="sp-cyc-quiet">Nothing is running or ready</span>
+      )}
+      {waiting > 0 ? (
+        <>
+          <span className="sp-cyc-wire" aria-hidden="true" />
+          <TugTooltip content={`${waiting} waiting. Show every asset`}>
+            <button type="button" className="sp-cyc-stub" data-state="waiting" onClick={onAll}>
+              +{waiting}
+            </button>
+          </TugTooltip>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+/** One line standing for the rows the active view leaves out; a press shows them. */
+function FoldRow({ text, onAll }: { text: string; onAll: () => void }): React.ReactElement {
+  return (
+    <button type="button" className="sp-cyc-fold-row" onClick={onAll}>
+      <span className="sp-cyc-quiet">{text}</span>
+      <span className="sp-cyc-eyebrow">Show all</span>
+    </button>
+  );
+}
+
 /** One cycle, on either host. Only density and the fold control's verb differ. */
-function CycleSurface({ read, host }: { read: CycleRead; host: Host }): React.ReactElement {
+function CycleSurface({
+  read,
+  host,
+  all,
+  onAll,
+}: {
+  read: CycleRead;
+  host: Host;
+  /** Whether every asset shows. The host keeps it, so it outlasts the cycle drawn. */
+  all: boolean;
+  onAll: (all: boolean) => void;
+}): React.ReactElement {
   const [chosen, setChosen] = useState<ReadonlySet<string>>(NO_PICKS);
   const [folded, setFolded] = useState(false);
-  const view = cycleListView(read.keys, chosen);
+  // The proposal: a cycle opens on its active view, and `all` is the way back
+  // to every asset.
+  const active = activeEntries(read.entries);
+  const liveKeys = active.map((e) => entryKey(e.n));
+  const view = cycleListView(all ? read.keys : liveKeys, chosen);
+  const landed = read.entries.filter((e) => e.state === "joined").length;
+  const waiting =
+    read.entries.filter((e) => e.state === "waiting").length - active.filter((e) => e.state === "waiting").length;
+  const showAll = () => onAll(true);
   const entryByKey = new Map(read.entries.map((e) => [entryKey(e.n), e]));
   const sketchByKey = new Map(read.sketches.map((s) => [sketchKey(s.letter), s]));
   const choose = (key: string) => setChosen((prev) => pressCycleRow(prev, key));
@@ -564,6 +738,7 @@ function CycleSurface({ read, host }: { read: CycleRead; host: Host }): React.Re
   return (
     <div className="sp-cyc-surface" data-host={host} data-folded={folded || undefined}>
       <div className="sp-cyc-header">
+        <div className="sp-cyc-header-row">
         <TugTooltip content={verb}>
           <TugPushButton
             size="xs"
@@ -576,8 +751,26 @@ function CycleSurface({ read, host }: { read: CycleRead; host: Host }): React.Re
         </TugTooltip>
         <span className="sp-cyc-eyebrow">Cycle</span>
         <span className="sp-cyc-name">{read.name}</span>
-        <span className="sp-cyc-spacer" />
+        </div>
+        <div className="sp-cyc-header-row sp-cyc-header-sub">
         <span className="sp-cyc-landed">{read.landedText}</span>
+        <span className="sp-cyc-spacer" />
+        {folded ? null : (
+          <TugTooltip content={all ? "Show only what is running or ready" : "Show every asset"}>
+            <TugPushButton
+              size="2xs"
+              subtype="text"
+              emphasis="outlined"
+              onClick={() => {
+                onAll(!all);
+                setChosen(NO_PICKS);
+              }}
+            >
+              {all ? "Active" : "All"}
+            </TugPushButton>
+          </TugTooltip>
+        )}
+        </div>
       </div>
       {folded ? (
         <div className="sp-cyc-strip" aria-hidden="true">
@@ -588,19 +781,24 @@ function CycleSurface({ read, host }: { read: CycleRead; host: Host }): React.Re
       ) : (
         <>
           <div className="sp-cyc-well">
-            <CycleMap
-              tiles={read.tiles}
-              sketches={read.seals}
-              size={host === "shade" ? "full" : "compact"}
-              chosen={chosen}
-              onPress={(key, shift) => setChosen((prev) => pressCycleAsset(prev, key, shift))}
-              onClear={() => setChosen(NO_PICKS)}
-            />
+            {all ? (
+              <CycleMap
+                tiles={read.tiles}
+                sketches={read.seals}
+                size={host === "shade" ? "full" : "compact"}
+                chosen={chosen}
+                onPress={(key, shift) => setChosen((prev) => pressCycleAsset(prev, key, shift))}
+                onClear={() => setChosen(NO_PICKS)}
+              />
+            ) : (
+              <ActiveStrip read={read} chosen={chosen} onPress={choose} onAll={showAll} />
+            )}
           </div>
           {view.narrowed ? (
             <CycleOnlyBar className="sp-cyc-only" count={chosen.size} onBack={() => setChosen(NO_PICKS)} />
           ) : null}
           <div className="sp-cyc-list">
+            {!all && landed > 0 ? <FoldRow text={`${landed} landed`} onAll={showAll} /> : null}
             {view.shown.map((key) => {
               const entry = entryByKey.get(key);
               if (entry !== undefined) {
@@ -627,6 +825,7 @@ function CycleSurface({ read, host }: { read: CycleRead; host: Host }): React.Re
                 />
               ) : null;
             })}
+            {!all && waiting > 0 ? <FoldRow text={`${waiting} waiting`} onAll={showAll} /> : null}
           </div>
           <Footer read={read} host={host} />
         </>
@@ -639,9 +838,14 @@ function CycleSurface({ read, host }: { read: CycleRead; host: Host }): React.Re
 // The section
 // ---------------------------------------------------------------------------
 
+const FIXTURE_ITEMS: TugChoiceItem[] = [
+  { value: "long", label: "Long run, 9 of 10 landed" },
+  { value: "short", label: "Short cycle, every state" },
+];
+
 const MOMENT_ITEMS: TugChoiceItem[] = [
-  { value: "devising", label: "Arc 3 devising" },
-  { value: "implementing", label: "Arc 3 on step 4 of 7" },
+  { value: "implementing", label: "Running arc mid-plan" },
+  { value: "devising", label: "Running arc devising" },
 ];
 
 const WHERE_ITEMS: TugChoiceItem[] = [
@@ -650,22 +854,39 @@ const WHERE_ITEMS: TugChoiceItem[] = [
 ];
 
 export function CycleSurfaces(): React.ReactElement {
-  const [moment, setMoment] = useState<Moment>("devising");
+  const [fixture, setFixture] = useState<Fixture>("long");
+  const [moment, setMoment] = useState<Moment>("implementing");
   const [where, setWhere] = useState<Where>("here");
+  // The view is each surface's own, kept apart from the cycle it draws: the
+  // sidebar card has one, and each Session card has one.
+  const [allShade, setAllShade] = useState(false);
+  const [allRail, setAllRail] = useState(false);
+  const fixtureId = useId();
   const momentId = useId();
   const whereId = useId();
   const { ResponderScope, responderRef } = useResponderForm({
     selectValue: {
+      [fixtureId]: (v) => setFixture(v as Fixture),
       [momentId]: (v) => setMoment(v as Moment),
       [whereId]: (v) => setWhere(v as Where),
     },
   });
-  const read = useMemo(() => readCycle(moment, where), [moment, where]);
+  const read = useMemo(() => readCycle(fixture, moment, where), [fixture, moment, where]);
   return (
     <ResponderScope>
       <div className="sp-cyc" ref={responderRef as (el: HTMLDivElement | null) => void}>
         <FeatureList />
+        <p className="sp-cyc-proposal">
+          <strong>Proposed: the active view.</strong> A cycle opens showing only what is running, what is ready,
+          and what is next up: an arc waiting on nothing but arcs running now. The map becomes one line: a count
+          of what landed, each of those arcs as a tile holding its arc's whole line (track, phase, step count),
+          and a count of what else waits. Sketches are hidden. The list holds the same rows between two one-line
+          folds. The header's All button, either count, or either fold shows every asset; Active goes back.
+          Active is the default, and the choice is kept per surface: one for the sidebar card, one for each
+          Session card. Switch the fixture above and each surface keeps its view.
+        </p>
         <div className="sp-cyc-controls">
+          <TugChoiceGroup items={FIXTURE_ITEMS} value={fixture} senderId={fixtureId} size="sm" />
           <TugChoiceGroup items={MOMENT_ITEMS} value={moment} senderId={momentId} size="sm" />
           <TugChoiceGroup items={WHERE_ITEMS} value={where} senderId={whereId} size="sm" />
         </div>
@@ -673,14 +894,14 @@ export function CycleSurfaces(): React.ReactElement {
           <figure className="sp-cyc-host sp-cyc-host-shade">
             <figcaption>Session card · the cycle shade</figcaption>
             <div className="sp-cyc-shade-frame">
-              <CycleSurface key={`${moment}-${where}`} read={read} host="shade" />
+              <CycleSurface key={`${fixture}-${moment}-${where}`} read={read} host="shade" all={allShade} onAll={setAllShade} />
             </div>
           </figure>
           <figure className="sp-cyc-host">
             <figcaption>Cycles &amp; Arcs sidebar card</figcaption>
             <div className="sp-cyc-rail-frame">
               <div className="sp-cyc-rail-title">Cycles &amp; Arcs</div>
-              <CycleSurface key={`${moment}-${where}`} read={read} host="rail" />
+              <CycleSurface key={`${fixture}-${moment}-${where}`} read={read} host="rail" all={allRail} onAll={setAllRail} />
             </div>
           </figure>
         </div>

@@ -135,11 +135,24 @@
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
-.sp-cyc-header {
+/* Two rows: the cycle's name has the first to itself, and how much has
+   landed and the view's button share the second. */
+.sp-cyc-header-row {
   display: flex;
   align-items: center;
   gap: var(--tug-space-sm);
-  min-height: 44px;
+  min-width: 0;
+}
+
+.sp-cyc-header-sub {
+  padding-inline-start: 32px;
+}
+
+.sp-cyc-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-2xs);
+  padding-block: var(--tug-space-xs);
   padding-inline: var(--tug-space-sm) var(--tug-space-md);
   background: var(--tug7-surface-global-primary-normal-raised-rest);
   border-bottom: 1px solid var(--tug7-element-global-border-normal-muted-rest);
@@ -209,14 +222,12 @@
   align-self: flex-start;
 }
 
+/* The number follows its label on the label's own baseline. */
 .sp-cyc-number {
-  display: inline-block;
-  min-width: 1.5em;
-  text-align: end;
+  flex: none;
   font-size: var(--tug-font-size-lg);
   font-weight: var(--tug-font-weight-semibold);
   font-variant-numeric: tabular-nums;
-  line-height: 1.2;
 }
 
 /* The row's own content column: the list row's title slot would clamp the
@@ -328,6 +339,145 @@
   gap: var(--tug-space-sm);
   flex: 1 1 auto;
   min-width: 0;
+}
+
+/* The proposal's note. */
+.sp-cyc-proposal {
+  margin: 0;
+  max-inline-size: 72ch;
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.5;
+}
+
+/* The active view's map: landed count, live tiles, waiting count, on one line. */
+.sp-cyc-active {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  font-size: var(--tug-font-size-sm);
+}
+
+.sp-cyc-stub,
+.sp-cyc-live-tile {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  border: 1.5px solid var(--tug7-element-global-text-normal-muted-rest);
+  border-radius: 6px;
+  background: var(--tug7-surface-global-primary-normal-raised-rest);
+  color: inherit;
+  font: inherit;
+  font-weight: var(--tug-font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.sp-cyc-stub {
+  flex: none;
+  gap: 3px;
+  block-size: 28px;
+  padding-inline: 8px;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-cyc-stub[data-state="joined"] {
+  border-color: var(--tug7-element-tone-border-normal-success-rest);
+}
+
+.sp-cyc-wire {
+  flex: 0 1 20px;
+  min-inline-size: 8px;
+  block-size: 1.5px;
+  background: var(--tug7-element-global-border-normal-default-rest);
+}
+
+.sp-cyc-live {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+  min-width: 0;
+}
+
+.sp-cyc-live-tile {
+  gap: var(--tug-space-sm);
+  min-block-size: 34px;
+  min-width: 0;
+  padding-inline: 10px;
+  font-weight: var(--tug-font-weight-regular);
+}
+
+.sp-cyc-live-tile .sp-cyc-live-n {
+  font-weight: var(--tug-font-weight-semibold);
+}
+
+/* Next up: not yet startable, so the tile is drawn in a dashed outline. */
+.sp-cyc-live-tile[data-state="waiting"] {
+  border-style: dashed;
+}
+
+.sp-cyc-live-tile[data-state="running"] {
+  border-color: var(--tug7-element-tone-border-normal-active-rest);
+}
+
+.sp-cyc-live-tile[data-state="ready"] {
+  border-color: var(--tug7-element-tone-border-normal-accent-rest);
+}
+
+.sp-cyc-live-tile[data-chosen] {
+  outline: 2px solid var(--tug7-element-tone-border-normal-accent-rest);
+  outline-offset: 1px;
+}
+
+.sp-cyc-live-n {
+  font-size: var(--tug-font-size-md);
+}
+
+.sp-cyc-live-ready {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: var(--tug-font-weight-regular);
+  color: var(--tug7-element-tone-icon-normal-accent-rest);
+}
+
+/* One line for the rows the active view leaves out. */
+.sp-cyc-fold-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  inline-size: 100%;
+  box-sizing: border-box;
+  padding: var(--tug-space-xs) var(--tug-space-md);
+  border: 0;
+  border-bottom: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: var(--tug-font-size-sm);
+  cursor: pointer;
+}
+
+/* The rail's live tile draws the same track at a narrower cell, so the whole
+   line holds inside the sidebar's width. */
+.sp-cyc-surface[data-host="rail"] .sp-cyc-live-tile {
+  --tugx-arc-track-cell-w: 12px;
+  --tugx-arc-track-steps-w: 48px;
+  min-block-size: 28px;
+  padding-inline: 8px;
+}
+
+.sp-cyc-surface[data-host="rail"] .sp-cyc-stub {
+  block-size: 24px;
+  padding-inline: 6px;
+}
+
+.sp-cyc-surface[data-host="rail"] .sp-cyc-fold-row {
+  padding-inline: var(--tug-space-sm);
+  font-size: var(--tug-font-size-xs);
+}
+
+.sp-cyc-surface[data-host="rail"] .sp-cyc-active {
+  font-size: var(--tug-font-size-xs);
 }
 
 /* The rail: the same rows, denser. */
