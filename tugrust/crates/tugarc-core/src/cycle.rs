@@ -298,11 +298,8 @@ pub fn find_by_brief(paths: &Paths, repo: &Path, brief: &str) -> Option<BriefFou
     let log_path = tugtool_core::paths::arc_log_path_at(paths, repo);
     let log = fs::read_to_string(&log_path).unwrap_or_default();
     cycles(paths, repo).into_iter().find_map(|record| {
-        let holding: Vec<&CycleEntry> = record
-            .entries
-            .iter()
-            .filter(|e| e.brief_id == id)
-            .collect();
+        let holding: Vec<&CycleEntry> =
+            record.entries.iter().filter(|e| e.brief_id == id).collect();
         let free = holding
             .iter()
             .filter(|e| !is_carried(&log, e))
@@ -459,7 +456,11 @@ pub(crate) fn next_number(record: &CycleRecord) -> u32 {
 
 /// `waits` for entry `n` of `record`, each once. Refused when one names `n`
 /// itself or an entry the record does not have.
-pub(crate) fn checked_waits(record: &CycleRecord, n: u32, waits: Vec<u32>) -> Result<Vec<u32>, ArcError> {
+pub(crate) fn checked_waits(
+    record: &CycleRecord,
+    n: u32,
+    waits: Vec<u32>,
+) -> Result<Vec<u32>, ArcError> {
     let mut out: Vec<u32> = Vec::new();
     for w in waits {
         if w == n {
@@ -822,7 +823,10 @@ pub fn place_arc(paths: &Paths, repo: &Path, req: PlaceArc) -> Result<Placed, Ar
     let placed = place_arc_held(paths, repo, req)?;
     if placed.outcome != Outcome::Already {
         if let Err(e) = crate::statement::ground_statements(paths, repo, req.arc) {
-            eprintln!("could not place the statements holding arc {}: {e}", req.arc);
+            eprintln!(
+                "could not place the statements holding arc {}: {e}",
+                req.arc
+            );
         }
     }
     Ok(placed)
@@ -845,7 +849,11 @@ fn place_arc_held(paths: &Paths, repo: &Path, req: PlaceArc) -> Result<Placed, A
     };
     let all = cycles(paths, repo);
     for record in &all {
-        if let Some(e) = record.entries.iter().find(|e| e.arc.as_ref() == Some(&link)) {
+        if let Some(e) = record
+            .entries
+            .iter()
+            .find(|e| e.arc.as_ref() == Some(&link))
+        {
             return Ok(placed(record, Some(e.n), Outcome::Already));
         }
     }
@@ -893,12 +901,30 @@ fn place_arc_held(paths: &Paths, repo: &Path, req: PlaceArc) -> Result<Placed, A
                 None => continue,
             },
         };
-        return add_carried(paths, repo, &record.id, &brief.path, from, req.arc, false, &log);
+        return add_carried(
+            paths,
+            repo,
+            &record.id,
+            &brief.path,
+            from,
+            req.arc,
+            false,
+            &log,
+        );
     }
 
     if let Some(found) = req.sketch.and_then(|s| find_by_sketch(paths, repo, s)) {
         let from = found.letter.into_iter().collect();
-        return add_carried(paths, repo, &found.id, &brief.path, from, req.arc, false, &log);
+        return add_carried(
+            paths,
+            repo,
+            &found.id,
+            &brief.path,
+            from,
+            req.arc,
+            false,
+            &log,
+        );
     }
 
     let Some(sketch) = req.sketch else {
@@ -915,7 +941,16 @@ fn place_arc_held(paths: &Paths, repo: &Path, req: PlaceArc) -> Result<Placed, A
     };
     let record = create_cycle(paths, repo, name, creator(req.by))?;
     let letter = add_sketch(paths, repo, &record.id, sketch, None)?;
-    let mut out = add_carried(paths, repo, &record.id, &brief.path, vec![letter], req.arc, true, &log)?;
+    let mut out = add_carried(
+        paths,
+        repo,
+        &record.id,
+        &brief.path,
+        vec![letter],
+        req.arc,
+        true,
+        &log,
+    )?;
     out.outcome = Outcome::Started;
     Ok(out)
 }
@@ -940,7 +975,10 @@ pub fn place_brief(paths: &Paths, repo: &Path, req: PlaceBrief) -> Result<Placed
     let all = cycles(paths, repo);
     let holds = |record: &CycleRecord, id: &str| {
         record.entries.iter().any(|e| e.brief_id == id)
-            || record.sketches.iter().any(|s| s.brief_id.as_deref() == Some(id))
+            || record
+                .sketches
+                .iter()
+                .any(|s| s.brief_id.as_deref() == Some(id))
     };
     let from_placed = from_brief
         .as_ref()
@@ -991,7 +1029,9 @@ pub fn place_brief(paths: &Paths, repo: &Path, req: PlaceBrief) -> Result<Placed
                 )));
             };
             let Some(s) = record.sketches.iter_mut().find(|s| &s.letter == letter) else {
-                return Err(ArcError::Refused(format!("cycle {cycle_id} has no sketch {letter}")));
+                return Err(ArcError::Refused(format!(
+                    "cycle {cycle_id} has no sketch {letter}"
+                )));
             };
             match &s.brief_id {
                 None => {
@@ -1019,7 +1059,11 @@ pub fn place_brief(paths: &Paths, repo: &Path, req: PlaceBrief) -> Result<Placed
         if linked {
             save(&mut record)?;
         }
-        let outcome = if linked { Outcome::Linked } else { Outcome::Already };
+        let outcome = if linked {
+            Outcome::Linked
+        } else {
+            Outcome::Already
+        };
         return Ok(placed(&record, Some(n), outcome));
     }
 
@@ -1090,19 +1134,23 @@ pub fn queue_arc(paths: &Paths, repo: &Path, req: QueueArc) -> Result<Placed, Ar
             .iter()
             .find(|r| {
                 r.entries.iter().any(|e| e.brief_id == brief.id)
-                    || r.sketches.iter().any(|s| s.brief_id.as_deref() == Some(brief.id.as_str()))
+                    || r.sketches
+                        .iter()
+                        .any(|s| s.brief_id.as_deref() == Some(brief.id.as_str()))
             })
             .map(|r| r.id.clone())
-            .ok_or_else(|| {
-                ArcError::Refused(format!("no cycle holds {}; name one", brief.path))
-            })?,
+            .ok_or_else(|| ArcError::Refused(format!("no cycle holds {}; name one", brief.path)))?,
     };
 
     let _held = hold_cycle(paths, repo, &cycle_id)?;
     let mut record = load(paths, repo, &cycle_id)?;
     let mut waits = req.waits;
     if let Some(after) = req.after {
-        let Some(e) = record.entries.iter().find(|e| e.arc_name.as_deref() == Some(after)) else {
+        let Some(e) = record
+            .entries
+            .iter()
+            .find(|e| e.arc_name.as_deref() == Some(after))
+        else {
             return Err(ArcError::Refused(format!(
                 "cycle {cycle_id} has no entry queued for arc {after}"
             )));
@@ -1324,17 +1372,19 @@ fn refresh_brief(paths: &Paths, repo: &Path, id: &str) {
 /// Whether some arc in `log` was opened on the brief at `path`.
 fn is_arcs_brief(repo: &Path, log: &str, path: &str) -> bool {
     let root = main_repo_root(repo);
-    log.lines().filter_map(split_log_line).any(|(_, _, marker, note)| {
-        if marker != "arc-start" {
-            return false;
-        }
-        let note = normal_brief(note);
-        let rel = Path::new(note)
-            .strip_prefix(&root)
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_else(|_| note.to_string());
-        rel == path
-    })
+    log.lines()
+        .filter_map(split_log_line)
+        .any(|(_, _, marker, note)| {
+            if marker != "arc-start" {
+                return false;
+            }
+            let note = normal_brief(note);
+            let rel = Path::new(note)
+                .strip_prefix(&root)
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_else(|_| note.to_string());
+            rel == path
+        })
 }
 
 /// This checkout's arc log, as text.
@@ -2206,8 +2256,8 @@ mod tests {
             &crate::work_log::By::none(),
             crate::sketch::Written::AtTheTime,
         )
-            .unwrap()
-            .id
+        .unwrap()
+        .id
     }
 
     /// A cycle named `name` with one sketch, A, for its entries to come from.
@@ -3319,7 +3369,11 @@ mod tests {
         fs::create_dir_all(repo.join("briefs")).unwrap();
         fs::write(repo.join("briefs/a.md"), "# A\n").unwrap();
         let sketch = record_sketch(&paths, &repo, "old-sketch");
-        log_append(&paths, &repo, "2026-11-01T00:00:00Z  aa  arc-start  briefs/a.md");
+        log_append(
+            &paths,
+            &repo,
+            "2026-11-01T00:00:00Z  aa  arc-start  briefs/a.md",
+        );
         let dir = old_cycle(&paths, &repo, "0ddc0de1", &sketch);
         let before = fs::read_to_string(dir.join(CYCLE_JSON)).unwrap();
         let log = fs::read_to_string(tugtool_core::paths::arc_log_path_at(&paths, &repo)).unwrap();
@@ -3327,19 +3381,31 @@ mod tests {
         let old_states = entry_states(&log, &old);
 
         let record = cycles(&paths, &repo).remove(0);
-        assert!(record.entries.iter().all(|e| !e.brief_id.is_empty() && e.listed));
+        assert!(
+            record
+                .entries
+                .iter()
+                .all(|e| !e.brief_id.is_empty() && e.listed)
+        );
         assert!(record.sketches[0].brief_id.is_some());
         assert_eq!(entry_states(&log, &record), old_states);
         let after = fs::read_to_string(dir.join(CYCLE_JSON)).unwrap();
         assert_ne!(after, before, "the record is written brought forward");
         assert!(after.contains("\"brief_id\""));
-        assert_eq!(fs::read_to_string(repo.join("briefs/a.md")).unwrap(), "# A\n");
+        assert_eq!(
+            fs::read_to_string(repo.join("briefs/a.md")).unwrap(),
+            "# A\n"
+        );
 
         let minted = crate::brief::briefs(&paths, &repo).len();
         assert_eq!(minted, 3, "one record for each brief named");
         let again = cycles(&paths, &repo).remove(0);
         assert_eq!(again.entries, record.entries);
-        assert_eq!(crate::brief::briefs(&paths, &repo).len(), minted, "a second read mints nothing");
+        assert_eq!(
+            crate::brief::briefs(&paths, &repo).len(),
+            minted,
+            "a second read mints nothing"
+        );
     }
 
     #[test]
@@ -3386,7 +3452,11 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!((first.n, first.outcome), (Some(1), Outcome::Named), "the free entry is named");
+        assert_eq!(
+            (first.n, first.outcome),
+            (Some(1), Outcome::Named),
+            "the free entry is named"
+        );
 
         let second = queue_arc(
             &paths,
@@ -3471,7 +3541,11 @@ mod tests {
         };
         queue_arc(&paths, &repo, queued).unwrap();
 
-        log_append(&paths, &repo, "2026-11-02T00:00:00Z  named-arc  arc-start  briefs/b.md");
+        log_append(
+            &paths,
+            &repo,
+            "2026-11-02T00:00:00Z  named-arc  arc-start  briefs/b.md",
+        );
         let wrong = place_arc(&paths, &repo, place("named-arc", "briefs/a.md", &by));
         assert!(
             matches!(&wrong, Err(ArcError::Refused(m)) if m.contains("briefs/b.md") && m.contains("briefs/a.md")),
@@ -3482,7 +3556,10 @@ mod tests {
         let again = place_arc(&paths, &repo, place("named-arc", "briefs/b.md", &by)).unwrap();
         assert_eq!((again.n, again.outcome), (Some(2), Outcome::Already));
         let record = cycles(&paths, &repo).remove(0);
-        assert!(record.entry(1).unwrap().arc.is_none(), "the free entry is untouched");
+        assert!(
+            record.entry(1).unwrap().arc.is_none(),
+            "the free entry is untouched"
+        );
     }
 
     #[test]
@@ -3491,11 +3568,24 @@ mod tests {
         let id = sketched(&paths, &repo, "C");
         add_entry(&paths, &repo, &id, entry("briefs/a.md", &[])).unwrap();
         let by = By::none();
-        log_append(&paths, &repo, "2026-11-01T00:00:00Z  aa  arc-start  briefs/a.md");
-        assert_eq!(place_arc(&paths, &repo, place("aa", "briefs/a.md", &by)).unwrap().outcome, Outcome::Filled);
+        log_append(
+            &paths,
+            &repo,
+            "2026-11-01T00:00:00Z  aa  arc-start  briefs/a.md",
+        );
+        assert_eq!(
+            place_arc(&paths, &repo, place("aa", "briefs/a.md", &by))
+                .unwrap()
+                .outcome,
+            Outcome::Filled
+        );
         log_append(&paths, &repo, "2026-11-01T01:00:00Z  aa  abc123  joined");
 
-        log_append(&paths, &repo, "2026-11-02T00:00:00Z  again  arc-start  briefs/a.md");
+        log_append(
+            &paths,
+            &repo,
+            "2026-11-02T00:00:00Z  again  arc-start  briefs/a.md",
+        );
         let rerun = place_arc(&paths, &repo, place("again", "briefs/a.md", &by)).unwrap();
         assert_eq!((rerun.n, rerun.outcome), (Some(2), Outcome::Added));
         let record = cycles(&paths, &repo).remove(0);
@@ -3503,10 +3593,18 @@ mod tests {
         assert!(!e.listed && e.waits.is_empty());
         assert_eq!(e.from, ["A"]);
         let view = view_cycle(&paths, &record);
-        assert_eq!((view.run_landed, view.run_total), (1, 1), "the rerun is not counted");
+        assert_eq!(
+            (view.run_landed, view.run_total),
+            (1, 1),
+            "the rerun is not counted"
+        );
 
         let fresh = record_sketch(&paths, &repo, "fresh-sketch");
-        log_append(&paths, &repo, "2026-11-03T00:00:00Z  lone  arc-start  briefs/lone.md");
+        log_append(
+            &paths,
+            &repo,
+            "2026-11-03T00:00:00Z  lone  arc-start  briefs/lone.md",
+        );
         let refused = place_arc(&paths, &repo, place("lone", "briefs/lone.md", &by));
         assert!(matches!(refused, Err(ArcError::Refused(m)) if m.contains("sketch")));
         let started = place_arc(
@@ -3546,15 +3644,22 @@ mod tests {
             by: &by,
         };
         let first = place_brief(&paths, &repo, req.clone()).unwrap();
-        assert_eq!((first.cycle.as_str(), first.n, first.outcome), (id.as_str(), Some(1), Outcome::Linked));
+        assert_eq!(
+            (first.cycle.as_str(), first.n, first.outcome),
+            (id.as_str(), Some(1), Outcome::Linked)
+        );
         let record = cycles(&paths, &repo).remove(0);
         assert!(record.entry(1).unwrap().listed);
         assert_eq!(record.sketches[0].brief.as_deref(), Some("briefs/up.md"));
         assert!(
-            crate::brief::id_line(&fs::read_to_string(repo.join("briefs/next.md")).unwrap()).is_some(),
+            crate::brief::id_line(&fs::read_to_string(repo.join("briefs/next.md")).unwrap())
+                .is_some(),
             "the brief skill's verb writes the id line"
         );
-        assert_eq!(fs::read_to_string(repo.join("briefs/up.md")).unwrap(), "# Up\n");
+        assert_eq!(
+            fs::read_to_string(repo.join("briefs/up.md")).unwrap(),
+            "# Up\n"
+        );
 
         let again = place_brief(&paths, &repo, req).unwrap();
         assert_eq!((again.n, again.outcome), (Some(1), Outcome::Already));
@@ -3583,7 +3688,10 @@ mod tests {
             },
         );
         assert!(refused.is_err(), "a new cycle needs a sketch for its entry");
-        assert!(cycles(&paths, &repo).is_empty(), "the refusal leaves no empty cycle");
+        assert!(
+            cycles(&paths, &repo).is_empty(),
+            "the refusal leaves no empty cycle"
+        );
     }
 
     #[test]

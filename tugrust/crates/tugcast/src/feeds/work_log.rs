@@ -113,7 +113,12 @@ async fn sweep_off_thread(
     ctx: &WorkLogContext,
     cursors: HashMap<PathBuf, u64>,
 ) -> HashMap<PathBuf, u64> {
-    let roots: Vec<PathBuf> = ctx.registry.project_dirs().into_iter().map(|(root, _)| root).collect();
+    let roots: Vec<PathBuf> = ctx
+        .registry
+        .project_dirs()
+        .into_iter()
+        .map(|(root, _)| root)
+        .collect();
     let ledger = Arc::clone(&ctx.sessions);
     let fallback = cursors.clone();
     match tokio::task::spawn_blocking(move || {
@@ -151,7 +156,8 @@ fn sweep(
             }
         };
         for line in tugarc_core::work_log::read_lines(&fresh) {
-            let bound = bound.get_or_insert_with(|| ledger.bound_session_by_arc().unwrap_or_default());
+            let bound =
+                bound.get_or_insert_with(|| ledger.bound_session_by_arc().unwrap_or_default());
             let Some(session) = session_for(ledger, root, &line, bound) else {
                 continue;
             };
@@ -241,8 +247,16 @@ mod tests {
     fn ledger_with(sessions: &[&str]) -> SessionLedger {
         let l = SessionLedger::open_in_memory().expect("ledger");
         for (i, s) in sessions.iter().enumerate() {
-            l.record_spawn(s, "ws", "/proj", &format!("card-{i}"), 1_000, &format!("line-{i}"), None)
-                .unwrap();
+            l.record_spawn(
+                s,
+                "ws",
+                "/proj",
+                &format!("card-{i}"),
+                1_000,
+                &format!("line-{i}"),
+                None,
+            )
+            .unwrap();
         }
         l
     }
@@ -286,7 +300,9 @@ mod tests {
             (
                 line(
                     WorkKind::SketchRecorded,
-                    WorkObject::Sketch { sketch: "0a1b2c3d".into() },
+                    WorkObject::Sketch {
+                        sketch: "0a1b2c3d".into(),
+                    },
                     serde_json::json!({ "version": 3 }),
                 ),
                 "sketch 0a1b2c3d recorded, version 3",
@@ -294,7 +310,9 @@ mod tests {
             (
                 line(
                     WorkKind::BriefRecorded,
-                    WorkObject::Brief { brief: "11223344".into() },
+                    WorkObject::Brief {
+                        brief: "11223344".into(),
+                    },
                     serde_json::json!({ "path": "briefs/a.md", "title": "The store" }),
                 ),
                 "brief The store recorded at briefs/a.md",
@@ -302,7 +320,9 @@ mod tests {
             (
                 line(
                     WorkKind::BriefCommitted,
-                    WorkObject::Brief { brief: "11223344".into() },
+                    WorkObject::Brief {
+                        brief: "11223344".into(),
+                    },
                     serde_json::json!({ "path": "briefs/a.md", "sha": "302d43b5d1aa" }),
                 ),
                 "brief briefs/a.md committed in 302d43b5",
@@ -315,17 +335,36 @@ mod tests {
                 ),
                 "arc alpha queued as entry 2 of cycle 3f9a1c2e",
             ),
-            (line(WorkKind::ArcOpened, arc(), serde_json::json!({})), "arc alpha opened"),
-            (line(WorkKind::ArcJoined, arc(), serde_json::json!({ "sha": "302d43b5d1" })), "arc alpha joined"),
-            (line(WorkKind::ArcDiscarded, arc(), serde_json::json!({})), "arc alpha discarded"),
             (
-                line(WorkKind::EntryDropped, cycle(), serde_json::json!({ "brief": "briefs/a.md" })),
+                line(WorkKind::ArcOpened, arc(), serde_json::json!({})),
+                "arc alpha opened",
+            ),
+            (
+                line(
+                    WorkKind::ArcJoined,
+                    arc(),
+                    serde_json::json!({ "sha": "302d43b5d1" }),
+                ),
+                "arc alpha joined",
+            ),
+            (
+                line(WorkKind::ArcDiscarded, arc(), serde_json::json!({})),
+                "arc alpha discarded",
+            ),
+            (
+                line(
+                    WorkKind::EntryDropped,
+                    cycle(),
+                    serde_json::json!({ "brief": "briefs/a.md" }),
+                ),
                 "entry 2 of cycle 3f9a1c2e dropped",
             ),
             (
                 line(
                     WorkKind::ArcsStated,
-                    WorkObject::Stated { stated: "sess-a".into() },
+                    WorkObject::Stated {
+                        stated: "sess-a".into(),
+                    },
                     serde_json::json!({ "arcs": ["alpha", "beta"], "source": "fence" }),
                 ),
                 "2 arcs stated",
@@ -336,8 +375,14 @@ mod tests {
             let fact = work_fact(line, line.session.as_deref());
             assert_eq!(fact.kind, line.kind.as_str());
             assert_eq!(fact.text, *text);
-            assert!(ledger.record_fact(&fact).unwrap().is_some(), "{text} records");
-            assert!(ledger.record_fact(&fact).unwrap().is_none(), "{text} records once");
+            assert!(
+                ledger.record_fact(&fact).unwrap().is_some(),
+                "{text} records"
+            );
+            assert!(
+                ledger.record_fact(&fact).unwrap().is_none(),
+                "{text} records once"
+            );
         }
         assert_eq!(work_facts(&ledger).len(), cases.len());
     }
@@ -361,14 +406,19 @@ mod tests {
                 &paths,
                 &root,
                 WorkKind::SketchRecorded,
-                WorkObject::Sketch { sketch: "0a1b2c3d".into() },
+                WorkObject::Sketch {
+                    sketch: "0a1b2c3d".into(),
+                },
                 serde_json::json!({ "version": 1 }),
                 &by(session),
             )
             .unwrap();
         }
         let mut cursors = HashMap::new();
-        assert_eq!(sweep(&ledger, &paths, std::slice::from_ref(&root), &mut cursors), 1);
+        assert_eq!(
+            sweep(&ledger, &paths, std::slice::from_ref(&root), &mut cursors),
+            1
+        );
         let facts = work_facts(&ledger);
         assert_eq!(facts.len(), 1);
         assert_eq!(facts[0].session_id.as_deref(), Some("sess-a"));
@@ -386,7 +436,9 @@ mod tests {
                 &paths,
                 &root,
                 WorkKind::SketchRecorded,
-                WorkObject::Sketch { sketch: "0a1b2c3d".into() },
+                WorkObject::Sketch {
+                    sketch: "0a1b2c3d".into(),
+                },
                 serde_json::json!({ "version": n }),
                 &By {
                     session: Some("sess-a".into()),
@@ -403,10 +455,18 @@ mod tests {
         let mut cursors = HashMap::new();
         let roots = [root.clone()];
         assert_eq!(sweep(&ledger, &paths, &roots, &mut cursors), 3);
-        assert_eq!(sweep(&ledger, &paths, &roots, &mut cursors), 0, "nothing new");
+        assert_eq!(
+            sweep(&ledger, &paths, &roots, &mut cursors),
+            0,
+            "nothing new"
+        );
         append(4);
         append(5);
-        assert_eq!(sweep(&ledger, &paths, &roots, &mut cursors), 2, "only the two new lines");
+        assert_eq!(
+            sweep(&ledger, &paths, &roots, &mut cursors),
+            2,
+            "only the two new lines"
+        );
         assert_eq!(work_facts(&ledger).len(), 5);
 
         // A log read again from its start records nothing twice.
@@ -436,6 +496,8 @@ mod tests {
     fn the_watched_name_is_the_work_log() {
         assert_eq!(WORK_LOG, "work-log.jsonl");
         assert!(moves_a_log(Path::new("/data/projects/abc/work-log.jsonl")));
-        assert!(!moves_a_log(Path::new("/data/projects/abc/work-log.jsonl.lock")));
+        assert!(!moves_a_log(Path::new(
+            "/data/projects/abc/work-log.jsonl.lock"
+        )));
     }
 }

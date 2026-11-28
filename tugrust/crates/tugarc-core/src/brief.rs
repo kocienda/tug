@@ -204,11 +204,7 @@ pub fn resolve(paths: &Paths, repo: &Path, path: &str) -> Option<BriefRecord> {
 }
 
 /// [`resolve`], and the path the record held before when it moved.
-fn resolve_moving(
-    paths: &Paths,
-    repo: &Path,
-    path: &str,
-) -> Option<(BriefRecord, Option<String>)> {
+fn resolve_moving(paths: &Paths, repo: &Path, path: &str) -> Option<(BriefRecord, Option<String>)> {
     let rel = relative_path(repo, path).ok()?;
     let root = main_repo_root(repo);
     let file = root.join(&rel);
@@ -248,20 +244,14 @@ fn resolve_moving(
     let record = candidates
         .iter()
         .zip(followed)
-        .find(|(r, to)| {
-            to.as_deref() == Some(rel.as_str()) && carried.is_none_or(|id| id == r.id)
-        })
+        .find(|(r, to)| to.as_deref() == Some(rel.as_str()) && carried.is_none_or(|id| id == r.id))
         .map(|(r, _)| (*r).clone())?;
     Some(moved_if_new(record, &rel, &here))
 }
 
 /// `record` found at `rel`: when that is not its path and it belongs to this
 /// checkout, the move is written and the old path returned beside it.
-fn moved_if_new(
-    record: BriefRecord,
-    rel: &str,
-    here: &str,
-) -> (BriefRecord, Option<String>) {
+fn moved_if_new(record: BriefRecord, rel: &str, here: &str) -> (BriefRecord, Option<String>) {
     if record.path == rel || record.project_dir != here {
         return (record, None);
     }
@@ -316,7 +306,8 @@ pub fn follow_renames(root: &Path, froms: &[&str], since: Option<&str>) -> Vec<O
         };
         for line in out.lines() {
             let mut fields = line.split('\t');
-            let (Some(status), Some(old), Some(new)) = (fields.next(), fields.next(), fields.next())
+            let (Some(status), Some(old), Some(new)) =
+                (fields.next(), fields.next(), fields.next())
             else {
                 continue;
             };
@@ -351,7 +342,8 @@ pub fn ensure(paths: &Paths, repo: &Path, path: &str, by: &By) -> Result<BriefOu
     let rel = relative_path(repo, path)?;
     crate::log::refuse_unredirected_temp_repo(paths, repo);
     let store = brief_root(paths, repo);
-    fs::create_dir_all(&store).map_err(|e| ArcError::io("could not create the brief store", &store, e))?;
+    fs::create_dir_all(&store)
+        .map_err(|e| ArcError::io("could not create the brief store", &store, e))?;
     let held = hold(&store, STORE_LOCK, LockMode::Wait)?;
 
     let file = main_repo_root(repo).join(&rel);
@@ -361,7 +353,8 @@ pub fn ensure(paths: &Paths, repo: &Path, path: &str, by: &By) -> Result<BriefOu
     let outcome = match resolve_moving(paths, repo, &rel) {
         Some((record, moved_from)) => {
             let id = record.id.clone();
-            if text.is_some() && record.title != title && record.project_dir == project_dir_of(repo) {
+            if text.is_some() && record.title != title && record.project_dir == project_dir_of(repo)
+            {
                 let title = title.clone();
                 if let Err(e) = update(&record.dir, move |r| {
                     let changed = r.title != title;
@@ -494,7 +487,10 @@ pub fn note_commit(
     files: &[String],
     by: &By,
 ) -> Vec<String> {
-    let files: Vec<&str> = files.iter().map(|f| crate::cycle::normal_brief(f)).collect();
+    let files: Vec<&str> = files
+        .iter()
+        .map(|f| crate::cycle::normal_brief(f))
+        .collect();
     let mut noted = Vec::new();
     let mut at: Option<String> = None;
     for record in briefs(paths, repo) {
@@ -502,13 +498,17 @@ pub fn note_commit(
             continue;
         }
         let when = at
-            .get_or_insert_with(|| commit_time(&main_repo_root(repo), sha).unwrap_or_else(now_iso8601))
+            .get_or_insert_with(|| {
+                commit_time(&main_repo_root(repo), sha).unwrap_or_else(now_iso8601)
+            })
             .clone();
         let version = BriefVersion {
             sha: sha.to_string(),
             at: when,
         };
-        match update(&record.dir, |r| add_versions(r, std::slice::from_ref(&version))) {
+        match update(&record.dir, |r| {
+            add_versions(r, std::slice::from_ref(&version))
+        }) {
             Ok(Some(_)) => {
                 log_line(
                     paths,
@@ -734,7 +734,11 @@ fn write_record(record: &BriefRecord) -> Result<(), ArcError> {
         .map_err(|e| ArcError::io("could not create the brief record", &record.dir, e))?;
     let json = serde_json::to_string_pretty(record)
         .map_err(|e| ArcError::Refused(format!("could not serialize {BRIEF_JSON}: {e}")))?;
-    write_atomically(&record.dir.join(BRIEF_JSON), (json + "\n").as_bytes(), "brief record")
+    write_atomically(
+        &record.dir.join(BRIEF_JSON),
+        (json + "\n").as_bytes(),
+        "brief record",
+    )
 }
 
 fn records_in(root: &Path) -> Vec<BriefRecord> {
@@ -808,7 +812,10 @@ mod tests {
         let again = record(&paths, &repo, "./briefs/a-brief.md", &[], &public("s1")).unwrap();
         assert_eq!(again.id, first.id);
         assert!(!again.minted && !again.id_line_written);
-        assert_eq!(fs::read_to_string(repo.join("briefs/a-brief.md")).unwrap(), text);
+        assert_eq!(
+            fs::read_to_string(repo.join("briefs/a-brief.md")).unwrap(),
+            text
+        );
 
         let found = find_brief(&paths, &first.id);
         assert_eq!(found.len(), 1);
@@ -824,7 +831,10 @@ mod tests {
         write(&repo, "briefs/a-brief.md", BODY);
         let first = record(&paths, &repo, "briefs/a-brief.md", &[], &By::none()).unwrap();
         write(&repo, "briefs/a-brief.md", BODY);
-        assert_eq!(resolve(&paths, &repo, "briefs/a-brief.md").unwrap().id, first.id);
+        assert_eq!(
+            resolve(&paths, &repo, "briefs/a-brief.md").unwrap().id,
+            first.id
+        );
     }
 
     #[test]
@@ -861,7 +871,10 @@ mod tests {
 
         let gone = ensure(&paths, &repo, "briefs/gone-brief.md", &By::none()).unwrap();
         assert!(gone.minted);
-        assert_eq!(resolve(&paths, &repo, "briefs/gone-brief.md").unwrap().id, gone.id);
+        assert_eq!(
+            resolve(&paths, &repo, "briefs/gone-brief.md").unwrap().id,
+            gone.id
+        );
         let refused = record(&paths, &repo, "briefs/gone-brief.md", &[], &By::none());
         assert!(matches!(refused, Err(ArcError::Refused(m)) if m.contains("no brief at")));
     }
@@ -906,7 +919,10 @@ mod tests {
         commit_all(&repo, "Rename onto a foreign id line");
         assert_ne!(old.id, "0badc0de");
         assert!(resolve(&paths, &repo, "briefs/new.md").is_none());
-        assert_eq!(resolve(&paths, &repo, "briefs/elsewhere.md").unwrap().id, other.id);
+        assert_eq!(
+            resolve(&paths, &repo, "briefs/elsewhere.md").unwrap().id,
+            other.id
+        );
     }
 
     #[test]
@@ -919,7 +935,10 @@ mod tests {
         let sha = git(&repo, &["rev-parse", "HEAD"]).trim().to_string();
 
         let files = vec!["briefs/a-brief.md".to_string(), "src/other.rs".to_string()];
-        assert_eq!(note_commit(&paths, &repo, &sha, &files, &public("s9")), vec![out.id.clone()]);
+        assert_eq!(
+            note_commit(&paths, &repo, &sha, &files, &public("s9")),
+            vec![out.id.clone()]
+        );
         assert!(note_commit(&paths, &repo, &sha, &files, &public("s9")).is_empty());
 
         let mut record = find_brief(&paths, &out.id).remove(0).1;
@@ -932,7 +951,11 @@ mod tests {
             .filter(|l| l.kind == WorkKind::BriefCommitted)
             .count();
         assert_eq!(committed, 1);
-        assert_eq!(briefs(&paths, &repo).len(), 1, "no record for the other file");
+        assert_eq!(
+            briefs(&paths, &repo).len(),
+            1,
+            "no record for the other file"
+        );
     }
 
     #[test]
@@ -991,7 +1014,11 @@ mod tests {
     #[test]
     fn sketches_merge_and_a_carried_unknown_id_is_adopted() {
         let (_t, repo, paths) = scratch_repo();
-        write(&repo, "briefs/a-brief.md", &format!("<!-- tug-brief:  1234abcd -->\n{BODY}"));
+        write(
+            &repo,
+            "briefs/a-brief.md",
+            &format!("<!-- tug-brief:  1234abcd -->\n{BODY}"),
+        );
         let one = vec!["aaaaaaaa".to_string()];
         let out = record(&paths, &repo, "briefs/a-brief.md", &one, &By::none()).unwrap();
         assert_eq!(out.id, "1234abcd");
@@ -1003,7 +1030,10 @@ mod tests {
 
     #[test]
     fn the_id_line_is_only_ever_the_first_line() {
-        assert_eq!(id_line("<!-- tug-brief: 0f3c1e5a -->\n# T\n"), Some("0f3c1e5a"));
+        assert_eq!(
+            id_line("<!-- tug-brief: 0f3c1e5a -->\n# T\n"),
+            Some("0f3c1e5a")
+        );
         assert_eq!(id_line("\n  <!--tug-brief:0f3c1e5a-->\n"), Some("0f3c1e5a"));
         assert_eq!(id_line("# T\n<!-- tug-brief: 0f3c1e5a -->\n"), None);
         assert_eq!(id_line("<!-- tug-brief: 0F3C1E5A -->\n"), None);

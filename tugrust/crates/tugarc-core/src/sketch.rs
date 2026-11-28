@@ -418,7 +418,11 @@ struct Keep<'a> {
 
 /// Words read through the transcript this process's finder locates.
 fn process_words(session: &str, turn: u32) -> Option<String> {
-    turn_words(session, turn, &tugcore::session_finder::FinderEnv::from_process())
+    turn_words(
+        session,
+        turn,
+        &tugcore::session_finder::FinderEnv::from_process(),
+    )
 }
 
 /// What the user said in `turn` of `session`, cut to [`WORDS_LIMIT`]
@@ -512,7 +516,12 @@ pub fn parse_source_line(text: &str) -> ParsedSource {
             _ => Vec::new(),
         }
     } else if let Some(n) = turns.strip_prefix("turn ") {
-        n.trim().parse::<u32>().ok().filter(|&n| n >= 1).into_iter().collect()
+        n.trim()
+            .parse::<u32>()
+            .ok()
+            .filter(|&n| n >= 1)
+            .into_iter()
+            .collect()
     } else {
         Vec::new()
     };
@@ -724,17 +733,20 @@ mod tests {
         );
         write_sketch(&repo, "sk", V1);
 
-        let first = record_arc_sketch(&paths, &repo, "sk", &By::none(), Written::AtTheTime).unwrap();
+        let first =
+            record_arc_sketch(&paths, &repo, "sk", &By::none(), Written::AtTheTime).unwrap();
         assert!(first.minted && first.appended && first.version == 1);
         assert!(valid_id(&first.id));
         assert_eq!(sketch_lines(&paths, &repo), 1, "one arc-sketch line");
 
-        let again = record_arc_sketch(&paths, &repo, "sk", &By::none(), Written::AtTheTime).unwrap();
+        let again =
+            record_arc_sketch(&paths, &repo, "sk", &By::none(), Written::AtTheTime).unwrap();
         assert_eq!(again.id, first.id);
         assert!(!again.minted && !again.appended && again.version == 1);
 
         write_sketch(&repo, "sk", V2);
-        let second = record_arc_sketch(&paths, &repo, "sk", &By::none(), Written::AtTheTime).unwrap();
+        let second =
+            record_arc_sketch(&paths, &repo, "sk", &By::none(), Written::AtTheTime).unwrap();
         assert_eq!(second.id, first.id);
         assert!(second.appended && second.version == 2);
         assert_eq!(sketch_lines(&paths, &repo), 1);
@@ -766,7 +778,8 @@ mod tests {
             "2026-11-01T00:00:00Z  sk  arc-start  brief.md",
         );
         write_sketch(&repo, "sk", V1);
-        let first = record_arc_sketch(&paths, &repo, "sk", &By::none(), Written::AtTheTime).unwrap();
+        let first =
+            record_arc_sketch(&paths, &repo, "sk", &By::none(), Written::AtTheTime).unwrap();
         log_append(&paths, &repo, "2026-11-01T01:00:00Z  sk  discarded");
         log_append(
             &paths,
@@ -774,7 +787,8 @@ mod tests {
             "2026-11-02T00:00:00Z  sk  arc-start  brief.md",
         );
 
-        let reused = record_arc_sketch(&paths, &repo, "sk", &By::none(), Written::AtTheTime).unwrap();
+        let reused =
+            record_arc_sketch(&paths, &repo, "sk", &By::none(), Written::AtTheTime).unwrap();
         assert!(reused.minted);
         assert_ne!(reused.id, first.id);
         assert_eq!(sketch_lines(&paths, &repo), 2);
@@ -796,12 +810,14 @@ mod tests {
                 "2026-11-01T00:00:00Z  sk  arc-start  brief.md",
             );
             write_sketch(&repo, "sk", V1);
-            let first = record_arc_sketch(&paths, &repo, "sk", &By::none(), Written::AtTheTime).unwrap();
+            let first =
+                record_arc_sketch(&paths, &repo, "sk", &By::none(), Written::AtTheTime).unwrap();
             for line in &ending {
                 log_append(&paths, &repo, line);
             }
             write_sketch(&repo, "sk", V2);
-            let after = record_arc_sketch(&paths, &repo, "sk", &By::none(), Written::AtTheTime).unwrap();
+            let after =
+                record_arc_sketch(&paths, &repo, "sk", &By::none(), Written::AtTheTime).unwrap();
             assert_eq!(after.id, first.id, "{ending:?}");
             assert!(!after.minted && after.version == 2);
             let log = log_text(&paths, &repo);
@@ -824,11 +840,13 @@ mod tests {
         log_append(&paths, &repo, "2026-11-01T01:00:00Z  sk  discarded");
         write_sketch(&repo, "sk", V1);
 
-        let first = record_arc_sketch(&paths, &repo, "sk", &By::none(), Written::AtTheTime).unwrap();
+        let first =
+            record_arc_sketch(&paths, &repo, "sk", &By::none(), Written::AtTheTime).unwrap();
         assert!(first.minted);
         assert_eq!(sketch_lines(&paths, &repo), 0, "no line after the end");
         write_sketch(&repo, "sk", V2);
-        let again = record_arc_sketch(&paths, &repo, "sk", &By::none(), Written::AtTheTime).unwrap();
+        let again =
+            record_arc_sketch(&paths, &repo, "sk", &By::none(), Written::AtTheTime).unwrap();
         assert_eq!(again.id, first.id);
         assert!(!again.minted && again.version == 2);
     }
@@ -862,21 +880,39 @@ mod tests {
     #[test]
     fn record_without_a_sketch_file_is_refused() {
         let (_t, repo, paths) = scratch();
-        let err = record_arc_sketch(&paths, &repo, "none", &By::none(), Written::AtTheTime).unwrap_err();
+        let err =
+            record_arc_sketch(&paths, &repo, "none", &By::none(), Written::AtTheTime).unwrap_err();
         assert!(matches!(err, ArcError::Refused(_)), "{err:?}");
     }
 
     #[test]
     fn a_free_sketch_mints_then_keeps_versions_under_its_id() {
         let (_t, repo, paths) = scratch();
-        let first = record_free_sketch(&paths, &repo, V1, None, &By::none(), Written::AtTheTime).unwrap();
+        let first =
+            record_free_sketch(&paths, &repo, V1, None, &By::none(), Written::AtTheTime).unwrap();
         assert!(first.minted && first.appended && first.version == 1);
         assert!(valid_id(&first.id));
         assert_eq!(sketch_lines(&paths, &repo), 0, "no arc, no log line");
 
-        let same = record_free_sketch(&paths, &repo, V1, Some(&first.id), &By::none(), Written::AtTheTime).unwrap();
+        let same = record_free_sketch(
+            &paths,
+            &repo,
+            V1,
+            Some(&first.id),
+            &By::none(),
+            Written::AtTheTime,
+        )
+        .unwrap();
         assert!(!same.minted && !same.appended && same.version == 1);
-        let next = record_free_sketch(&paths, &repo, V2, Some(&first.id), &By::none(), Written::AtTheTime).unwrap();
+        let next = record_free_sketch(
+            &paths,
+            &repo,
+            V2,
+            Some(&first.id),
+            &By::none(),
+            Written::AtTheTime,
+        )
+        .unwrap();
         assert_eq!(next.id, first.id);
         assert!(next.appended && next.version == 2);
 
@@ -886,20 +922,30 @@ mod tests {
         assert_eq!(read_version(&found[0].1, Some(1)).unwrap(), V1);
         assert_eq!(read_version(&found[0].1, None).unwrap(), V2);
 
-        let other = record_free_sketch(&paths, &repo, V1, None, &By::none(), Written::AtTheTime).unwrap();
+        let other =
+            record_free_sketch(&paths, &repo, V1, None, &By::none(), Written::AtTheTime).unwrap();
         assert_ne!(other.id, first.id, "no id means a new sketch");
     }
 
     #[test]
     fn writers_at_once_each_keep_their_version() {
         let (_t, repo, paths) = scratch();
-        let first = record_free_sketch(&paths, &repo, V1, None, &By::none(), Written::AtTheTime).unwrap();
+        let first =
+            record_free_sketch(&paths, &repo, V1, None, &By::none(), Written::AtTheTime).unwrap();
         std::thread::scope(|scope| {
             for i in 0..8 {
                 let (paths, repo, id) = (&paths, &repo, &first.id);
                 scope.spawn(move || {
                     let text = format!("# Sketch\n\nWant number {i}.\n");
-                    record_free_sketch(paths, repo, &text, Some(id), &By::none(), Written::AtTheTime).unwrap();
+                    record_free_sketch(
+                        paths,
+                        repo,
+                        &text,
+                        Some(id),
+                        &By::none(),
+                        Written::AtTheTime,
+                    )
+                    .unwrap();
                 });
             }
         });
@@ -932,8 +978,14 @@ mod tests {
         let brief = parse_source_line(&sourced("Source: brief briefs/x.md"));
         assert_eq!(brief.brief.as_deref(), Some("briefs/x.md"));
         assert!(brief.session.is_none() && brief.turns.is_empty());
-        assert_eq!(parse_source_line(&sourced("Source: x")), ParsedSource::default());
-        assert_eq!(parse_source_line("# Sketch\n\nNo line.\n"), ParsedSource::default());
+        assert_eq!(
+            parse_source_line(&sourced("Source: x")),
+            ParsedSource::default()
+        );
+        assert_eq!(
+            parse_source_line("# Sketch\n\nNo line.\n"),
+            ParsedSource::default()
+        );
     }
 
     fn work_lines(paths: &Paths, repo: &Path) -> Vec<work_log::WorkLine> {
@@ -970,16 +1022,28 @@ mod tests {
         let own = record_by(&by(UUID, Privacy::Public));
         let sources = own.sources.unwrap();
         assert_eq!(sources.len(), 2);
-        assert_eq!(sources[1].words.as_deref(), Some(&*format!("{UUID} said 2")));
+        assert_eq!(
+            sources[1].words.as_deref(),
+            Some(&*format!("{UUID} said 2"))
+        );
 
         let private = record_by(&by(UUID, Privacy::Private));
         assert_eq!(private.sources, Some(Vec::new()));
         let line = work_lines(&paths, &repo)
             .into_iter()
-            .find(|l| l.object == WorkObject::Sketch { sketch: private.id.clone() })
+            .find(|l| {
+                l.object
+                    == WorkObject::Sketch {
+                        sketch: private.id.clone(),
+                    }
+            })
             .unwrap();
         assert_eq!(line.kind, WorkKind::SketchRecorded);
-        assert_eq!(line.session.as_deref(), Some(UUID), "the line names the session");
+        assert_eq!(
+            line.session.as_deref(),
+            Some(UUID),
+            "the line names the session"
+        );
 
         let unknown = record_by(&by(UUID, Privacy::Unknown));
         let sources = unknown.sources.unwrap();
@@ -989,7 +1053,10 @@ mod tests {
         let other = record_by(&by("another-session", Privacy::Public));
         let sources = other.sources.unwrap();
         assert_eq!(sources[0].session, UUID);
-        assert!(sources.iter().all(|s| s.words.is_none()), "not the caller's turns");
+        assert!(
+            sources.iter().all(|s| s.words.is_none()),
+            "not the caller's turns"
+        );
 
         // A session that rotated since it wrote the line is still its own.
         let rotated = record_by(&By {
@@ -997,7 +1064,10 @@ mod tests {
             ..by("the-live-segment", Privacy::Public)
         });
         let sources = rotated.sources.unwrap();
-        assert_eq!(sources[0].words.as_deref(), Some(&*format!("{UUID} said 1")));
+        assert_eq!(
+            sources[0].words.as_deref(),
+            Some(&*format!("{UUID} said 1"))
+        );
     }
 
     /// A record as it was written before sources were kept.
@@ -1027,22 +1097,44 @@ mod tests {
         let before = fs::read(dir.join(SKETCH_JSON)).unwrap();
         let record = find_sketch(&paths, "1234abcd").remove(0).1;
         let sources = record.sources.unwrap();
-        assert_eq!(sources.iter().map(|s| s.turn).collect::<Vec<_>>(), [1, 2, 3]);
+        assert_eq!(
+            sources.iter().map(|s| s.turn).collect::<Vec<_>>(),
+            [1, 2, 3]
+        );
         assert!(sources.iter().all(|s| s.words.is_none()));
         assert_eq!(record.written, Written::AtTheTime);
-        assert_eq!(fs::read(dir.join(SKETCH_JSON)).unwrap(), before, "a read writes nothing");
+        assert_eq!(
+            fs::read(dir.join(SKETCH_JSON)).unwrap(),
+            before,
+            "a read writes nothing"
+        );
 
         let next = sourced(&format!("Source: session {UUID}, turns 1–4"));
-        record_free_sketch(&paths, &repo, &next, Some("1234abcd"), &By::none(), Written::Afterwards)
-            .unwrap();
+        record_free_sketch(
+            &paths,
+            &repo,
+            &next,
+            Some("1234abcd"),
+            &By::none(),
+            Written::Afterwards,
+        )
+        .unwrap();
         let after = fs::read_to_string(dir.join(SKETCH_JSON)).unwrap();
-        assert!(after.contains("\"sources\"") && after.contains("\"afterwards\""), "{after}");
+        assert!(
+            after.contains("\"sources\"") && after.contains("\"afterwards\""),
+            "{after}"
+        );
     }
 
     #[test]
     fn a_brief_sourced_sketch_is_found_before_its_brief_is_recorded() {
         let (_t, repo, paths) = scratch();
-        old_record(&paths, &repo, "5678abcd", &sourced("Source: brief briefs/x.md"));
+        old_record(
+            &paths,
+            &repo,
+            "5678abcd",
+            &sourced("Source: brief briefs/x.md"),
+        );
         old_record(
             &paths,
             &repo,
@@ -1055,7 +1147,10 @@ mod tests {
             .map(|r| r.id)
             .collect();
         assert_eq!(sourced_ids, ["5678abcd"]);
-        assert!(crate::brief::briefs(&paths, &repo).is_empty(), "no brief record was made");
+        assert!(
+            crate::brief::briefs(&paths, &repo).is_empty(),
+            "no brief record was made"
+        );
         assert_eq!(find_sketch(&paths, "5678abcd")[0].1.from_brief, None);
     }
 
@@ -1097,12 +1192,18 @@ mod tests {
             claude_home: tugcore::claude_home::ClaudeHome::at(&claude),
             instance: String::new(),
         };
-        assert_eq!(turn_words(UUID, 1, &env).as_deref(), Some("First, the archive."));
+        assert_eq!(
+            turn_words(UUID, 1, &env).as_deref(),
+            Some("First, the archive.")
+        );
         let cut = turn_words(UUID, 2, &env).unwrap();
         assert_eq!(cut.chars().count(), WORDS_LIMIT + 1);
         assert!(cut.ends_with('…'));
         assert_eq!(turn_words(UUID, 3, &env), None);
-        assert_eq!(turn_words("0f3c1e5a-9b27-4c1d-8e36-5a7f2d4b6c90", 1, &env), None);
+        assert_eq!(
+            turn_words("0f3c1e5a-9b27-4c1d-8e36-5a7f2d4b6c90", 1, &env),
+            None
+        );
     }
 
     #[test]
@@ -1112,19 +1213,56 @@ mod tests {
             record_free_sketch(&paths, &repo, " \n", None, &By::none(), Written::AtTheTime),
             Err(ArcError::Refused(_))
         ));
-        assert!(record_free_sketch(&paths, &repo, V1, Some("0000beef"), &By::none(), Written::AtTheTime).is_err());
-        assert!(record_free_sketch(&paths, &repo, V1, Some("../etc"), &By::none(), Written::AtTheTime).is_err());
+        assert!(
+            record_free_sketch(
+                &paths,
+                &repo,
+                V1,
+                Some("0000beef"),
+                &By::none(),
+                Written::AtTheTime
+            )
+            .is_err()
+        );
+        assert!(
+            record_free_sketch(
+                &paths,
+                &repo,
+                V1,
+                Some("../etc"),
+                &By::none(),
+                Written::AtTheTime
+            )
+            .is_err()
+        );
 
         write_sketch(&repo, "sk", V1);
         let arcs = record_arc_sketch(&paths, &repo, "sk", &By::none(), Written::AtTheTime).unwrap();
-        let err = record_free_sketch(&paths, &repo, V2, Some(&arcs.id), &By::none(), Written::AtTheTime).unwrap_err();
+        let err = record_free_sketch(
+            &paths,
+            &repo,
+            V2,
+            Some(&arcs.id),
+            &By::none(),
+            Written::AtTheTime,
+        )
+        .unwrap_err();
         assert!(err.to_string().contains("arc sk"), "{err}");
 
         let other = temp.path().join("other");
         fs::create_dir_all(&other).unwrap();
-        let elsewhere = record_free_sketch(&paths, &other, V1, None, &By::none(), Written::AtTheTime).unwrap();
+        let elsewhere =
+            record_free_sketch(&paths, &other, V1, None, &By::none(), Written::AtTheTime).unwrap();
         assert!(
-            record_free_sketch(&paths, &repo, V2, Some(&elsewhere.id), &By::none(), Written::AtTheTime).is_err(),
+            record_free_sketch(
+                &paths,
+                &repo,
+                V2,
+                Some(&elsewhere.id),
+                &By::none(),
+                Written::AtTheTime
+            )
+            .is_err(),
             "another checkout's sketch is not versioned here"
         );
     }

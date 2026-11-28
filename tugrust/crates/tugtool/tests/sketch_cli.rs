@@ -5,8 +5,8 @@ mod common;
 use common::tugtool;
 use tugcore::test_fixtures::git::{GitFixture, git};
 
-use std::path::Path;
 use std::io::Write;
+use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
 fn tug(state: &Path, cwd: &Path) -> Command {
@@ -133,10 +133,17 @@ fn a_sketch_written_afterwards_from_a_brief_is_found_as_brief_sourced() {
         &["--afterwards"],
         "# Sketch\n\nWant the follow-on.\n\nSource: brief briefs/umbrella.md\n",
     );
-    let from_talk = record(&[], "# Sketch\n\nWant the talk.\n\nSource: session x, turn 2\n");
+    let from_talk = record(
+        &[],
+        "# Sketch\n\nWant the talk.\n\nSource: session x, turn 2\n",
+    );
 
     let list = |args: &[&str]| -> serde_json::Value {
-        let out = ok(tug(&state, &root).args(args).arg("--json").output().unwrap());
+        let out = ok(tug(&state, &root)
+            .args(args)
+            .arg("--json")
+            .output()
+            .unwrap());
         let envelope: serde_json::Value = serde_json::from_str(&out).unwrap();
         envelope["data"].clone()
     };

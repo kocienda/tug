@@ -577,13 +577,32 @@ fn a_queued_arc_is_filled_by_its_place_and_found_by_name() {
     assert_eq!(s.ok(&["cycle", "add-sketch", &id, &sketch_id]), "A");
 
     let queued = s.json(&[
-        "cycle", "queue", "alpha", "--brief", "briefs/one.md", "--cycle", &id, "--from", "A",
-        "--label", "the first", "--turn", "4",
+        "cycle",
+        "queue",
+        "alpha",
+        "--brief",
+        "briefs/one.md",
+        "--cycle",
+        &id,
+        "--from",
+        "A",
+        "--label",
+        "the first",
+        "--turn",
+        "4",
     ]);
     assert_eq!(queued["cycle"], id.as_str());
     assert_eq!(queued["n"], 1);
     assert_eq!(queued["outcome"], "added");
-    let refused = s.out(&["cycle", "queue", "alpha", "--brief", "briefs/one.md", "--cycle", &id]);
+    let refused = s.out(&[
+        "cycle",
+        "queue",
+        "alpha",
+        "--brief",
+        "briefs/one.md",
+        "--cycle",
+        &id,
+    ]);
     assert!(!refused.status.success(), "one unsettled entry per name");
 
     s.write_log("2026-11-01T00:00:00.000Z  alpha  arc-start  briefs/one.md");
@@ -591,7 +610,10 @@ fn a_queued_arc_is_filled_by_its_place_and_found_by_name() {
         s.ok(&["cycle", "place", "alpha", "--brief", "briefs/one.md"]),
         format!("{id}  1  filled")
     );
-    assert_eq!(s.ok(&["cycle", "find", "--arc", "alpha"]), format!("{id}  1"));
+    assert_eq!(
+        s.ok(&["cycle", "find", "--arc", "alpha"]),
+        format!("{id}  1")
+    );
     assert_eq!(
         s.ok(&["cycle", "place", "alpha", "--brief", "briefs/one.md"]),
         format!("{id}  1  already")
@@ -733,7 +755,10 @@ fn statement_writes_nothing() {
     s.ok(&["cycle", "create", "--name", "Checked"]);
     let state = tugtool_core::paths::project_state_dir_at(&Paths::under(&s.state), &s.root);
     let before = snapshot(&state);
-    assert!(!before.is_empty(), "the cycle is on disk to compare against");
+    assert!(
+        !before.is_empty(),
+        "the cycle is on disk to compare against"
+    );
 
     let out = statement_on_stdin(&s, &["-"], TWO_ARCS);
     assert!(out.status.success(), "{out:?}");

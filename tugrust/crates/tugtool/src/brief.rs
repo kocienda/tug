@@ -77,7 +77,13 @@ pub fn dispatch(cmd: BriefCommands, json: bool) -> ExitCode {
             session,
         } => (
             "brief find",
-            run_find(&paths, path.as_deref(), sketch.as_deref(), session.as_deref(), json),
+            run_find(
+                &paths,
+                path.as_deref(),
+                sketch.as_deref(),
+                session.as_deref(),
+                json,
+            ),
         ),
         BriefCommands::List => ("brief list", run_find(&paths, None, None, None, json)),
     };
@@ -173,7 +179,10 @@ fn looks_like_id(text: &str) -> bool {
 
 fn run_show(paths: &Paths, brief: &str, json: bool) -> Result<(), AppError> {
     let found = if looks_like_id(brief) {
-        record::find_brief(paths, brief).into_iter().next().map(|(_, r)| r)
+        record::find_brief(paths, brief)
+            .into_iter()
+            .next()
+            .map(|(_, r)| r)
     } else {
         let repo = repo()?;
         record::resolve(paths, &repo, &crate::cycle::brief_path(&repo, brief))

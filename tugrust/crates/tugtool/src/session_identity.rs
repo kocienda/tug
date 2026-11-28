@@ -205,10 +205,7 @@ pub(crate) fn resolve_soft(session: Option<&str>) -> Option<Resolved> {
 pub(crate) fn work_by(turn: Option<u32>) -> tugarc_core::work_log::By {
     use tugarc_core::work_log::{By, Privacy};
     match resolve_soft(None) {
-        None => By {
-            turn,
-            ..By::none()
-        },
+        None => By { turn, ..By::none() },
         Some(resolved) => By {
             privacy: match resolved.private {
                 Some(true) => Privacy::Private,

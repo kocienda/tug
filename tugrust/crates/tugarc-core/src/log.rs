@@ -196,9 +196,17 @@ pub fn append_arc_log(
     let at = now_iso8601();
     write_arc_log_line_at(&mut file, &at, arc, marker, note)?;
     let line = if marker == "arc-start" {
-        Some((crate::work_log::WorkKind::ArcOpened, Some(at), serde_json::json!({})))
+        Some((
+            crate::work_log::WorkKind::ArcOpened,
+            Some(at),
+            serde_json::json!({}),
+        ))
     } else if terminal && (marker == "discarded" || marker == "released") {
-        Some((crate::work_log::WorkKind::ArcDiscarded, started, serde_json::json!({})))
+        Some((
+            crate::work_log::WorkKind::ArcDiscarded,
+            started,
+            serde_json::json!({}),
+        ))
     } else if terminal {
         Some((
             crate::work_log::WorkKind::ArcJoined,

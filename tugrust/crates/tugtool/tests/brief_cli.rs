@@ -201,14 +201,21 @@ fn in_checkout(state: &Path, root: &Path, args: &[&str]) -> std::process::Output
 fn record_writes_the_id_line_and_show_reads_the_record_back() {
     let (_repo, _state, root, state) = checkout();
     fs::create_dir_all(root.join("briefs")).unwrap();
-    fs::write(root.join("briefs/store.md"), "# The brief store\n\nFound.\n").unwrap();
+    fs::write(
+        root.join("briefs/store.md"),
+        "# The brief store\n\nFound.\n",
+    )
+    .unwrap();
 
     let out = in_checkout(&state, &root, &["brief", "record", "briefs/store.md"]);
     assert!(out.status.success(), "{out:?}");
     let id = stdout_of(&out);
     assert_eq!(id.len(), 8, "an id: {id}");
     let text = fs::read_to_string(root.join("briefs/store.md")).unwrap();
-    assert_eq!(text.lines().next(), Some(format!("<!-- tug-brief: {id} -->").as_str()));
+    assert_eq!(
+        text.lines().next(),
+        Some(format!("<!-- tug-brief: {id} -->").as_str())
+    );
 
     git(&root, &["add", "-A"]);
     git(&root, &["commit", "-q", "-m", "brief"]);

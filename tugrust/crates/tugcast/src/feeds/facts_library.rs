@@ -250,7 +250,10 @@ fn render_work(kind: FactKind, payload: &serde_json::Value) -> String {
                 .and_then(|d| d.get("version"))
                 .and_then(serde_json::Value::as_u64)
                 .unwrap_or_default();
-            format!("sketch {} recorded, version {version}", field("object", "sketch"))
+            format!(
+                "sketch {} recorded, version {version}",
+                field("object", "sketch")
+            )
         }
         FactKind::BriefRecorded => {
             let path = field("detail", "path");

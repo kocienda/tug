@@ -161,8 +161,8 @@ pub fn archive_documents(
             &crate::work_log::By::none(),
             crate::sketch::Written::AtTheTime,
         )
-            .ok()
-            .map(|r| r.id)
+        .ok()
+        .map(|r| r.id)
     } else {
         None
     };

@@ -1374,7 +1374,10 @@ fn resolve_session_identity(
         .map(|own| own.segment_ids)
         .unwrap_or_else(|| vec![posted.to_string()]);
     let live_row = ledger.get(&live).ok().flatten();
-    let live_state = live_row.as_ref().map(|r| r.state.as_str()).unwrap_or("live");
+    let live_state = live_row
+        .as_ref()
+        .map(|r| r.state.as_str())
+        .unwrap_or("live");
     // **Whether the session is private**, as the ledger's privacy refusal
     // reads it: a record a private session writes keeps no words and no
     // author. The seated segment answers; the posted row stands in when the

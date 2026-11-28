@@ -5959,9 +5959,26 @@ Some context.
         let (_dir, root) = init_repo();
         let id = create_cycle(&paths, &root, "Cycle", None).unwrap().id;
         let first = "# Sketch\n\nAn early want.\n\nSource: session s, turns 1–1\n";
-        let sketch = record_free_sketch(&paths, &root, first, None, &tugarc_core::work_log::By::none(), tugarc_core::sketch::Written::AtTheTime).unwrap().id;
+        let sketch = record_free_sketch(
+            &paths,
+            &root,
+            first,
+            None,
+            &tugarc_core::work_log::By::none(),
+            tugarc_core::sketch::Written::AtTheTime,
+        )
+        .unwrap()
+        .id;
         let second = "# Sketch\n\nShow related arcs together.\n\nOne group per run.\n\n- A map\n- A row per part\n\nSource: session s, turns 1–2\n";
-        record_free_sketch(&paths, &root, second, Some(&sketch), &tugarc_core::work_log::By::none(), tugarc_core::sketch::Written::AtTheTime).unwrap();
+        record_free_sketch(
+            &paths,
+            &root,
+            second,
+            Some(&sketch),
+            &tugarc_core::work_log::By::none(),
+            tugarc_core::sketch::Written::AtTheTime,
+        )
+        .unwrap();
         assert_eq!(add_sketch(&paths, &root, &id, &sketch, None).unwrap(), "A");
 
         let none = HashMap::new();

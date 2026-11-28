@@ -70,7 +70,14 @@ pub fn dispatch(cmd: CycleCommands, json: bool) -> ExitCode {
             name,
         } => (
             "cycle place",
-            run_place(&paths, &arc, &brief, sketch.as_deref(), name.as_deref(), json),
+            run_place(
+                &paths,
+                &arc,
+                &brief,
+                sketch.as_deref(),
+                name.as_deref(),
+                json,
+            ),
         ),
         CycleCommands::Queue {
             arc,
@@ -496,8 +503,10 @@ fn run_statement(paths: &Paths, source: &str, json: bool) -> Result<(), AppError
     let (parsed, mut warnings) = match statement::parse_fence(&statement::spec_text(&text)) {
         Ok(parsed) => parsed,
         Err(e) => {
-            let refused =
-                AppError::Exit2("invalid_statement", format!("not a valid arc statement: {e}"));
+            let refused = AppError::Exit2(
+                "invalid_statement",
+                format!("not a valid arc statement: {e}"),
+            );
             if json {
                 return Err(refused);
             }

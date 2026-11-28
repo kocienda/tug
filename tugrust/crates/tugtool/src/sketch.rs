@@ -96,14 +96,7 @@ fn run_record(
                     format!("could not read the sketch: {e}"),
                 )
             })?;
-            sketch::record_free_sketch(
-                paths,
-                &repo,
-                &text,
-                id.as_deref(),
-                &by,
-                written,
-            )?
+            sketch::record_free_sketch(paths, &repo, &text, id.as_deref(), &by, written)?
         }
     };
     if json {

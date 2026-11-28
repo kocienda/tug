@@ -112,7 +112,8 @@ fn state_session(ledger: &SessionLedger, paths: &Paths, roots: &[PathBuf], sessi
     if !is_open(paths, roots, &project_dir) {
         return Read::NotOpen;
     }
-    let path = crate::session_ledger::transcript_path(ledger.claude_home(), &row.project_dir, session);
+    let path =
+        crate::session_ledger::transcript_path(ledger.claude_home(), &row.project_dir, session);
     if !path.is_file() {
         return Read::NoTranscript;
     }
@@ -190,7 +191,11 @@ mod tests {
         let repo = root.join("repo");
         fs::create_dir_all(repo.join("briefs")).unwrap();
         for stem in ["a", "b", "c"] {
-            fs::write(repo.join(format!("briefs/{stem}-brief.md")), format!("# {stem}\n")).unwrap();
+            fs::write(
+                repo.join(format!("briefs/{stem}-brief.md")),
+                format!("# {stem}\n"),
+            )
+            .unwrap();
         }
         let paths = Paths::under(&root.join("state"));
         let cycle = create_cycle(&paths, &repo, "Run", None).unwrap().id;
@@ -221,7 +226,15 @@ mod tests {
         let ledger =
             SessionLedger::open_in_memory_with_home(ClaudeHome::at(root.join("claude"))).unwrap();
         ledger
-            .record_spawn(SESSION, "ws", repo.to_str().unwrap(), "card-0", 1_000, "line-0", None)
+            .record_spawn(
+                SESSION,
+                "ws",
+                repo.to_str().unwrap(),
+                "card-0",
+                1_000,
+                "line-0",
+                None,
+            )
             .unwrap();
         Scratch {
             _temp: temp,
@@ -246,7 +259,12 @@ mod tests {
         }
 
         fn read(&self) -> Read {
-            state_session(&self.ledger, &self.paths, std::slice::from_ref(&self.repo), SESSION)
+            state_session(
+                &self.ledger,
+                &self.paths,
+                std::slice::from_ref(&self.repo),
+                SESSION,
+            )
         }
 
         /// The arc names the cycle's entries carry, in entry order.
@@ -255,11 +273,16 @@ mod tests {
                 .into_iter()
                 .find(|c| c.id == self.cycle)
                 .unwrap();
-            record.entries.iter().filter_map(|e| e.arc_name.clone()).collect()
+            record
+                .entries
+                .iter()
+                .filter_map(|e| e.arc_name.clone())
+                .collect()
         }
 
         fn stated_lines(&self) -> Vec<tugarc_core::work_log::WorkLine> {
-            let text = fs::read_to_string(work_log_path(&self.paths, &self.repo)).unwrap_or_default();
+            let text =
+                fs::read_to_string(work_log_path(&self.paths, &self.repo)).unwrap_or_default();
             read_lines(&text)
                 .into_iter()
                 .filter(|l| l.kind == WorkKind::ArcsStated)
@@ -293,7 +316,12 @@ mod tests {
     #[test]
     fn a_public_sessions_fence_queues_its_arcs_and_leaves_one_line() {
         let s = scratch();
-        s.transcript(&[user("lay out the run"), says("one moment"), user("go on"), says(FENCE)]);
+        s.transcript(&[
+            user("lay out the run"),
+            says("one moment"),
+            user("go on"),
+            says(FENCE),
+        ]);
         assert!(matches!(s.read(), Read::Stated(_)));
         assert_eq!(s.named(), ["alpha", "beta"]);
         let lines = s.stated_lines();
@@ -323,7 +351,12 @@ mod tests {
     #[test]
     fn only_the_last_turn_is_read() {
         let s = scratch();
-        s.transcript(&[user("lay out the run"), says(FENCE), user("thanks"), says("You are welcome.")]);
+        s.transcript(&[
+            user("lay out the run"),
+            says(FENCE),
+            user("thanks"),
+            says("You are welcome."),
+        ]);
         assert!(matches!(s.read(), Read::NoStatement));
         assert!(s.named().is_empty());
         assert!(s.stated_lines().is_empty());

@@ -18,8 +18,8 @@ use tugtool_core::paths::project_state_dir_at;
 use tugtool_core::session::now_iso8601;
 
 use crate::cycle::{
-    CycleEntry, CycleRecord, EntryState, NewEntry, StatedBy, add_entry_held, arc_log_text,
-    cycles, entry_states, hold_cycle, is_carried, load, log_work, next_number, normal_brief,
+    CycleEntry, CycleRecord, EntryState, NewEntry, StatedBy, add_entry_held, arc_log_text, cycles,
+    entry_states, hold_cycle, is_carried, load, log_work, next_number, normal_brief,
     queued_letters, save, wait_loop,
 };
 use crate::error::ArcError;
@@ -158,9 +158,9 @@ pub fn parse_fence(body: &str) -> Result<(Statement, Vec<String>), String> {
                 let mut names = Vec::new();
                 for (j, item) in items.iter().enumerate() {
                     match item.as_str() {
-                        None => warnings.push(format!(
-                            "arcs[{i}].after[{j}]: not a string, left out"
-                        )),
+                        None => {
+                            warnings.push(format!("arcs[{i}].after[{j}]: not a string, left out"))
+                        }
                         Some(n) if n == name => warnings.push(format!(
                             "arcs[{i}].after[{j}]: {name} waits on itself, left out"
                         )),
@@ -536,7 +536,9 @@ pub fn statements_dir(paths: &Paths, repo: &Path) -> PathBuf {
 fn valid_session_id(session: &str) -> bool {
     !session.is_empty()
         && session.len() <= 36
-        && session.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f' | '-'))
+        && session
+            .chars()
+            .all(|c| matches!(c, '0'..='9' | 'a'..='f' | '-'))
 }
 
 /// The stored statement of `session`, when there is one.
@@ -544,7 +546,8 @@ pub fn read_statement(paths: &Paths, repo: &Path, session: &str) -> Option<State
     if !valid_session_id(session) {
         return None;
     }
-    let text = fs::read_to_string(statements_dir(paths, repo).join(format!("{session}.json"))).ok()?;
+    let text =
+        fs::read_to_string(statements_dir(paths, repo).join(format!("{session}.json"))).ok()?;
     serde_json::from_str(&text).ok()
 }
 
@@ -704,7 +707,11 @@ fn apply(
         }
     }
     for p in plans.iter().filter(|p| !p.live()) {
-        out.warnings.push(format!("{}: {}", p.arc.name, p.skip.clone().unwrap_or_default()));
+        out.warnings.push(format!(
+            "{}: {}",
+            p.arc.name,
+            p.skip.clone().unwrap_or_default()
+        ));
     }
     if !plans.iter().any(Plan::live) {
         out.arcs = results(&plans, &[]);
@@ -782,7 +789,11 @@ fn apply(
         for p in plans.iter_mut().filter(|p| p.live() && p.cycle.is_none()) {
             p.cycle = Some(anchor);
         }
-        touched = plans.iter().filter(|p| p.live()).filter_map(|p| p.cycle).collect();
+        touched = plans
+            .iter()
+            .filter(|p| p.live())
+            .filter_map(|p| p.cycle)
+            .collect();
         for &ri in &touched {
             let replaces = statement.source == Source::Fence
                 || (statement.arcs.len() >= 2
@@ -868,7 +879,8 @@ fn apply(
         arcs,
     };
     let dir = statements_dir(paths, repo);
-    fs::create_dir_all(&dir).map_err(|e| ArcError::io("could not create the statement store", &dir, e))?;
+    fs::create_dir_all(&dir)
+        .map_err(|e| ArcError::io("could not create the statement store", &dir, e))?;
     let json = serde_json::to_string_pretty(&record)
         .map_err(|e| ArcError::Refused(format!("could not serialize the statement: {e}")))?;
     write_atomically(
@@ -985,7 +997,10 @@ impl CyclePass<'_> {
         let here = |p: &Plan, ri: usize| p.live() && p.cycle == Some(ri);
 
         // A mine arc whose entry holds another brief starts over as new.
-        for p in plans.iter_mut().filter(|p| here(p, self.ri) && p.class == Class::Mine) {
+        for p in plans
+            .iter_mut()
+            .filter(|p| here(p, self.ri) && p.class == Class::Mine)
+        {
             let entry = p.n.and_then(|n| record.entry(n));
             if entry.is_some_and(|e| e.brief_id != p.brief_id) {
                 if self.replaces {
@@ -1036,7 +1051,10 @@ impl CyclePass<'_> {
                 }
             }
             record.entries.retain(|e| !removed.contains(&e.n));
-            for p in plans.iter_mut().filter(|p| here(p, self.ri) && p.class == Class::New) {
+            for p in plans
+                .iter_mut()
+                .filter(|p| here(p, self.ri) && p.class == Class::New)
+            {
                 p.n = None;
             }
         }
@@ -1072,7 +1090,11 @@ impl CyclePass<'_> {
                         .unwrap_or_default();
                 }
                 if from.is_empty() {
-                    from = record.sketches.first().map(|s| vec![s.letter.clone()]).unwrap_or_default();
+                    from = record
+                        .sketches
+                        .first()
+                        .map(|s| vec![s.letter.clone()])
+                        .unwrap_or_default();
                 }
                 let entry = NewEntry {
                     brief: plans[pi].brief_path.clone(),
@@ -1103,7 +1125,10 @@ impl CyclePass<'_> {
         }
 
         // The mine: a fence sets each label; a prose line has none to give.
-        for p in plans.iter().filter(|p| here(p, self.ri) && p.class == Class::Mine) {
+        for p in plans
+            .iter()
+            .filter(|p| here(p, self.ri) && p.class == Class::Mine)
+        {
             let label = clean_label(p.arc.label.as_deref());
             if !(self.fence || label.is_some()) {
                 continue;
@@ -1121,7 +1146,11 @@ impl CyclePass<'_> {
             .entries
             .iter()
             .filter(|e| own_set.contains(&e.n) && self.standing(e))
-            .filter(|e| !e.arc_name.as_deref().is_some_and(|n| self.names.contains(n)))
+            .filter(|e| {
+                !e.arc_name
+                    .as_deref()
+                    .is_some_and(|n| self.names.contains(n))
+            })
             .map(|e| e.n)
             .max();
         for (k, &pi) in order.iter().enumerate() {
@@ -1209,12 +1238,19 @@ impl CyclePass<'_> {
 
 /// A label as an entry keeps it: trimmed, and absent when empty.
 fn clean_label(label: Option<&str>) -> Option<String> {
-    label.map(str::trim).filter(|s| !s.is_empty()).map(String::from)
+    label
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(String::from)
 }
 
 /// The entry of `record` named for `name`: an unsettled one first, else the
 /// highest numbered.
-fn entry_named(record: &CycleRecord, name: &str, states: &BTreeMap<u32, EntryState>) -> Option<u32> {
+fn entry_named(
+    record: &CycleRecord,
+    name: &str,
+    states: &BTreeMap<u32, EntryState>,
+) -> Option<u32> {
     let named: Vec<&CycleEntry> = record
         .entries
         .iter()
@@ -1284,7 +1320,10 @@ mod tests {
         assert_eq!(
             statement.arcs,
             vec![
-                arc("liven-tooled-ground", "briefs/liven-tooled-one-look-brief.md"),
+                arc(
+                    "liven-tooled-ground",
+                    "briefs/liven-tooled-one-look-brief.md"
+                ),
                 arc("liven-cast-beasts", "briefs/liven-cast-animals-brief.md"),
                 arc("one-door", "briefs/one-door-brief.md"),
                 arc("cast-files", "briefs/x.md"),
@@ -1371,8 +1410,7 @@ mod tests {
         }
         assert!(specs.len() >= 2, "and a check over a spec: {specs:?}");
         for spec in &specs {
-            let (statement, warnings) =
-                parse_fence(spec).unwrap_or_else(|e| panic!("{e}\n{spec}"));
+            let (statement, warnings) = parse_fence(spec).unwrap_or_else(|e| panic!("{e}\n{spec}"));
             assert!(warnings.is_empty(), "{warnings:?}\n{spec}");
             assert!(!statement.arcs.is_empty());
         }
@@ -1414,7 +1452,9 @@ mod tests {
 #[cfg(test)]
 mod apply_tests {
     use super::*;
-    use crate::cycle::{PlaceArc, QueueArc, add_entry, add_sketch, create_cycle, place_arc, queue_arc};
+    use crate::cycle::{
+        PlaceArc, QueueArc, add_entry, add_sketch, create_cycle, place_arc, queue_arc,
+    };
     use crate::work_log::work_log_path;
     use tempfile::TempDir;
 
@@ -1499,7 +1539,10 @@ mod apply_tests {
     }
 
     fn record(paths: &Paths, repo: &Path, id: &str) -> CycleRecord {
-        cycles(paths, repo).into_iter().find(|r| r.id == id).unwrap()
+        cycles(paths, repo)
+            .into_iter()
+            .find(|r| r.id == id)
+            .unwrap()
     }
 
     /// The queued entries of cycle `id`: named, not carried, in entry order.
@@ -1541,9 +1584,21 @@ mod apply_tests {
         };
         let queued_ns: BTreeSet<u32> = entries.iter().map(|e| e.n).collect();
         for (i, name) in chain.iter().enumerate() {
-            let e = entries.iter().find(|e| e.arc_name.as_deref() == Some(*name)).unwrap();
-            let on: Vec<u32> = e.waits.iter().copied().filter(|w| queued_ns.contains(w)).collect();
-            let want: Vec<u32> = if i == 0 { Vec::new() } else { vec![n_of(chain[i - 1])] };
+            let e = entries
+                .iter()
+                .find(|e| e.arc_name.as_deref() == Some(*name))
+                .unwrap();
+            let on: Vec<u32> = e
+                .waits
+                .iter()
+                .copied()
+                .filter(|w| queued_ns.contains(w))
+                .collect();
+            let want: Vec<u32> = if i == 0 {
+                Vec::new()
+            } else {
+                vec![n_of(chain[i - 1])]
+            };
             assert_eq!(on, want, "{name} waits");
         }
     }
@@ -1628,7 +1683,15 @@ mod apply_tests {
         t13.extend([trees, flowers]);
         let mut t21 = cast(&TURN_10[3..]);
         t21.extend([trees, flowers]);
-        vec![(2, t2), (4, t4), (10, t10), (11, t11), (12, t12), (13, t13), (21, t21)]
+        vec![
+            (2, t2),
+            (4, t4),
+            (10, t10),
+            (11, t11),
+            (12, t12),
+            (13, t13),
+            (21, t21),
+        ]
     }
 
     /// A scratch project with the nine liven briefs on disk and a cycle
@@ -1656,15 +1719,30 @@ mod apply_tests {
         let (_t, repo, paths, id) = liven_project();
         let mut ever: BTreeMap<u32, String> = BTreeMap::new();
         for (turn, arcs) in liven() {
-            let stated = state_arcs(&paths, &repo, &statement(Source::Prose, &arcs), &by(S1, turn)).unwrap();
-            assert_eq!(stated.status, StatedStatus::Stated, "turn {turn}: {stated:?}");
+            let stated = state_arcs(
+                &paths,
+                &repo,
+                &statement(Source::Prose, &arcs),
+                &by(S1, turn),
+            )
+            .unwrap();
+            assert_eq!(
+                stated.status,
+                StatedStatus::Stated,
+                "turn {turn}: {stated:?}"
+            );
             let entries = queued(&paths, &repo, &id);
             for e in &entries {
                 let name = e.arc_name.clone().unwrap();
                 let was = ever.entry(e.n).or_insert_with(|| name.clone());
-                assert_eq!(*was, name, "turn {turn}: entry {} is never given again", e.n);
+                assert_eq!(
+                    *was, name,
+                    "turn {turn}: entry {} is never given again",
+                    e.n
+                );
             }
-            let names_of = |v: &[(&str, &str)]| v.iter().map(|(n, _)| n.to_string()).collect::<Vec<_>>();
+            let names_of =
+                |v: &[(&str, &str)]| v.iter().map(|(n, _)| n.to_string()).collect::<Vec<_>>();
             let chain = names_of(&arcs);
             let chain: Vec<&str> = chain.iter().map(String::as_str).collect();
             match turn {
@@ -1691,7 +1769,10 @@ mod apply_tests {
             }
         }
         let record = record(&paths, &repo, &id);
-        assert!(record.entries.iter().all(|e| e.dropped.is_none()), "nothing is dropped");
+        assert!(
+            record.entries.iter().all(|e| e.dropped.is_none()),
+            "nothing is dropped"
+        );
         assert!(chain_ok(&record));
         // The brief skill's entry is back to what it recorded.
         let first = record.entry(1).unwrap();
@@ -1712,7 +1793,13 @@ mod apply_tests {
         let (_t, repo, paths, id) = liven_project();
         let mut kept: Vec<CycleEntry> = Vec::new();
         for (turn, arcs) in liven() {
-            state_arcs(&paths, &repo, &statement(Source::Prose, &arcs), &by(S1, turn)).unwrap();
+            state_arcs(
+                &paths,
+                &repo,
+                &statement(Source::Prose, &arcs),
+                &by(S1, turn),
+            )
+            .unwrap();
             let now = record(&paths, &repo, &id);
             for e in &kept {
                 let entry = now.entry(e.n).expect("a carried entry is never removed");
@@ -1721,9 +1808,25 @@ mod apply_tests {
             }
             if turn == 10 {
                 // Two of turn 2's arcs open before the list that drops them.
-                open(&paths, &repo, "liven-neomod-spike", "briefs/liven-neomod-manner-brief.md", "2026-11-02T00:00:00Z");
-                open(&paths, &repo, "liven-prop-rig-spike", "briefs/liven-prop-rig-brief.md", "2026-11-02T00:01:00Z");
-                log_append(&paths, &repo, "2026-11-02T01:00:00Z  liven-prop-rig-spike  302d43b5d1  joined");
+                open(
+                    &paths,
+                    &repo,
+                    "liven-neomod-spike",
+                    "briefs/liven-neomod-manner-brief.md",
+                    "2026-11-02T00:00:00Z",
+                );
+                open(
+                    &paths,
+                    &repo,
+                    "liven-prop-rig-spike",
+                    "briefs/liven-prop-rig-brief.md",
+                    "2026-11-02T00:01:00Z",
+                );
+                log_append(
+                    &paths,
+                    &repo,
+                    "2026-11-02T01:00:00Z  liven-prop-rig-spike  302d43b5d1  joined",
+                );
                 kept = record(&paths, &repo, &id)
                     .entries
                     .iter()
@@ -1760,7 +1863,9 @@ mod apply_tests {
         let mut st = statement(Source::Fence, &[("aa", "p"), ("bb", "p"), ("cc", "p")]);
         st.arcs[1].label = Some("The second".into());
         state_arcs(&paths, &repo, &st, &by(S1, 1)).unwrap();
-        let file = record(&paths, &repo, &id).dir.join(crate::cycle::CYCLE_JSON);
+        let file = record(&paths, &repo, &id)
+            .dir
+            .join(crate::cycle::CYCLE_JSON);
         let bytes = fs::read(&file).unwrap();
         let lines = work_lines(&paths, &repo).len();
         let stmt = fs::read(statements_dir(&paths, &repo).join(format!("{S1}.json"))).unwrap();
@@ -1769,18 +1874,42 @@ mod apply_tests {
         assert_eq!(again.status, StatedStatus::Unchanged);
         assert_eq!(fs::read(&file).unwrap(), bytes);
         assert_eq!(work_lines(&paths, &repo).len(), lines);
-        assert_eq!(fs::read(statements_dir(&paths, &repo).join(format!("{S1}.json"))).unwrap(), stmt);
+        assert_eq!(
+            fs::read(statements_dir(&paths, &repo).join(format!("{S1}.json"))).unwrap(),
+            stmt
+        );
     }
 
     #[test]
     fn a_fence_replaces_a_disjoint_list_and_a_prose_list_only_adds() {
         let (_t, repo, paths) = scratch();
         let id = cycle_with(&paths, &repo, "p");
-        state_arcs(&paths, &repo, &statement(Source::Fence, &[("aa", "p"), ("bb", "p")]), &by(S1, 1)).unwrap();
-        let stated = state_arcs(&paths, &repo, &statement(Source::Fence, &[("cc", "p"), ("dd", "p")]), &by(S1, 2)).unwrap();
+        state_arcs(
+            &paths,
+            &repo,
+            &statement(Source::Fence, &[("aa", "p"), ("bb", "p")]),
+            &by(S1, 1),
+        )
+        .unwrap();
+        let stated = state_arcs(
+            &paths,
+            &repo,
+            &statement(Source::Fence, &[("cc", "p"), ("dd", "p")]),
+            &by(S1, 2),
+        )
+        .unwrap();
         assert_chain(&paths, &repo, &id, &["cc", "dd"]);
-        assert_eq!(stated.removed.get(&id).cloned().unwrap_or_default().len(), 2);
-        state_arcs(&paths, &repo, &statement(Source::Prose, &[("ee", "p"), ("ff", "p")]), &by(S1, 3)).unwrap();
+        assert_eq!(
+            stated.removed.get(&id).cloned().unwrap_or_default().len(),
+            2
+        );
+        state_arcs(
+            &paths,
+            &repo,
+            &statement(Source::Prose, &[("ee", "p"), ("ff", "p")]),
+            &by(S1, 3),
+        )
+        .unwrap();
         assert_chain(&paths, &repo, &id, &["cc", "dd", "ee", "ff"]);
     }
 
@@ -1788,13 +1917,31 @@ mod apply_tests {
     fn a_single_command_line_naming_a_standing_arc_removes_nothing() {
         let (_t, repo, paths) = scratch();
         let id = cycle_with(&paths, &repo, "p");
-        let five = [("aa", "p"), ("bb", "p"), ("cc", "p"), ("dd", "p"), ("ee", "p")];
+        let five = [
+            ("aa", "p"),
+            ("bb", "p"),
+            ("cc", "p"),
+            ("dd", "p"),
+            ("ee", "p"),
+        ];
         state_arcs(&paths, &repo, &statement(Source::Fence, &five), &by(S1, 1)).unwrap();
         let before = queued(&paths, &repo, &id);
-        state_arcs(&paths, &repo, &statement(Source::Prose, &[("cc", "p")]), &by(S1, 2)).unwrap();
+        state_arcs(
+            &paths,
+            &repo,
+            &statement(Source::Prose, &[("cc", "p")]),
+            &by(S1, 2),
+        )
+        .unwrap();
         let after = queued(&paths, &repo, &id);
         assert_eq!(names(&after).len(), 5);
-        let waits = |v: &[CycleEntry]| v.iter().find(|e| e.arc_name.as_deref() == Some("cc")).unwrap().waits.clone();
+        let waits = |v: &[CycleEntry]| {
+            v.iter()
+                .find(|e| e.arc_name.as_deref() == Some("cc"))
+                .unwrap()
+                .waits
+                .clone()
+        };
         assert_eq!(waits(&after), waits(&before));
         assert_chain(&paths, &repo, &id, &["aa", "bb", "cc", "dd", "ee"]);
     }
@@ -1803,12 +1950,41 @@ mod apply_tests {
     fn a_replaced_added_entry_is_removed_and_its_number_is_never_reused() {
         let (_t, repo, paths) = scratch();
         let id = cycle_with(&paths, &repo, "p");
-        state_arcs(&paths, &repo, &statement(Source::Fence, &[("aa", "p"), ("bb", "p")]), &by(S1, 1)).unwrap();
-        let bb = queued(&paths, &repo, &id).into_iter().find(|e| e.arc_name.as_deref() == Some("bb")).unwrap().n;
-        state_arcs(&paths, &repo, &statement(Source::Fence, &[("aa", "p")]), &by(S1, 2)).unwrap();
-        assert!(record(&paths, &repo, &id).entry(bb).is_none(), "bb's entry is removed");
-        state_arcs(&paths, &repo, &statement(Source::Fence, &[("aa", "p"), ("cc", "p")]), &by(S1, 3)).unwrap();
-        let cc = queued(&paths, &repo, &id).into_iter().find(|e| e.arc_name.as_deref() == Some("cc")).unwrap().n;
+        state_arcs(
+            &paths,
+            &repo,
+            &statement(Source::Fence, &[("aa", "p"), ("bb", "p")]),
+            &by(S1, 1),
+        )
+        .unwrap();
+        let bb = queued(&paths, &repo, &id)
+            .into_iter()
+            .find(|e| e.arc_name.as_deref() == Some("bb"))
+            .unwrap()
+            .n;
+        state_arcs(
+            &paths,
+            &repo,
+            &statement(Source::Fence, &[("aa", "p")]),
+            &by(S1, 2),
+        )
+        .unwrap();
+        assert!(
+            record(&paths, &repo, &id).entry(bb).is_none(),
+            "bb's entry is removed"
+        );
+        state_arcs(
+            &paths,
+            &repo,
+            &statement(Source::Fence, &[("aa", "p"), ("cc", "p")]),
+            &by(S1, 3),
+        )
+        .unwrap();
+        let cc = queued(&paths, &repo, &id)
+            .into_iter()
+            .find(|e| e.arc_name.as_deref() == Some("cc"))
+            .unwrap()
+            .n;
         assert!(cc > bb, "cc is {cc}, bb was {bb}");
     }
 
@@ -1824,7 +2000,13 @@ mod apply_tests {
         let named = record(&paths, &repo, &id).entry(1).cloned().unwrap();
         assert_eq!(named.arc_name.as_deref(), Some("aa"));
         assert!(!named.stated_by.unwrap().added);
-        state_arcs(&paths, &repo, &statement(Source::Fence, &[("bb", "q")]), &by(S1, 2)).unwrap();
+        state_arcs(
+            &paths,
+            &repo,
+            &statement(Source::Fence, &[("bb", "q")]),
+            &by(S1, 2),
+        )
+        .unwrap();
         let back = record(&paths, &repo, &id).entry(1).cloned().unwrap();
         assert_eq!(back, before);
     }
@@ -1833,7 +2015,13 @@ mod apply_tests {
     fn a_wait_on_a_removed_entry_is_scrubbed() {
         let (_t, repo, paths) = scratch();
         let id = cycle_with(&paths, &repo, "p");
-        state_arcs(&paths, &repo, &statement(Source::Fence, &[("aa", "p"), ("bb", "p")]), &by(S1, 1)).unwrap();
+        state_arcs(
+            &paths,
+            &repo,
+            &statement(Source::Fence, &[("aa", "p"), ("bb", "p")]),
+            &by(S1, 1),
+        )
+        .unwrap();
         let none = By::none();
         queue_arc(
             &paths,
@@ -1850,9 +2038,19 @@ mod apply_tests {
             },
         )
         .unwrap();
-        state_arcs(&paths, &repo, &statement(Source::Fence, &[("aa", "p")]), &by(S1, 2)).unwrap();
+        state_arcs(
+            &paths,
+            &repo,
+            &statement(Source::Fence, &[("aa", "p")]),
+            &by(S1, 2),
+        )
+        .unwrap();
         let record = record(&paths, &repo, &id);
-        let hand = record.entries.iter().find(|e| e.arc_name.as_deref() == Some("by-hand")).unwrap();
+        let hand = record
+            .entries
+            .iter()
+            .find(|e| e.arc_name.as_deref() == Some("by-hand"))
+            .unwrap();
         assert!(hand.waits.is_empty(), "{:?}", hand.waits);
         assert!(chain_ok(&record));
     }
@@ -1861,14 +2059,29 @@ mod apply_tests {
     fn an_entry_another_session_stated_is_never_touched() {
         let (_t, repo, paths) = scratch();
         let id = cycle_with(&paths, &repo, "p");
-        state_arcs(&paths, &repo, &statement(Source::Fence, &[("xx", "p"), ("yy", "p")]), &by(S2, 1)).unwrap();
+        state_arcs(
+            &paths,
+            &repo,
+            &statement(Source::Fence, &[("xx", "p"), ("yy", "p")]),
+            &by(S2, 1),
+        )
+        .unwrap();
         let theirs: Vec<CycleEntry> = queued(&paths, &repo, &id);
         let mut st = statement(Source::Fence, &[("xx", "p"), ("aa", "p")]);
         st.arcs[0].label = Some("Mine now".into());
         let stated = state_arcs(&paths, &repo, &st, &by(S1, 1)).unwrap();
         assert_eq!(stated.arcs[0].class, Some(Class::Foreign));
-        assert!(matches!(stated.arcs[0].outcome, ArcOutcome::Untouched { .. }));
-        state_arcs(&paths, &repo, &statement(Source::Fence, &[("aa", "p")]), &by(S1, 2)).unwrap();
+        assert!(matches!(
+            stated.arcs[0].outcome,
+            ArcOutcome::Untouched { .. }
+        ));
+        state_arcs(
+            &paths,
+            &repo,
+            &statement(Source::Fence, &[("aa", "p")]),
+            &by(S1, 2),
+        )
+        .unwrap();
         let record = record(&paths, &repo, &id);
         for e in &theirs {
             assert_eq!(record.entry(e.n), Some(e), "entry {}", e.n);
@@ -1896,7 +2109,13 @@ mod apply_tests {
         )
         .unwrap();
         let before = record(&paths, &repo, &id);
-        let stated = state_arcs(&paths, &repo, &statement(Source::Fence, &[("by-hand", "p")]), &by(S1, 1)).unwrap();
+        let stated = state_arcs(
+            &paths,
+            &repo,
+            &statement(Source::Fence, &[("by-hand", "p")]),
+            &by(S1, 1),
+        )
+        .unwrap();
         assert_eq!(stated.arcs[0].class, Some(Class::Foreign));
         assert_eq!(record(&paths, &repo, &id).entries, before.entries);
     }
@@ -1906,8 +2125,19 @@ mod apply_tests {
         let (_t, repo, paths) = scratch();
         let id = cycle_with(&paths, &repo, "p");
         brief(&repo, "q");
-        let stated = state_arcs(&paths, &repo, &statement(Source::Prose, &[("aa", "p"), ("bb", "q")]), &by(S1, 1)).unwrap();
-        assert!(stated.arcs.iter().all(|a| matches!(&a.outcome, ArcOutcome::Queued { cycle, .. } if *cycle == id)));
+        let stated = state_arcs(
+            &paths,
+            &repo,
+            &statement(Source::Prose, &[("aa", "p"), ("bb", "q")]),
+            &by(S1, 1),
+        )
+        .unwrap();
+        assert!(
+            stated
+                .arcs
+                .iter()
+                .all(|a| matches!(&a.outcome, ArcOutcome::Queued { cycle, .. } if *cycle == id))
+        );
         assert_chain(&paths, &repo, &id, &["aa", "bb"]);
     }
 
@@ -1918,7 +2148,13 @@ mod apply_tests {
         brief(&repo, "q");
         brief(&repo, "r");
         let before = record(&paths, &repo, &id);
-        let stated = state_arcs(&paths, &repo, &statement(Source::Prose, &[("aa", "q"), ("bb", "r")]), &by(S1, 1)).unwrap();
+        let stated = state_arcs(
+            &paths,
+            &repo,
+            &statement(Source::Prose, &[("aa", "q"), ("bb", "r")]),
+            &by(S1, 1),
+        )
+        .unwrap();
         assert_eq!(stated.status, StatedStatus::Stated);
         assert!(stated.arcs.iter().all(|a| a.outcome == ArcOutcome::Held));
         assert_eq!(record(&paths, &repo, &id), before);
@@ -1932,11 +2168,21 @@ mod apply_tests {
     fn the_door_grounds_a_held_statement_when_one_of_its_arcs_opens() {
         let (_t, repo, paths) = scratch();
         brief(&repo, "q");
-        state_arcs(&paths, &repo, &statement(Source::Prose, &[("aa", "q"), ("bb", "q")]), &by(S1, 1)).unwrap();
+        state_arcs(
+            &paths,
+            &repo,
+            &statement(Source::Prose, &[("aa", "q"), ("bb", "q")]),
+            &by(S1, 1),
+        )
+        .unwrap();
         assert_eq!(held(&paths, &repo, S1).len(), 2);
 
         let (id, sketch) = sketched(&paths, &repo);
-        log_append(&paths, &repo, "2026-11-02T00:00:00Z  aa  arc-start  briefs/q-brief.md");
+        log_append(
+            &paths,
+            &repo,
+            "2026-11-02T00:00:00Z  aa  arc-start  briefs/q-brief.md",
+        );
         let none = By::none();
         place_arc(
             &paths,
@@ -1951,8 +2197,17 @@ mod apply_tests {
         )
         .unwrap();
         let record = record(&paths, &repo, &id);
-        let aa = record.entries.iter().find(|e| e.arc_name.as_deref() == Some("aa")).unwrap().n;
-        let bb = record.entries.iter().find(|e| e.arc_name.as_deref() == Some("bb")).expect("bb joins the cycle");
+        let aa = record
+            .entries
+            .iter()
+            .find(|e| e.arc_name.as_deref() == Some("aa"))
+            .unwrap()
+            .n;
+        let bb = record
+            .entries
+            .iter()
+            .find(|e| e.arc_name.as_deref() == Some("bb"))
+            .expect("bb joins the cycle");
         assert_eq!(bb.waits, [aa]);
         assert!(held(&paths, &repo, S1).is_empty());
         let line = work_lines(&paths, &repo).pop().unwrap();
@@ -1970,7 +2225,12 @@ mod apply_tests {
         st.arcs[2].after = Some(vec!["aa".into()]);
         state_arcs(&paths, &repo, &st, &by(S1, 1)).unwrap();
         let entries = queued(&paths, &repo, &id);
-        let get = |n: &str| entries.iter().find(|e| e.arc_name.as_deref() == Some(n)).unwrap();
+        let get = |n: &str| {
+            entries
+                .iter()
+                .find(|e| e.arc_name.as_deref() == Some(n))
+                .unwrap()
+        };
         assert!(get("aa").waits.is_empty());
         assert!(get("bb").waits.is_empty());
         assert_eq!(get("cc").waits, [get("aa").n]);
@@ -1980,13 +2240,20 @@ mod apply_tests {
     fn a_wait_loop_leaves_the_cycle_unwritten() {
         let (_t, repo, paths) = scratch();
         let id = cycle_with(&paths, &repo, "p");
-        let file = record(&paths, &repo, &id).dir.join(crate::cycle::CYCLE_JSON);
+        let file = record(&paths, &repo, &id)
+            .dir
+            .join(crate::cycle::CYCLE_JSON);
         let bytes = fs::read(&file).unwrap();
         let mut st = statement(Source::Fence, &[("aa", "p"), ("bb", "p")]);
         st.arcs[0].after = Some(vec!["bb".into()]);
         let stated = state_arcs(&paths, &repo, &st, &by(S1, 1)).unwrap();
         assert_eq!(fs::read(&file).unwrap(), bytes);
-        assert!(stated.arcs.iter().all(|a| matches!(a.outcome, ArcOutcome::Skipped { .. })));
+        assert!(
+            stated
+                .arcs
+                .iter()
+                .all(|a| matches!(a.outcome, ArcOutcome::Skipped { .. }))
+        );
         assert!(stated.warnings.iter().any(|w| w.contains("loop")));
     }
 
@@ -2000,7 +2267,13 @@ mod apply_tests {
             privacy: Privacy::Private,
             ..by(S1, 1)
         };
-        let stated = state_arcs(&paths, &repo, &statement(Source::Fence, &[("aa", "p")]), &private).unwrap();
+        let stated = state_arcs(
+            &paths,
+            &repo,
+            &statement(Source::Fence, &[("aa", "p")]),
+            &private,
+        )
+        .unwrap();
         assert_eq!(stated.status, StatedStatus::Unrecorded);
         assert_eq!(record(&paths, &repo, &id), before);
         assert_eq!(work_lines(&paths, &repo).len(), lines);

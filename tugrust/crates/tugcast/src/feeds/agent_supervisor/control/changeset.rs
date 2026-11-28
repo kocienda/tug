@@ -1252,10 +1252,7 @@ impl AgentSupervisor {
                     let sha = receipt.sha.clone();
                     let files = files.clone();
                     let by = tugarc_core::work_log::By {
-                        session: request
-                            .session_id
-                            .clone()
-                            .filter(|s| !s.is_empty()),
+                        session: request.session_id.clone().filter(|s| !s.is_empty()),
                         ..tugarc_core::work_log::By::none()
                     };
                     let noted = tokio::task::spawn_blocking(move || {

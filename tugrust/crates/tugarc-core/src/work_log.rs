@@ -204,7 +204,8 @@ pub fn append(
     text.push('\n');
 
     let dir = project_state_dir_at(paths, repo);
-    fs::create_dir_all(&dir).map_err(|e| ArcError::io("could not create the state dir", &dir, e))?;
+    fs::create_dir_all(&dir)
+        .map_err(|e| ArcError::io("could not create the state dir", &dir, e))?;
     let _held = hold(&dir, WORK_LOG_LOCK, LockMode::Wait)?;
     let path = dir.join(WORK_LOG);
     let mut file = fs::OpenOptions::new()
@@ -293,12 +294,19 @@ mod tests {
         };
         let text = serde_json::to_string(&line).unwrap();
         let value: serde_json::Value = serde_json::from_str(&text).unwrap();
-        let keys: BTreeSet<&str> = value.as_object().unwrap().keys().map(|k| k.as_str()).collect();
+        let keys: BTreeSet<&str> = value
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(|k| k.as_str())
+            .collect();
         assert_eq!(
             keys,
-            ["v", "id", "at", "kind", "session", "turn", "object", "detail"]
-                .into_iter()
-                .collect()
+            [
+                "v", "id", "at", "kind", "session", "turn", "object", "detail"
+            ]
+            .into_iter()
+            .collect()
         );
         assert_eq!(value["kind"], "brief.committed");
         assert_eq!(value["turn"], serde_json::Value::Null);
