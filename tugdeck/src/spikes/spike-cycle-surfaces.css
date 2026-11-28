@@ -1,0 +1,380 @@
+/* @tug-pairings: none — spike scaffolding; the map, seals, waits, marks,
+ * atoms and rows draw from their own components' stylesheets [L20] */
+
+/* spike-cycle-surfaces — one cycle on both hosts. Every rule below is shared;
+   the only host rules are under `[data-host="rail"]`, and they change density
+   alone. Nothing here is production styling. */
+
+.sp-cyc {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-md);
+}
+
+.sp-cyc-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tug-space-sm);
+}
+
+/* The feature list. */
+.sp-cyc-features {
+  border-collapse: collapse;
+  font-size: var(--tug-font-size-xs);
+  line-height: 1.45;
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+.sp-cyc-features th,
+.sp-cyc-features td {
+  padding: var(--tug-space-2xs) var(--tug-space-sm);
+  border-bottom: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+  text-align: start;
+  vertical-align: top;
+}
+
+.sp-cyc-features thead th {
+  font-size: var(--tug-font-size-2xs);
+  font-weight: var(--tug-font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-cyc-features tbody th {
+  font-weight: var(--tug-font-weight-semibold);
+  white-space: nowrap;
+}
+
+.sp-cyc-features td:not(:last-child) {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-cyc-decide {
+  font-weight: var(--tug-font-weight-semibold);
+  color: var(--tug7-element-global-text-normal-caution-rest);
+}
+
+/* The two hosts, side by side when there is room. */
+.sp-cyc-hosts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--tug-space-lg);
+}
+
+.sp-cyc-host {
+  margin: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+}
+
+.sp-cyc-host figcaption {
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-cyc-shade-frame,
+.sp-cyc-rail-frame {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--tug7-element-global-border-normal-default-rest);
+  border-radius: 8px;
+  background: var(--tug7-surface-global-primary-normal-content-rest);
+  overflow: hidden;
+}
+
+/* The shade takes the pane's width up to a card's, and never pushes past it. */
+.sp-cyc-host-shade {
+  flex: 1 1 360px;
+  max-inline-size: 640px;
+}
+
+.sp-cyc-shade-frame {
+  inline-size: 100%;
+}
+
+/* The sidebar's width, which no part of the surface may push past. */
+.sp-cyc-rail-frame {
+  inline-size: 340px;
+}
+
+.sp-cyc-rail-title {
+  padding: var(--tug-space-xs) var(--tug-space-md);
+  font-size: var(--tug-font-size-2xs);
+  font-weight: var(--tug-font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-align: center;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+  background: var(--tug7-surface-global-primary-normal-raised-rest);
+}
+
+/* The surface. */
+.sp-cyc-surface {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.sp-cyc-spacer {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* The one small-cap label every kind is named with. */
+.sp-cyc-eyebrow {
+  flex: none;
+  font-size: var(--tug-font-size-2xs);
+  font-weight: var(--tug-font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-cyc-header {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  min-height: 44px;
+  padding-inline: var(--tug-space-sm) var(--tug-space-md);
+  background: var(--tug7-surface-global-primary-normal-raised-rest);
+  border-bottom: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+}
+
+.sp-cyc-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--tug-font-size-lg);
+  font-weight: var(--tug-font-weight-semibold);
+}
+
+.sp-cyc-landed {
+  flex: none;
+  font-size: var(--tug-font-size-sm);
+  white-space: nowrap;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-cyc-well {
+  padding: var(--tug-space-sm) var(--tug-space-md);
+  background: var(--tug7-surface-card-primary-normal-well-rest);
+  border-bottom: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+  overflow: hidden;
+}
+
+.sp-cyc-strip {
+  display: flex;
+  gap: 2px;
+  block-size: 4px;
+  margin: var(--tug-space-sm) var(--tug-space-md);
+}
+
+.sp-cyc-strip > span {
+  flex: 1 1 0;
+  border-radius: 2px;
+  background-color: var(--tug7-element-global-border-normal-default-rest);
+}
+
+.sp-cyc-strip > [data-state="joined"] {
+  background-color: var(--tug7-element-tone-fill-normal-success-rest);
+}
+
+.sp-cyc-strip > [data-state="running"] {
+  background-color: var(--tug7-element-tone-fill-normal-active-rest);
+}
+
+.sp-cyc-strip > [data-state="ready"] {
+  background-color: var(--tug7-element-tone-border-normal-accent-rest);
+}
+
+.sp-cyc-only {
+  border-bottom: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+}
+
+.sp-cyc-asset {
+  border-bottom: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+}
+
+.sp-cyc-asset[data-kind="sketch"] {
+  background: var(--tug7-surface-global-primary-normal-raised-rest);
+}
+
+.sp-cyc-asset .tug-list-row-leading {
+  align-self: flex-start;
+}
+
+.sp-cyc-number {
+  display: inline-block;
+  min-width: 1.5em;
+  text-align: end;
+  font-size: var(--tug-font-size-lg);
+  font-weight: var(--tug-font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+/* The row's own content column: the list row's title slot would clamp the
+   whole heading, label and all, to one ellipsized line. Here only the
+   headline gives way; the small-cap label is never cut. */
+.sp-cyc-content {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--tug-space-2xs);
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-block: var(--tug-space-xs);
+}
+
+.sp-cyc-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--tug-space-sm);
+  min-width: 0;
+  max-inline-size: 100%;
+}
+
+.sp-cyc-headline {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--tug-font-weight-semibold);
+}
+
+.sp-cyc-want {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--tug-font-size-sm);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-cyc-sketch-body {
+  padding: 0 var(--tug-space-md) var(--tug-space-sm) calc(var(--tug-space-lg) + 2.5em);
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.5;
+}
+
+.sp-cyc-facts {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--tug-space-2xs);
+  padding-top: var(--tug-space-2xs);
+  font-size: var(--tug-font-size-sm);
+}
+
+.sp-cyc-line {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  max-inline-size: 100%;
+}
+
+.sp-cyc-steps {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+}
+
+.sp-cyc-quiet {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-cyc-note {
+  color: var(--tug7-element-global-text-normal-caution-rest);
+}
+
+.sp-cyc-verbs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--tug-space-xs);
+  padding-top: var(--tug-space-2xs);
+}
+
+.sp-cyc-footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+  padding: var(--tug-space-sm) var(--tug-space-md);
+  background: var(--tug7-surface-global-primary-normal-raised-rest);
+  font-size: var(--tug-font-size-sm);
+}
+
+.sp-cyc-footer-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--tug-space-sm);
+  min-width: 0;
+}
+
+.sp-cyc-footer-word {
+  inline-size: 3.2em;
+}
+
+.sp-cyc-footer-what {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The rail: the same rows, denser. */
+.sp-cyc-surface[data-host="rail"] .sp-cyc-header {
+  min-height: 32px;
+  padding-inline: var(--tug-space-xs) var(--tug-space-sm);
+}
+
+.sp-cyc-surface[data-host="rail"] .sp-cyc-name {
+  font-size: var(--tug-font-size-sm);
+}
+
+.sp-cyc-surface[data-host="rail"] .sp-cyc-landed {
+  font-size: var(--tug-font-size-2xs);
+}
+
+.sp-cyc-surface[data-host="rail"] .sp-cyc-well {
+  padding: var(--tug-space-xs) var(--tug-space-sm);
+}
+
+.sp-cyc-surface[data-host="rail"] .sp-cyc-number {
+  font-size: var(--tug-font-size-sm);
+}
+
+.sp-cyc-surface[data-host="rail"] .sp-cyc-headline {
+  font-size: var(--tug-font-size-sm);
+}
+
+.sp-cyc-surface[data-host="rail"] .sp-cyc-facts,
+.sp-cyc-surface[data-host="rail"] .sp-cyc-want,
+.sp-cyc-surface[data-host="rail"] .sp-cyc-sketch-body,
+.sp-cyc-surface[data-host="rail"] .sp-cyc-footer {
+  font-size: var(--tug-font-size-xs);
+}
+
+.sp-cyc-surface[data-host="rail"] .sp-cyc-footer {
+  padding: var(--tug-space-xs) var(--tug-space-sm);
+}
+
+.sp-cyc-surface[data-host="rail"] .sp-cyc-footer-line {
+  flex-wrap: wrap;
+}
+
+.sp-cyc-surface[data-host="rail"] .sp-cyc-footer-what {
+  flex-wrap: wrap;
+}
+
+.sp-cyc-surface[data-host="rail"] .sp-cyc-sketch-body {
+  padding-inline: var(--tug-space-sm);
+}

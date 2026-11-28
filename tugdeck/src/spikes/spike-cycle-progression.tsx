@@ -47,6 +47,12 @@
  *
  * The card drawn is the steward's own, so the running arc is in another
  * session. Nothing here sends a frame: Start and Ask fill a prompt and stop.
+ *
+ * The first section comes before all of that, and is where the shipped
+ * surfaces are settled: one cycle drawn on both hosts that show one, the
+ * Session card's shade and the Cycles & Arcs sidebar card, by one component
+ * (`spike-cycle-surfaces.tsx`), under a list of every feature saying what
+ * each surface does today and what both do in the one design.
  */
 
 import "./spike.css";
@@ -57,6 +63,7 @@ import React, { useCallback, useId, useLayoutEffect, useMemo, useRef, useState }
 import { ChevronDown, ChevronRight, Play, SquareArrowOutUpRight } from "lucide-react";
 
 import type { SpikeDef } from "./spike-registry";
+import { CycleSurfaces } from "./spike-cycle-surfaces";
 import { ArcLifecycleMark } from "@/components/tugways/arc-lifecycle-mark";
 import { ArcStepItems } from "@/components/tugways/arc-step-list";
 import { recordBody } from "@/components/tugways/cards/session-arc-record";
@@ -1165,6 +1172,11 @@ function SpikeCycleProgression(): React.ReactElement {
     <ResponderScope>
       <div className="sp-content sp-prog" ref={responderRef as (el: HTMLDivElement | null) => void}>
         <section className="sp-section">
+          <h2 className="sp-section-title">One cycle, both surfaces: the shade and the Cycles &amp; Arcs card</h2>
+          <CycleSurfaces />
+        </section>
+
+        <section className="sp-section">
           <h2 className="sp-section-title">The cycle shade, on a long run of arcs a session listed</h2>
           <div className="sp-prog-controls">
             <TugChoiceGroup items={RECORD_ITEMS} value={kind} senderId={kindId} size="sm" />
@@ -1224,7 +1236,7 @@ export const spike: SpikeDef = {
   icon: "ListOrdered",
   size: {
     min: { width: 480, height: 420 },
-    preferred: { width: 860, height: 1120 },
+    preferred: { width: 1100, height: 1200 },
   },
   component: () => <SpikeCycleProgression />,
 };
