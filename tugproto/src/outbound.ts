@@ -1780,6 +1780,52 @@ export interface PromptAnchor {
 }
 
 /**
+ * Where claude has got to with one message Tug wrote to it, as claude itself
+ * reports it. tugcode forwards claude's `command_lifecycle` for every inbound
+ * message, keyed on the submission id the message went out under (claude's
+ * `command_uuid` is that id).
+ *
+ * - `queued` — claude holds the message and has not read it.
+ * - `started` — claude has taken the message in. Arriving while the message's
+ *   own turn is not yet open, it is the opener of a follow-on turn, which
+ *   tugcode announces with a {@link FollowOnStarted}; arriving inside another
+ *   turn, claude merged the message into that turn at its next step.
+ * - `completed` — the turn that carried it has ended.
+ * - `cancelled` — withdrawn by a `cancel_async_message` before claude read it;
+ *   the model never sees it.
+ * - `discarded` / `refused` — claude dropped it without running it.
+ *
+ * The one live statement of where a mid-turn message landed: a merge and a
+ * follow-on look identical at submit time, and only this says which it was.
+ */
+export interface CommandLifecycle {
+  type: "command_lifecycle";
+  submissionId: string;
+  state: "queued" | "started" | "completed" | "cancelled" | "discarded" | "refused";
+  ipc_version: number;
+}
+
+/**
+ * A turn claude opened for a message written to it while another turn ran:
+ * the message reached claude after the running turn's last step, so claude
+ * ran it as a turn of its own after that turn's `turn_complete`. Emitted by
+ * tugcode when claude reports the message `started` with no turn open, ahead
+ * of every frame of the turn it opens, so the deck learns of a turn it did
+ * not open itself before that turn's work arrives.
+ *
+ * `submissionId` is the message's own submission id (absent for a message
+ * that went out without one), and `content` its blocks, so a client that did
+ * not send it can still draw its opener. The turn closes on its own
+ * `turn_complete`.
+ */
+export interface FollowOnStarted {
+  type: "follow_on_started";
+  submissionId?: string;
+  content: ContentBlock[];
+  ipc_version: number;
+}
+
+/**
  * Transport-only envelope that carries a run of replay frames in a
  * single IPC line. The cold-replay consumer buffers committed-turn
  * frames and flushes them as one `replay_batch` instead of one wire
@@ -1854,6 +1900,8 @@ export type OutboundMessage =
   | DirectoryResult
   | StopAllWorkDone
   | PromptAnchor
+  | CommandLifecycle
+  | FollowOnStarted
   | UnknownEvent;
 
 /**
@@ -1919,6 +1967,8 @@ export const OUTBOUND_TAGS = [
   "directory_result",
   "stop_all_work_done",
   "prompt_anchor",
+  "command_lifecycle",
+  "follow_on_started",
   "unknown_event",
 ] as const satisfies ReadonlyArray<OutboundMessage["type"]>;
 

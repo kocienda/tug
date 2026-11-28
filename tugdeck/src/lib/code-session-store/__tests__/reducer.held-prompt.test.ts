@@ -163,12 +163,13 @@ describe("held prompt: what puts a submission on hold", () => {
     expect(sendFrames(effects).length).toBe(1);
   });
 
-  it("queues a healthy mid-turn submission unheld, exactly as before", () => {
+  it("holds nothing on a healthy path: a mid-turn submission goes at Return", () => {
     const live = step(fresh(), send({ turnKey: "k1" })).state;
     const { state, effects } = step(live, send({ turnKey: "k2", text: "next" }));
     expect(state.queuedSends.length).toBe(1);
     expect(state.queuedSends[0].held).toBe(false);
-    expect(sendFrames(effects)).toEqual([]);
+    expect(state.queuedSends[0].sent).toBe(true);
+    expect(sendFrames(effects).length).toBe(1);
   });
 });
 

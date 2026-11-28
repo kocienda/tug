@@ -67,9 +67,21 @@ describe("each opener names its turn by the id tugcast's latch uses", () => {
     expect(run(fresh(), send("k1")).pendingTurn?.turnId).toBe("k1");
   });
 
-  it("a queued send: its own turn key, once the turn ahead of it ends", () => {
-    const s = run(fresh(), send("k1"), send("k2"), COMPLETE);
+  it("a send held off the wire: its own turn key, once the turn ahead of it ends", () => {
+    const s = run(fresh(), send("k1"), { ...send("k2"), queueOnly: true } as CodeSessionEvent, COMPLETE);
     expect(s.pendingTurn?.turnKey).toBe("k2");
+    expect(s.pendingTurn?.turnId).toBe("k2");
+  });
+
+  it("a send claude runs as a follow-on: its own submission id, in the exchange it continues", () => {
+    const s = run(fresh(), send("k1"), send("k2"), COMPLETE, {
+      type: "follow_on_started",
+      submissionId: "k2",
+      text: "k2",
+      atoms: [],
+      turnKey: "minted",
+    });
+    expect(s.pendingTurn?.turnKey).toBe("k1");
     expect(s.pendingTurn?.turnId).toBe("k2");
   });
 

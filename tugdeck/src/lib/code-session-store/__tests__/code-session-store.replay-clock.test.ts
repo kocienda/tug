@@ -524,6 +524,10 @@ describe("BRACKET_FRAME_TYPES — the partition is total", () => {
     "task_progress",
     // A folder grant's or removal's answer — a live tugcode's, never a replay's.
     "directory_result",
+    // Where a live claude has got to with a message, and the follow-on turn
+    // it opened for one — a live claude's, never a replay's.
+    "command_lifecycle",
+    "follow_on_started",
     // `/rewind`, which cannot run during a restore.
     "prompt_anchor",
     "rewind_preview_result",

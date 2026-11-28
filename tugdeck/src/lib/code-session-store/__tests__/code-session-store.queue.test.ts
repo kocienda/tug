@@ -115,82 +115,74 @@ function userMessageFrames(
     });
 }
 
-describe("CodeSessionStore — queue flush via turn_complete(success) collapse (Step 7)", () => {
-  it("flushes exactly one queued send per successful turn and stays in submitting", () => {
+/** claude's report on a message the card sent, as tugcode forwards it. */
+function dispatchLifecycle(conn: TestFrameChannel, submissionId: string, state: string): void {
+  conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
+    type: "command_lifecycle",
+    tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
+    submissionId,
+    state,
+  });
+}
+
+/** The submission ids the deck asked claude to withdraw, in order. */
+function withdrawalFrames(conn: TestFrameChannel): string[] {
+  return conn.recordedFramesExcludingStateChange
+    .map((f) => f.decoded as { type?: string; submission_id?: string })
+    .filter((d) => d.type === "cancel_async_message")
+    .map((d) => d.submission_id as string);
+}
+
+/** tugcode's announcement of the turn claude opened for a waiting message. */
+function dispatchFollowOn(conn: TestFrameChannel, submissionId: string, text: string): void {
+  dispatchLifecycle(conn, submissionId, "started");
+  conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
+    type: "follow_on_started",
+    tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
+    submissionId,
+    content: [{ type: "text", text }],
+  });
+}
+
+describe("CodeSessionStore — a mid-turn send goes at Return and is never sent twice", () => {
+  it("sends each mid-turn submit at once, in submit order, and turn_complete sends none again", () => {
     const conn = new TestFrameChannel();
     const store = constructStore(conn);
 
     store.send("first", []);
     driveToStreaming(conn, store, FIXTURE_IDS.MSG_ID_N(1));
 
-    // Queue three mid-stream sends.
     store.send("a", []);
     store.send("b", []);
     store.send("c", []);
-    expect(store.getSnapshot().queuedSends.length).toBe(3);
-    expect(userMessageFrames(conn).map((f) => f.text)).toEqual(["first"]);
+    expect(store.getSnapshot().queuedSends.map((q) => q.sent)).toEqual([true, true, true]);
+    expect(userMessageFrames(conn).map((f) => f.text)).toEqual(["first", "a", "b", "c"]);
 
-    // Subscribe *after* the send + driveToStreaming so we count only
-    // the collapse notification on the next turn_complete.
-    let notifyCount = 0;
-    store.subscribe(() => {
-      notifyCount += 1;
-    });
-
-    // First successful turn completes. Observers see final phase
-    // `submitting` and are notified exactly once during the collapse.
+    // The turn ends with all three still at claude: nothing is flushed, the
+    // card goes idle, and the rows keep waiting.
     dispatchTurnCompleteSuccess(conn, FIXTURE_IDS.MSG_ID_N(1));
-
     let snap = store.getSnapshot();
-    expect(snap.phase).toBe("submitting");
-    expect(snap.queuedSends.length).toBe(2);
-    expect(snap.transcript.length).toBe(1);
-    expect(userMessageFrames(conn).map((f) => f.text)).toEqual([
-      "first",
-      "a",
-    ]);
-    expect(notifyCount).toBe(1);
+    expect(snap.phase).toBe("idle");
+    expect(snap.queuedSends.map((q) => q.text)).toEqual(["a", "b", "c"]);
+    expect(userMessageFrames(conn).map((f) => f.text)).toEqual(["first", "a", "b", "c"]);
 
-    // Drive the next turn: two partials → streaming → turn_complete.
+    // claude runs the first as a turn of its own and merges the other two.
+    const [a, b, c] = snap.queuedSends.map((q) => q.turnKey);
+    dispatchFollowOn(conn, a, "a");
     driveToStreaming(conn, store, FIXTURE_IDS.MSG_ID_N(2));
+    dispatchLifecycle(conn, b, "started");
+    dispatchLifecycle(conn, c, "started");
     dispatchTurnCompleteSuccess(conn, FIXTURE_IDS.MSG_ID_N(2));
-
-    snap = store.getSnapshot();
-    expect(snap.phase).toBe("submitting");
-    expect(snap.queuedSends.length).toBe(1);
-    expect(snap.transcript.length).toBe(2);
-    expect(userMessageFrames(conn).map((f) => f.text)).toEqual([
-      "first",
-      "a",
-      "b",
-    ]);
-
-    // Third turn drains the last queued entry.
-    driveToStreaming(conn, store, FIXTURE_IDS.MSG_ID_N(3));
-    dispatchTurnCompleteSuccess(conn, FIXTURE_IDS.MSG_ID_N(3));
-
-    snap = store.getSnapshot();
-    expect(snap.phase).toBe("submitting");
-    expect(snap.queuedSends.length).toBe(0);
-    expect(snap.transcript.length).toBe(3);
-    expect(userMessageFrames(conn).map((f) => f.text)).toEqual([
-      "first",
-      "a",
-      "b",
-      "c",
-    ]);
-
-    // Final turn with empty queue lands on idle, not submitting.
-    driveToStreaming(conn, store, FIXTURE_IDS.MSG_ID_N(4));
-    dispatchTurnCompleteSuccess(conn, FIXTURE_IDS.MSG_ID_N(4));
 
     snap = store.getSnapshot();
     expect(snap.phase).toBe("idle");
     expect(snap.queuedSends.length).toBe(0);
-    expect(snap.transcript.length).toBe(4);
+    expect(userMessageFrames(conn).map((f) => f.text)).toEqual(["first", "a", "b", "c"]);
+    const users = snap.transcript[0].messages.filter((m) => m.kind === "user_message");
+    expect(users.map((m) => (m as { text: string }).text)).toEqual(["first", "a", "b", "c"]);
   });
 
-  it("clears a non-empty queue on turn_complete(error) without flushing", () => {
+  it("keeps the messages claude still holds when the turn errors, and sends nothing", () => {
     const conn = new TestFrameChannel();
     const store = constructStore(conn);
 
@@ -199,7 +191,6 @@ describe("CodeSessionStore — queue flush via turn_complete(success) collapse (
 
     store.send("a", []);
     store.send("b", []);
-    expect(store.getSnapshot().queuedSends.length).toBe(2);
 
     conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
       type: "turn_complete",
@@ -211,37 +202,33 @@ describe("CodeSessionStore — queue flush via turn_complete(success) collapse (
 
     const snap = store.getSnapshot();
     expect(snap.phase).toBe("idle");
-    expect(snap.queuedSends.length).toBe(0);
+    expect(snap.queuedSends.map((q) => q.text)).toEqual(["a", "b"]);
     expect(snap.transcript[0].result).toBe("interrupted");
-    // No flushed user_message frame was written — only "first".
-    expect(userMessageFrames(conn).map((f) => f.text)).toEqual(["first"]);
+    expect(userMessageFrames(conn).map((f) => f.text)).toEqual(["first", "a", "b"]);
   });
 
-  it("surfaces the queued-send payloads on the snapshot, in submit order", () => {
+  it("surfaces the waiting payloads on the snapshot, in submit order", () => {
     const conn = new TestFrameChannel();
     const store = constructStore(conn);
 
     store.send("first", []);
     driveToStreaming(conn, store, FIXTURE_IDS.MSG_ID_N(1));
 
-    // Queue three mid-stream sends. The snapshot exposes the full
-    // payloads — text, atoms, turnKey — not just a count, so the
-    // transcript can paint a ghost row per send.
+    // The snapshot exposes the full payloads — text, atoms, turnKey — not
+    // just a count, so the transcript can paint a row per waiting send.
     store.send("alpha", []);
     store.send("bravo", []);
     store.send("charlie", []);
 
     const queued = store.getSnapshot().queuedSends;
     expect(queued.map((q) => q.text)).toEqual(["alpha", "bravo", "charlie"]);
-    // Each entry carries the turnKey minted at its queueing `send`;
-    // the three are distinct.
     expect(new Set(queued.map((q) => q.turnKey)).size).toBe(3);
     expect(
       queued.every((q) => typeof q.turnKey === "string" && q.turnKey.length > 0),
     ).toBe(true);
 
-    // The flushed head leaves the array; the tail keeps its order.
-    dispatchTurnCompleteSuccess(conn, FIXTURE_IDS.MSG_ID_N(1));
+    // The one claude takes in leaves the array; the tail keeps its order.
+    dispatchLifecycle(conn, queued[0].turnKey, "started");
     expect(store.getSnapshot().queuedSends.map((q) => q.text)).toEqual([
       "bravo",
       "charlie",
@@ -249,44 +236,32 @@ describe("CodeSessionStore — queue flush via turn_complete(success) collapse (
   });
 });
 
-describe("CodeSessionStore — queue flush when a wake settles", () => {
-  it("flushes a send queued during a wake instead of stranding it at idle", () => {
+describe("CodeSessionStore — a send during a wake", () => {
+  it("goes at once, and is seated in the wake turn when claude takes it in", () => {
     const conn = new TestFrameChannel();
     const store = constructStore(conn);
 
-    // A normal turn runs and settles to idle with an empty queue.
     store.send("first", []);
     driveToStreaming(conn, store, FIXTURE_IDS.MSG_ID_N(1));
     dispatchTurnCompleteSuccess(conn, FIXTURE_IDS.MSG_ID_N(1));
     expect(store.getSnapshot().phase).toBe("idle");
 
-    // A background completion fires a wake — the card goes busy again
-    // with no user submission of its own.
     dispatchWakeStarted(conn, "bg-task-1");
     expect(store.getSnapshot().phase).toBe("waking");
 
-    // The user submits a follow-up while the wake is in flight; it
-    // queues (a wake is a non-idle phase, so `send` parks it).
     store.send("during-wake", []);
-    expect(store.getSnapshot().phase).toBe("waking");
-    expect(store.getSnapshot().queuedSends.map((q) => q.text)).toEqual([
-      "during-wake",
-    ]);
-    // Nothing has gone to the wire yet — only the opening "first".
-    expect(userMessageFrames(conn).map((f) => f.text)).toEqual(["first"]);
+    expect(userMessageFrames(conn).map((f) => f.text)).toEqual(["first", "during-wake"]);
+    const key = store.getSnapshot().queuedSends[0].turnKey;
 
-    // The wake completes. The queued send drains in the same dispatch:
-    // phase collapses to `submitting` (not a transient idle), the ghost
-    // clears, and the message finally goes out on the wire.
+    dispatchLifecycle(conn, key, "started");
     dispatchTurnCompleteSuccess(conn, FIXTURE_IDS.MSG_ID_N(2));
 
     const snap = store.getSnapshot();
-    expect(snap.phase).toBe("submitting");
+    expect(snap.phase).toBe("idle");
     expect(snap.queuedSends.length).toBe(0);
-    expect(userMessageFrames(conn).map((f) => f.text)).toEqual([
-      "first",
-      "during-wake",
-    ]);
+    expect(userMessageFrames(conn).map((f) => f.text)).toEqual(["first", "during-wake"]);
+    const wake = snap.transcript[snap.transcript.length - 1];
+    expect(wake.messages.some((m) => m.kind === "user_message" && m.submissionId === key)).toBe(true);
   });
 });
 
@@ -304,15 +279,19 @@ describe("CodeSessionStore — cancelling and peeling queued sends", () => {
     const queued = store.getSnapshot().queuedSends;
     expect(queued.map((q) => q.text)).toEqual(["alpha", "bravo", "charlie"]);
 
-    // Cancel the middle send, targeted by its turnKey.
+    // Cancel the middle send, targeted by its turnKey. It is waiting at
+    // claude, so the deck asks claude for it back and claude answers.
     store.cancelQueuedSend(queued[1].turnKey);
+    expect(withdrawalFrames(conn)).toEqual([queued[1].turnKey]);
+    expect(store.getSnapshot().queuedSends.map((q) => q.text)).toEqual(["alpha", "bravo", "charlie"]);
+    dispatchLifecycle(conn, queued[1].turnKey, "cancelled");
 
     const snap = store.getSnapshot();
     expect(snap.queuedSends.map((q) => q.text)).toEqual(["alpha", "charlie"]);
     // The un-sent prompt is offered back through the draft-restore slot.
     expect(snap.pendingDraftRestore?.text).toBe("bravo");
-    // A true un-send — no wire traffic; only "first" ever went out.
-    expect(userMessageFrames(conn).map((f) => f.text)).toEqual(["first"]);
+    // Removing the row sends no second copy of anything.
+    expect(userMessageFrames(conn).map((f) => f.text)).toEqual(["first", "alpha", "bravo", "charlie"]);
   });
 
   it("cancelQueuedSend is a no-op for an unknown turnKey", () => {
@@ -344,38 +323,41 @@ describe("CodeSessionStore — cancelling and peeling queued sends", () => {
       "bravo",
     ]);
 
+    const [alpha, bravo] = store.getSnapshot().queuedSends.map((q) => q.turnKey);
     const framesBeforePop = conn.recordedFramesExcludingStateChange.length;
 
-    // First pop — the newest queued send ("bravo") goes; a true
-    // un-send, so no wire frame.
+    // First pop — the newest queued send ("bravo") is asked back of
+    // claude, which holds it; claude's answer takes it out.
     store.popInteractive();
+    expect(withdrawalFrames(conn)).toEqual([bravo]);
+    dispatchLifecycle(conn, bravo, "cancelled");
     expect(store.getSnapshot().queuedSends.map((q) => q.text)).toEqual([
       "alpha",
     ]);
-    expect(conn.recordedFramesExcludingStateChange.length).toBe(
-      framesBeforePop,
-    );
 
-    // Second pop — "alpha" goes; the queue is now empty; still no
-    // wire frame.
+    // Second pop — "alpha" the same way; the queue is now empty.
     store.popInteractive();
+    expect(withdrawalFrames(conn)).toEqual([bravo, alpha]);
+    dispatchLifecycle(conn, alpha, "cancelled");
     expect(store.getSnapshot().queuedSends.length).toBe(0);
     expect(conn.recordedFramesExcludingStateChange.length).toBe(
-      framesBeforePop,
+      framesBeforePop + 2,
     );
 
     // Third pop — the queue is empty, so the gesture reaches the
     // running turn: one `interrupt` frame on the wire.
     store.popInteractive();
     expect(conn.recordedFramesExcludingStateChange.length).toBe(
-      framesBeforePop + 1,
+      framesBeforePop + 3,
     );
     expect(
-      conn.recordedFramesExcludingStateChange[framesBeforePop].decoded,
+      conn.recordedFramesExcludingStateChange[framesBeforePop + 2].decoded,
     ).toEqual({
       tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
       type: "interrupt",
     });
+    // Nothing the user took back was sent a second time.
+    expect(userMessageFrames(conn).map((f) => f.text)).toEqual(["first", "alpha", "bravo"]);
   });
 });
 
@@ -388,17 +370,18 @@ describe("CodeSessionStore — a queued send is stamped when the user submits it
     driveToStreaming(conn, store, FIXTURE_IDS.MSG_ID_N(1));
 
     store.send("queued", []);
-    const queuedAt = store.getSnapshot().queuedSends[0].queuedAt;
+    const { queuedAt, turnKey } = store.getSnapshot().queuedSends[0];
 
     // Sit in the queue a while — a real turn runs for seconds or minutes,
     // and anything the user does meanwhile (a `$` exchange, [D111]) is
     // timestamped in that gap.
     await Bun.sleep(5);
     dispatchTurnCompleteSuccess(conn, FIXTURE_IDS.MSG_ID_N(1));
+    dispatchFollowOn(conn, turnKey, "queued");
 
     const flushed = store.getSnapshot().activeTurn;
-    expect(flushed?.messages[0].kind).toBe("user_message");
-    const opener = flushed!.messages[0] as { submitAt: number; createdAt: number };
+    const opener = flushed!.messages[flushed!.messages.length - 1] as { kind: string; submitAt: number; createdAt: number };
+    expect(opener.kind).toBe("user_message");
     expect(opener.submitAt).toBe(queuedAt);
     expect(opener.createdAt).toBe(queuedAt);
     // Telemetry still measures from dispatch — the turn started now.

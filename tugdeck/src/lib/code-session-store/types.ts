@@ -966,6 +966,26 @@ export interface QueuedSend {
    * draft on a "termination" save ([L23]) with nothing added.
    */
   held: boolean;
+  /**
+   * True once the submission is on the wire: it was sent at Return while a
+   * turn ran, and claude holds it until it takes it in ([B07]). The row reads
+   * `Waiting`. claude's `command_lifecycle started` seats it in the running
+   * turn, where it was taken in, or — when that turn has already ended — the
+   * follow-on announced for it does; `cancelled`, `discarded` or `refused`
+   * takes it out of the queue and offers the words back. No flush ever sends
+   * it a second time, and while one waits nothing behind it is flushed: the
+   * turn claude opens for it comes first.
+   */
+  sent?: true;
+  /**
+   * True once the user has taken a waiting message back, by its remove
+   * button or by Stop, and the deck has asked claude to withdraw it ([B06]).
+   * The row stays until claude answers in its `command_lifecycle`:
+   * `cancelled` takes it out and offers the words back, as for any removed
+   * message, and `started` — claude had already taken it in — seats it where
+   * it was taken in. A second press asks nothing more.
+   */
+  withdrawing?: true;
 }
 
 /**

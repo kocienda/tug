@@ -201,6 +201,15 @@ const MAX_SELECTED = 20;
  * a deliberate, argued act, not a reflex to make the lint quiet.
  */
 const ACCEPTED_FANOUT: Record<string, number> = {
+    // The session store's reducer: every live-turn behavior the Session card
+    // shows is decided here, so each test that drives a turn end to end names
+    // it. Recorded at 21 for `at0912`, the one witness of a message sent
+    // during a turn's last command being acted on in view: it seats a real
+    // claude behind `TUG_REAL_CLAUDE`, so a derived selection that picks it
+    // spends no launch, and nothing narrower than the reducer is what it
+    // exercises.
+    "tugdeck/src/lib/code-session-store/reducer.ts": 21,
+
     // The navigator. Every surface that can hold the keyboard names it, so it is
     // the one path with structural coupling wide enough to outrun the budget.
     // It was 68 while the suite carried a test per widget for the same ring

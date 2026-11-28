@@ -40,6 +40,7 @@ import { mkdtempSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { launchTugApp } from "./_harness";
 import { sessionCardShape, SESSION_CARD_SIZE_SHORT } from "./_harness/shapes";
+import { restoreSettled } from "./overlay-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -146,6 +147,11 @@ async function readMenuRows(app: App): Promise<Row[]> {
   await app.body("A").evalJS(
     `(() => { const el = document.querySelector(${JSON.stringify(SPAN)}); if (el) el.scrollIntoView({ block: "center" }); return !!el; })()`,
   );
+  // A native press goes through the window, and the card binds as a resume,
+  // whose replay raises the restore gate over it: wait for the card's restore
+  // to be over and the gate down, or the press lands on the gate's modal and
+  // no menu opens.
+  await restoreSettled(app, "A");
   await app.body("A").nativeRightClickAtElement(SPAN);
   await app.body("A").waitForCondition<boolean>(
     `document.querySelector('[data-item-action="copy-command"]') !== null`,

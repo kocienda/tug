@@ -398,6 +398,26 @@ describe("replay, lineage and rewind", () => {
     expect(failPath("prompt_anchor", { type: "prompt_anchor" })).toBe("$.promptUuid");
   });
 
+  test("command_lifecycle: a submission id and one of claude's six states", () => {
+    const frame = { type: "command_lifecycle", submissionId: "s", state: "started", ipc_version: 2 };
+    expect(failPath("command_lifecycle", frame)).toBeNull();
+    expect(failPath("command_lifecycle", { ...frame, state: "rescheduled" })).toBe("$.state");
+    expect(failPath("command_lifecycle", { type: "command_lifecycle", state: "queued" })).toBe("$.submissionId");
+  });
+
+  test("follow_on_started: content blocks, with the submission id optional", () => {
+    const frame = {
+      type: "follow_on_started",
+      submissionId: "s",
+      content: [{ type: "text", text: "push" }],
+      ipc_version: 2,
+    };
+    expect(failPath("follow_on_started", frame)).toBeNull();
+    const { submissionId: _id, ...anonymous } = frame;
+    expect(failPath("follow_on_started", anonymous)).toBeNull();
+    expect(failPath("follow_on_started", { ...frame, content: [{ type: "text" }] })).toBe("$.content[0].text");
+  });
+
   test("rewind_preview_result and rewind_result", () => {
     const preview = { type: "rewind_preview_result", promptUuid: "u", canRewind: true, filesChanged: ["a.ts"] };
     expect(failPath("rewind_preview_result", preview)).toBeNull();

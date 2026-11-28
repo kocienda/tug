@@ -31,6 +31,7 @@ import type {
   ControlRequestForward,
   ActivityDelta,
   WakeStarted,
+  FollowOnStarted,
   ContentBlock,
   RewindPreview,
   SessionRewind,
@@ -103,6 +104,7 @@ export {
 import {
   type EventMappingContext,
   buildBackgroundTasksChangedMessage,
+  buildCommandLifecycleMessage,
   buildTaskProgressMessage,
   buildTaskStartedMessage,
   buildTaskUpdatedMessage,
@@ -439,31 +441,27 @@ export class SessionManager {
    */
   private readonly timers = new TimerSet();
   /**
-   * FIFO of user messages written to claude's stdin while a turn was
-   * already in flight — submitted but not yet bracketed by an
-   * `ActiveTurn`. claude buffers a mid-turn `user_message` and runs it
-   * as a separate follow-on turn with its own `result`; the stdout
-   * drain opens an `ActiveTurn` for that turn and claims the head of
-   * this FIFO as the turn's user-message payload. Empty in the common,
-   * non-overlapping case (one turn fully completes before the next
-   * `handleUserMessage`), so the drain-open path in
-   * {@link handleClaudeLine} is dormant in normal operation.
+   * User messages written to claude's stdin while a turn was already in
+   * flight and not yet taken in, keyed on the uuid claude was given for
+   * each (the submission id, or one minted for a message without one).
    *
-   * Exception: when claude *merges* a mid-turn message into the
-   * running turn — it does this at an agent-loop iteration boundary; see
-   * `tugrust/crates/tugcast/tests/fixtures/stream-json-catalog/v2.1.181-steering-spike/queued-command-mechanism.md`
-   * — no follow-on turn is produced and
-   * the merged message's entry is left stale here. tugcode cannot
-   * distinguish merge from buffer at submit time (claude emits no
-   * signal for it), so a stale entry mislabels at most one later
-   * turn's replay-synthetic `add_user_message` text; the wire
-   * `turn_complete` bracketing is unaffected. Threading the user's
-   * merge-vs-queue intent down from tugdeck is a follow-on concern.
+   * claude settles each one in one of two ways, and says which in its
+   * `command_lifecycle` ({@link handleCommandLifecycle}): `started` inside
+   * the running turn means it merged the message at that turn's next step,
+   * and the entry is dropped; `started` with no turn open means it is
+   * running the message as a follow-on turn of its own after the running
+   * turn's `result`, and the drain opens that turn for exactly this entry.
+   * `cancelled`, `discarded` and `refused` drop the entry too. Pairing on
+   * claude's own report means a merged message can never leave an entry
+   * behind to be mistaken for a later turn's opener.
    */
-  private pendingTurnInputs: Array<{
-    content: ReadonlyArray<ContentBlock>;
-    submissionId: string | null;
-  }> = [];
+  private pendingTurnInputs = new Map<
+    string,
+    {
+      content: ReadonlyArray<ContentBlock>;
+      submissionId: string | null;
+    }
+  >();
   /**
    * True once the stdout drain has observed EOF on claude's stdout.
    * Read by {@link handleUserMessage} as a fast-path check before
@@ -822,6 +820,16 @@ export class SessionManager {
   private pendingStops = new Map<string, { taskId: string; ended: boolean }>();
 
   /**
+   * In-flight `cancel_async_message` requests, keyed by the control
+   * `request_id`, each naming the uuid of the message it withdraws ([B06]).
+   * claude reports a withdrawn message `command_lifecycle cancelled` itself,
+   * which settles its pending entry and tells the deck; the answer is only
+   * caught so it does not reach the turn dispatchers, and so a `cancelled:
+   * true` claude sent no lifecycle for still settles the entry and the row.
+   */
+  private pendingWithdrawals = new Map<string, string>();
+
+  /**
    * `/rewind` and prompt retraction: the verbs, their in-flight
    * `rewind_files` requests, the cached preview read, and the JSONL side of
    * a conversation rewind. The respawn it ends in is the manager's
@@ -983,7 +991,7 @@ export class SessionManager {
       claudeProcess: () => this.claudeProcess,
       activeTurn: () => this.activeTurn,
       killAndCleanup: (reason) => this.killAndCleanup(reason),
-      turnPending: () => this.pendingTurnInputs.length > 0,
+      turnPending: () => this.pendingTurnInputs.size > 0,
       underRespawnGate: (work) => this.respawn(work),
       respawnIntoRewindFork: (newId) => this.respawnIntoRewindFork(newId),
       respawnRewoundInPlace: (liveId) => this.respawnRewoundInPlace(liveId),
@@ -2232,6 +2240,10 @@ export class SessionManager {
     if (this.pendingStops.size > 0 && this.observeStopTask(event)) {
       return;
     }
+    // A `cancel_async_message` answer, caught the same way.
+    if (this.pendingWithdrawals.size > 0 && this.observeWithdrawal(event)) {
+      return;
+    }
     // `ai-title`: claude's auto-generated session title. It arrives
     // turn-free and carries no `uuid`, so it must be caught here rather
     // than in the turn dispatchers. Forwarded as `session_title` and
@@ -2243,6 +2255,14 @@ export class SessionManager {
       if (title.length > 0) {
         writeLine({ type: "session_title", title });
       }
+      return;
+    }
+    // `command_lifecycle`: where claude has got to with one message of ours.
+    // Caught before turn routing because it lands between turns as often as
+    // in one — a follow-on's `started` arrives after the turn before it has
+    // closed, and is what opens the follow-on's turn.
+    if (event.type === "command_lifecycle") {
+      this.handleCommandLifecycle(event);
       return;
     }
     // Intercept the `initialize` control-response before any turn
@@ -2351,16 +2371,6 @@ export class SessionManager {
         this.announceSegmentIfIdChanged(event);
       }
       this.reportedDirectories = reportedAdditionalDirectories(event);
-    }
-    // Open a turn for a buffered follow-on. `handleUserMessage` opens
-    // the turn for the idle case; when it instead queued the message
-    // (a turn was already running), claude runs it as a separate turn
-    // after the current one's `result`. Those events would otherwise
-    // arrive with `activeTurn === null` and be dropped as inter-turn —
-    // the overlapping-turn routing bug. The drain claims the head of
-    // `pendingTurnInputs` as the follow-on turn's user-message payload.
-    if (this.activeTurn === null && this.pendingTurnInputs.length > 0) {
-      this.openTurnFromPending();
     }
     if (this.activeTurn !== null) {
       const turn = this.activeTurn;
@@ -2490,21 +2500,63 @@ export class SessionManager {
   }
 
   /**
-   * Open an `ActiveTurn` for the head of {@link pendingTurnInputs} and
-   * install it as {@link activeTurn}. Called by the stdout drain when
-   * claude's events for a buffered follow-on turn begin to arrive
-   * (see {@link handleClaudeLine}). A fresh `seq` is allocated here,
-   * at turn-open, so the user-half `seq` orders just before the
-   * turn's own frames. No-op when the FIFO is empty.
+   * Act on claude's `command_lifecycle` for one message and forward it to
+   * the deck as the frame of the same name.
+   *
+   * `started` is the one state that moves a turn. With a turn open, it is
+   * either that turn's own opener being read (never held as pending, so
+   * nothing to settle) or a queued message claude merged into the turn,
+   * whose pending entry is then settled. With no turn open, the running
+   * turn has already ended and claude is running the message as a
+   * follow-on turn of its own: the drain opens that turn for exactly this
+   * message and announces it with `follow_on_started` ahead of every frame
+   * the turn carries, so the deck learns of a turn it did not open before
+   * its work arrives. `cancelled`, `discarded` and `refused` settle the
+   * entry without a turn.
+   *
+   * The lifecycle frame goes out before the announcement, so the deck reads
+   * "claude took it in" and then "as a turn of its own". It is not held back
+   * by a replay bracket: it says where a message is, not what a turn holds,
+   * and a deck that missed a `started` would show the message as waiting
+   * after claude had acted on it.
    */
-  private openTurnFromPending(): void {
-    const pending = this.pendingTurnInputs.shift();
-    if (pending === undefined) return;
-    this.activeTurn = new ActiveTurn(
-      this.nextSeq(),
-      pending.content,
-      pending.submissionId,
-    );
+  private handleCommandLifecycle(event: Record<string, unknown>): void {
+    const frame = buildCommandLifecycleMessage(event);
+    if (frame === null) return;
+    const uuid = frame.submissionId;
+    let followOn: FollowOnStarted | null = null;
+    switch (frame.state) {
+      case "started": {
+        const pending = this.pendingTurnInputs.get(uuid);
+        if (pending === undefined) break;
+        this.pendingTurnInputs.delete(uuid);
+        if (this.activeTurn !== null) break; // merged into the running turn
+        this.activeTurn = new ActiveTurn(
+          this.nextSeq(),
+          pending.content,
+          pending.submissionId,
+        );
+        followOn = {
+          type: "follow_on_started",
+          ...(pending.submissionId !== null
+            ? { submissionId: pending.submissionId }
+            : {}),
+          content: [...pending.content],
+          ipc_version: IPC_VERSION,
+        };
+        break;
+      }
+      case "cancelled":
+      case "discarded":
+      case "refused":
+        this.pendingTurnInputs.delete(uuid);
+        break;
+      case "queued":
+      case "completed":
+        break;
+    }
+    this.emitCounted(frame);
+    if (followOn !== null) this.emitCounted(followOn);
   }
 
   /**
@@ -3667,12 +3719,15 @@ export class SessionManager {
     // claude's stdout is gone: no follow-on turn will ever be
     // bracketed, so drop any still-queued inputs rather than let a
     // respawn's drain claim them for an unrelated turn.
-    this.pendingTurnInputs.length = 0;
+    const dropped = [...this.pendingTurnInputs.keys()];
+    this.pendingTurnInputs.clear();
+    this.pendingWithdrawals.clear();
     const turn = this.activeTurn;
     if (turn === null) {
       logSessionLifecycle("tugcode.claude_stdout_eof", {
         session_id: this.sessionId,
       });
+      this.reportDiscardedInputs(dropped);
       return;
     }
     // Gate sites 6 & 7. The EOF emit is held back during the
@@ -3725,6 +3780,28 @@ export class SessionManager {
     // finished. `handleUserMessage` no longer clears it — it no longer
     // owns the turn lifecycle.
     this.activeTurn = null;
+    this.reportDiscardedInputs(dropped);
+  }
+
+  /**
+   * Tell the deck that the claude which held these messages is gone, so it
+   * will never run them: each gets the `command_lifecycle discarded` claude
+   * itself would have sent. Without it a message waiting at a claude that
+   * died between turns, or whose turn ended in an error rather than a
+   * cancel, stays drawn as waiting on nothing, and everything the card sends
+   * after it waits behind it. Written after the turn's own end, so a
+   * `turn_cancelled` — on which the deck re-sends what was waiting to the
+   * next claude — is read first, and these find nothing waiting.
+   */
+  private reportDiscardedInputs(uuids: ReadonlyArray<string>): void {
+    for (const uuid of uuids) {
+      this.emitCounted({
+        type: "command_lifecycle",
+        submissionId: uuid,
+        state: "discarded",
+        ipc_version: IPC_VERSION,
+      });
+    }
   }
 
   /**
@@ -3732,10 +3809,11 @@ export class SessionManager {
    * claude's stdin verbatim (the wire shape IS the API shape post-
    * Step-5c — no construction). If no turn is running, open the
    * `ActiveTurn` for it and await its completion; if a turn is
-   * already in flight, queue the message in {@link pendingTurnInputs}
-   * and return — claude buffers it and the stdout drain opens its
-   * follow-on turn. Turn ownership is drain-bounded: one `ActiveTurn`
-   * per claude `result`, never one per `handleUserMessage` call.
+   * already in flight, hold the message in {@link pendingTurnInputs}
+   * and return — claude buffers it, and its `command_lifecycle` says
+   * whether it merged into the running turn or opens a follow-on turn.
+   * Turn ownership is drain-bounded: one `ActiveTurn` per claude
+   * `result`, never one per `handleUserMessage` call.
    */
   async handleUserMessage(msg: UserMessage): Promise<void> {
     // A new turn will grow the JSONL — drop the cached `/rewind` preview read
@@ -3810,9 +3888,14 @@ export class SessionManager {
     // wire shape IS the Anthropic API shape post-Step-5c; no
     // construction step. Per Step 5c.
     const contentBlocks = msg.content;
-    // Only a well-formed id reaches claude as the input's `uuid`, so only
-    // that one can match the JSONL entry claude writes for this turn.
+    // Only a well-formed id is the deck's own, so only that one can match
+    // a journal row to the JSONL entry claude writes for this turn.
     const submissionId = isSubmissionId(msg.submission_id) ? msg.submission_id : null;
+    // The uuid claude is given for this input, and so the key of every
+    // `command_lifecycle` it reports about it. A message with no well-formed
+    // submission id gets one minted here, so claude reports on it too and a
+    // follow-on it opens is still paired with its own message.
+    const inputUuid = submissionId ?? crypto.randomUUID();
 
     const userInput = JSON.stringify({
       type: "user",
@@ -3822,7 +3905,7 @@ export class SessionManager {
       // `queued_command`'s `source_uuid` when it absorbs the message into a
       // running turn. That is what lets a replay match the pending-turn
       // journal row (keyed on the same id) to what claude wrote down.
-      ...(submissionId !== null ? { uuid: submissionId } : {}),
+      uuid: inputUuid,
       message: {
         role: "user",
         content: contentBlocks,
@@ -3846,10 +3929,11 @@ export class SessionManager {
     // drain bracketing it (`result`) or claude's stdout EOFing.
     //
     // If a turn IS already in flight (or messages are queued ahead),
-    // claude buffers this message and runs it as a follow-on turn with
-    // its own `result`. Queue it; the stdout drain opens its
-    // `ActiveTurn` when claude's events for it arrive (see
-    // `handleClaudeLine`). Queuing — never installing a second
+    // claude buffers this message and either merges it into the running
+    // turn at its next step or runs it as a follow-on turn with its own
+    // `result`. Hold it; claude's `command_lifecycle started` says which,
+    // and opens the follow-on's `ActiveTurn` for this very message (see
+    // `handleCommandLifecycle`). Holding — never installing a second
     // `ActiveTurn` here — is the fix for the overlapping-turn routing
     // bug: a second install would clobber the running turn's slot and
     // strand both turns' events.
@@ -3859,7 +3943,7 @@ export class SessionManager {
     // `userAttachments` are the source of truth for the in-flight
     // turn's `add_user_message` payload during a mid-turn
     // `runReplay`.
-    if (this.activeTurn === null && this.pendingTurnInputs.length === 0) {
+    if (this.activeTurn === null && this.pendingTurnInputs.size === 0) {
       const turn = new ActiveTurn(
         this.nextSeq(),
         msg.content,
@@ -3872,7 +3956,7 @@ export class SessionManager {
       // (the tests, any future awaiting caller) observe it.
       await turn.completion;
     } else {
-      this.pendingTurnInputs.push({
+      this.pendingTurnInputs.set(inputUuid, {
         content: msg.content,
         submissionId,
       });
@@ -4078,7 +4162,7 @@ export class SessionManager {
     // will run it, so "no turn" would be a lie the deck now acts on — it
     // commits its open turn on that receipt. Answer nothing; the deck's
     // silence deadline turns Stop into Force Stop, whose teardown ends both.
-    if (this.pendingTurnInputs.length > 0) return;
+    if (this.pendingTurnInputs.size > 0) return;
     // No turn was open and none is coming. The control request above still
     // went to stdin, which is harmless — but no escalation is armed and no
     // turn can end, so this interrupt has no terminal of its own. Receipt it:
@@ -4163,6 +4247,67 @@ export class SessionManager {
     this.pendingStops.delete(requestId);
     if (!stop.ended) {
       this.emitStoppedTask(stop.taskId);
+    }
+    return true;
+  }
+
+  /**
+   * Withdraw a message the deck sent mid-turn ([B06]): write claude's
+   * `cancel_async_message` for the uuid it went to claude under. Only a
+   * message still pending is withdrawn. One that is not has either been
+   * taken in, so its `started` has already gone to the deck and seated the
+   * row, or opened the turn itself; claude has nothing to withdraw for
+   * either, and the deck needs no answer.
+   */
+  handleCancelAsyncMessage(submissionId: string): void {
+    if (!this.claudeProcess) {
+      console.log("No active claude process for cancel_async_message");
+      return;
+    }
+    const uuid = this.pendingInputUuid(submissionId);
+    if (uuid === null) return;
+    const requestId = generateRequestId();
+    this.pendingWithdrawals.set(requestId, uuid);
+    sendControlRequest(this.claudeProcess.stdin, requestId, {
+      subtype: "cancel_async_message",
+      message_uuid: uuid,
+    });
+  }
+
+  /** The uuid a pending message went to claude under, by its submission id. */
+  private pendingInputUuid(submissionId: string): string | null {
+    if (this.pendingTurnInputs.has(submissionId)) return submissionId;
+    for (const [uuid, pending] of this.pendingTurnInputs) {
+      if (pending.submissionId === submissionId) return uuid;
+    }
+    return null;
+  }
+
+  /**
+   * Catch the answer to a {@link handleCancelAsyncMessage}. `cancelled:
+   * false` means claude had taken the message in, and its `started` says
+   * so. `cancelled: true` is followed or preceded by claude's own
+   * `command_lifecycle cancelled`; if that has not settled the entry, the
+   * entry is settled here and the deck is sent the same frame, so a
+   * withdrawn row never stays waiting on a message claude will not run.
+   * Returns `true` for the answer, which is consumed.
+   */
+  private observeWithdrawal(event: Record<string, unknown>): boolean {
+    const requestId = readControlResponseRequestId(event);
+    if (requestId === null) return false;
+    const uuid = this.pendingWithdrawals.get(requestId);
+    if (uuid === undefined) return false;
+    this.pendingWithdrawals.delete(requestId);
+    const response = isRecord(event.response) ? event.response : null;
+    const answer = response !== null && isRecord(response.response) ? response.response : null;
+    if (answer?.cancelled === true && this.pendingTurnInputs.has(uuid)) {
+      this.pendingTurnInputs.delete(uuid);
+      this.emitCounted({
+        type: "command_lifecycle",
+        submissionId: uuid,
+        state: "cancelled",
+        ipc_version: IPC_VERSION,
+      });
     }
     return true;
   }
@@ -4677,12 +4822,12 @@ export class SessionManager {
    */
   private applyDeferredEffort(): void {
     if (!this.effortRespawnPending) return;
-    if (this.activeTurn !== null || this.pendingTurnInputs.length > 0) return;
+    if (this.activeTurn !== null || this.pendingTurnInputs.size > 0) return;
     void this.respawn(async () => {
       // Re-read under the gate: another respawn may have run first and
       // carried the level, or a turn may have opened while this one queued.
       if (!this.effortRespawnPending) return;
-      if (this.activeTurn !== null || this.pendingTurnInputs.length > 0) return;
+      if (this.activeTurn !== null || this.pendingTurnInputs.size > 0) return;
       await this.respawnInPlace("effort");
     }).catch((err) => {
       logSessionLifecycle("tugcode.effort_change_deferred", {

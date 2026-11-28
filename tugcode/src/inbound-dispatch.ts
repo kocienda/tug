@@ -122,6 +122,11 @@ export const INBOUND_HANDLERS: InboundHandlers = {
   stop_task: (msg, { sessionManager }) =>
     sessionManager?.handleStopTask(msg.task_id),
 
+  // Withdraw a message sent mid-turn that claude has not taken in ([B06]).
+  // claude's own `command_lifecycle` is the answer the deck reads.
+  cancel_async_message: (msg, { sessionManager }) =>
+    sessionManager?.handleCancelAsyncMessage(msg.submission_id),
+
   // End the session's every piece of work and respawn `--resume` ([P04]).
   // Fire-and-forget for the same reason the other respawns are: awaiting
   // would block the IPC loop behind the teardown's grace.

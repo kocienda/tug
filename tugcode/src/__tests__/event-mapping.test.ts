@@ -122,13 +122,21 @@ describe("routeTopLevelEvent", () => {
     }
   });
 
-  test("command_lifecycle is swallowed (no unknown_event banner)", () => {
-    for (const state of ["queued", "started", "completed", "cancelled", "discarded", "refused"]) {
+  test("command_lifecycle is forwarded keyed on the submission id", () => {
+    for (const state of ["queued", "started", "completed", "cancelled", "discarded", "refused"] as const) {
       const event = { type: "command_lifecycle", command_uuid: "c-1", state, session_id: "sess-123" };
       const result = routeTopLevelEvent(event, baseCtx);
-      expect(result.messages).toHaveLength(0);
+      expect(result.messages).toEqual([
+        { type: "command_lifecycle", submissionId: "c-1", state, ipc_version: expect.any(Number) },
+      ]);
       expect(result.gotResult).toBe(false);
     }
+  });
+
+  test("a command_lifecycle state the protocol does not name is dropped, not bannered", () => {
+    const event = { type: "command_lifecycle", command_uuid: "c-1", state: "rescheduled" };
+    const result = routeTopLevelEvent(event, baseCtx);
+    expect(result.messages).toHaveLength(0);
   });
 
   test("unrecognized top-level type emits an unknown_event frame", () => {

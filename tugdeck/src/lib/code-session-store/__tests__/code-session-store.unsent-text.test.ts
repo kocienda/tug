@@ -121,12 +121,14 @@ describe("CodeSessionStore.captureUnsentText", () => {
     store.stashUnsentText();
     store.interrupt();
 
-    // CASE A: the in-flight submission is parked for re-edit and the queue
-    // is cleared by the reducer — the exact loss this stash exists for.
+    // CASE A: the in-flight submission is parked for re-edit, and the queued
+    // messages, which went to claude at Return, are asked back of it ahead
+    // of the stop; once claude answers they leave the queue — the exact loss
+    // this stash exists for.
     const snap = store.getSnapshot();
     expect(snap.phase).toBe("idle");
     expect(snap.pendingDraftRestore?.text).toBe("pulled back");
-    expect(snap.queuedSends).toEqual([]);
+    expect(snap.queuedSends.map((q) => q.withdrawing)).toEqual([true, true]);
 
     expect(store.captureUnsentText()).toEqual([
       "pulled back",

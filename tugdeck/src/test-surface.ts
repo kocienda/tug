@@ -707,8 +707,13 @@ import {
  * `canInterrupt` (what the join offer's `turn-in-flight` hold reads), whether
  * a catch-up stands, and the open turn's key — so a test can say a card
  * yielded to tugcast's turn latch. Additive; major stays `2`.
+ *
+ * `2.72.0`: adds `queuedTurnKeys` to {@link TugTestSurface.turnFacts}, the
+ * submission id of each message the card holds queued, oldest first, so a
+ * test with no claude behind it can answer a waiting message's withdrawal as
+ * claude would. Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.71.0" as const;
+export const SURFACE_VERSION = "2.72.0" as const;
 
 /** What {@link TugTestSurface.readClipboardFacts} reports of the pasteboard. */
 export interface ClipboardFacts {
@@ -2098,13 +2103,15 @@ export interface TugTestSurface {
    * The card's belief about its turn, read from its session store: the phase,
    * whether it would offer Stop (`canInterrupt`, which the join offer's
    * `turn-in-flight` hold reads), whether a catch-up stands, and the open
-   * turn's key (SURFACE_VERSION 2.71.0).
+   * turn's key (SURFACE_VERSION 2.71.0); and the submission id of each
+   * queued message, oldest first (SURFACE_VERSION 2.72.0).
    */
   turnFacts(cardId: string): {
     phase: string;
     canInterrupt: boolean;
     catchingUp: boolean;
     activeTurnKey: string | null;
+    queuedTurnKeys: string[];
   };
   /**
    * A `/compact` run's truth for one card, read from the stores: the run (its
@@ -3344,6 +3351,7 @@ function createViewSurfaceMethods(deck: ViewSurfaceStore) {
         canInterrupt: snap.canInterrupt === true,
         catchingUp: snap.catchingUp,
         activeTurnKey: snap.activeTurn?.turnKey ?? null,
+        queuedTurnKeys: snap.queuedSends.map((q) => q.turnKey),
       };
     },
 

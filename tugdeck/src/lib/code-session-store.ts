@@ -1946,11 +1946,11 @@ export class CodeSessionStore extends Subscribable {
 
   /**
    * Un-send one queued mid-turn submission, identified by the
-   * `turnKey` its transcript ghost row carries. The send was queued
-   * but never dispatched, so this is a pure local removal — no wire
-   * frame. The reducer offers the prompt back through
-   * `pendingDraftRestore`. A no-op if the send already flushed (a race
-   * with `turn_complete`) or the store is disposed.
+   * `turnKey` its transcript ghost row carries. A send never put on the
+   * wire is removed locally, and the reducer offers the prompt back
+   * through `pendingDraftRestore`. One waiting at claude is withdrawn
+   * through claude, which answers whether it was still waiting. A no-op
+   * if the send was already taken in or the store is disposed.
    */
   cancelQueuedSend(turnKey: string): void {
     if (this._disposed) return;

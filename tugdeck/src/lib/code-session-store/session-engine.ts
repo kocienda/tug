@@ -923,6 +923,25 @@ export class SessionEngine {
       case "settled_runs":
         // Taken apart before admission (`UNWRAPPED_CODE_OUTPUT_TYPES`).
         return null;
+      case "command_lifecycle":
+        // Where claude has got to with a message the card sent.
+        return frame;
+      case "follow_on_started": {
+        // A turn claude opened for a message it did not merge. The content
+        // is synthesized the way a replayed opener's is, for the case the
+        // card holds no copy of the message; the reducer prefers its own.
+        const synth = synthesizeUserMessageFromBlocks(frame.content, this._replayBytes, { bakeImage: NO_BAKE });
+        this.carryReplayBytes(synth.atoms);
+        return {
+          type: "follow_on_started",
+          text: synth.text,
+          atoms: synth.atoms,
+          turnKey: mintTurnKey(),
+          ...(frame.submissionId !== undefined && frame.submissionId.length > 0
+            ? { submissionId: frame.submissionId }
+            : {}),
+        };
+      }
     }
   }
 
@@ -1589,6 +1608,15 @@ export class SessionEngine {
           // isn't present, so a stale ack is a true no-op (no snapshot
           // churn). The mirror drops the removed turns' parse entries.
           this._transcript = truncateTranscriptAtAnchor(this._transcript, effect.promptUuid);
+          break;
+        case "reopen-turn":
+          // A follow-on continues the turn the card just committed ([B03]):
+          // the reducer holds that turn in flight again under its own key, so
+          // its committed copy leaves the transcript here and returns, whole,
+          // at the next `turn_complete`. Other turns keep their references.
+          if (this._transcript.some((t) => t.turnKey === effect.turnKey)) {
+            this._transcript = this._transcript.filter((t) => t.turnKey !== effect.turnKey);
+          }
           break;
         case "append-compact-note":
           // [P04] replay fallback: the `compact_boundary` arrived with no open

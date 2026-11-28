@@ -274,6 +274,20 @@ export interface StopTask {
 }
 
 /**
+ * Withdraw a message the card sent mid-turn that claude has not taken in yet
+ * ([B06]). tugcode writes claude's `cancel_async_message` control request for
+ * the message's uuid, the one it went to claude under. claude answers in its
+ * own `command_lifecycle`: `cancelled` when the message was still waiting,
+ * which takes the row out, or `started` when it had already taken it in,
+ * which seats the row where it is.
+ */
+export interface CancelAsyncMessage {
+  type: "cancel_async_message";
+  /** The message's submission id, as its `user_message` carried it. */
+  submission_id: string;
+}
+
+/**
  * End every piece of work the session's claude is doing — its background
  * tasks, its scheduled wakes, and every process in its group — and respawn
  * it `--resume` so the card stays bound ([P04]).
@@ -503,6 +517,7 @@ export type InboundMessage =
   | RemoveDirectory
   | SessionCommand
   | StopTask
+  | CancelAsyncMessage
   | StopAllWork
   | RequestReplay
   | CancelReplay
@@ -533,6 +548,7 @@ export const INBOUND_VERBS = [
   "remove_directory",
   "session_command",
   "stop_task",
+  "cancel_async_message",
   "stop_all_work",
   "request_replay",
   "cancel_replay",

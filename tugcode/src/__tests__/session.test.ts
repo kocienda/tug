@@ -175,19 +175,19 @@ describe("stdin message format", () => {
     expect(parsed.message.content.length).toBe(1);
     expect(parsed.message.content[0].type).toBe("text");
     expect(parsed.message.content[0].text).toBe("hello world");
-    // No submission id on the frame, so none for claude: it mints its own.
-    expect(parsed.uuid).toBeUndefined();
+    // No submission id on the frame, so tugcode mints the input's uuid:
+    // claude keys its `command_lifecycle` on it, and a message it cannot
+    // name could never be paired with the follow-on turn it opens.
+    expect(parsed.uuid).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   });
 
   test("a submission id rides to claude as the input message's uuid", async () => {
     // Claude records the input's `uuid` as the JSONL user entry's `uuid`, or
     // as a `queued_command`'s `source_uuid` when it absorbs the message
     // mid-turn — which is how a replay matches a journal row to the JSONL.
-    // Only a UUID is handed on; anything else is left for claude to mint.
-    for (const [submissionId, expected] of [
-      ["0f3c1e5a-1b2c-4d5e-8f90-123456789abc", "0f3c1e5a-1b2c-4d5e-8f90-123456789abc"],
-      ["turn-lq2x-abc", undefined],
-    ] as const) {
+    // Only a UUID is handed on; anything else never reaches claude, and the
+    // input goes under a uuid tugcode mints, which matches no journal row.
+    for (const submissionId of ["0f3c1e5a-1b2c-4d5e-8f90-123456789abc", "turn-lq2x-abc"]) {
       const manager = new SessionManager("/tmp/tugcode-stdin-test-" + Date.now(), crypto.randomUUID());
       const mockStdin = injectMockSubprocess(manager, [
         { type: "result", subtype: "success", result: "" },
@@ -202,7 +202,13 @@ describe("stdin message format", () => {
         submission_id: submissionId,
       };
       await captureIpcOutput(() => manager.handleUserMessage(userMsg));
-      expect(JSON.parse(writtenData[0].replace(/\n$/, "")).uuid).toBe(expected);
+      const uuid = JSON.parse(writtenData[0].replace(/\n$/, "")).uuid as string;
+      if (submissionId === "turn-lq2x-abc") {
+        expect(uuid).not.toBe(submissionId);
+        expect(uuid).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+      } else {
+        expect(uuid).toBe(submissionId);
+      }
     }
   });
 });
@@ -3141,156 +3147,261 @@ describe("emitInflightTurnFromActiveTurn", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Overlapping-turn routing
+// Where a mid-turn message lands
 //
 // A `user_message` submitted while a turn is already in flight must
 // not clobber the running turn or strand the follow-on turn's events.
-// Turn ownership is drain-bounded: one `ActiveTurn` per claude
-// `result`. `handleUserMessage` opens the turn for the idle case and
-// queues an overlapping message in `pendingTurnInputs`; the stdout
-// drain opens the follow-on turn when claude's events for it arrive.
+// claude settles each such message one of two ways and says which in
+// its `command_lifecycle`: `started` inside the running turn is a merge,
+// `started` after the turn's `result` opens a follow-on turn for exactly
+// that message. These replay claude's own stdout for each shape
+// (`fixtures/mid-turn-landing/`), with the two messages submitted under
+// the uuids that recording gave claude.
 // ---------------------------------------------------------------------------
 
-describe("overlapping-turn routing", () => {
-  // System-init line shared by the scripted turns below.
-  const initLine = (sid: string) => ({
-    type: "system",
-    subtype: "init",
-    session_id: sid,
-    cwd: "/p",
-    tools: ["Read"],
-    model: "m",
-    permissionMode: "acceptEdits",
-    slash_commands: [],
-    plugins: [],
-    agents: [],
-    skills: [],
-    claude_code_version: "2.1",
-  });
-  const textDelta = (text: string) => ({
-    type: "stream_event",
-    event: { type: "content_block_delta", delta: { type: "text_delta", text } },
-  });
-  const resultLine = { type: "result", subtype: "success", result: "" };
+describe("where a mid-turn message lands", () => {
+  const FIRST = "aaaaaaaa-0000-4000-8000-00000000000a";
+  const SECOND = "bbbbbbbb-0000-4000-8000-00000000000b";
+  const SECOND_TEXT = "Also run: echo pushed";
 
-  // Count the `user`-envelope writes to claude's stdin.
-  const userWriteCount = (writes: string[]): number =>
-    writes.filter((w) => {
-      try {
-        return (JSON.parse(w.replace(/\n$/, "")) as { type?: string }).type === "user";
-      } catch {
-        return false;
-      }
-    }).length;
+  async function recording(shape: "merged" | "follow-on" | "wake"): Promise<unknown[]> {
+    const path = new URL(`./fixtures/mid-turn-landing/${shape}.jsonl`, import.meta.url).pathname;
+    return (await Bun.file(path).text())
+      .split("\n")
+      .filter((line) => line.trim().length > 0)
+      .map((line) => JSON.parse(line) as unknown);
+  }
 
-  test("a message queued mid-turn runs as a bracketed follow-on turn", async () => {
-    // claude buffered the mid-turn message and runs it as turn 2 — the
-    // regression case: pre-fix, turn 2's events arrived with no active
-    // turn and were dropped as inter-turn, so turn 2 never completed.
+  // Submit both messages the way the deck does — the second while the
+  // first's turn is open — and replay claude's recorded stdout under them.
+  async function land(shape: "merged" | "follow-on" | "wake") {
     const manager = new SessionManager(
-      "/tmp/tugcode-overlap-buffered-" + Date.now(),
+      `/tmp/tugcode-landing-${shape}-` + Date.now(),
       crypto.randomUUID(),
     );
     const writes: string[] = [];
-    const mockStdin = injectMockSubprocess(manager, [
-      initLine("sess-overlap"),
-      textDelta("TurnOne"),
-      resultLine,
-      initLine("sess-overlap"),
-      textDelta("TurnTwo"),
-      resultLine,
-    ]);
+    const mockStdin = injectMockSubprocess(manager, await recording(shape));
     mockStdin.write = (data: unknown) => writes.push(String(data));
-
-    const captured = await captureIpcOutput(async () => {
+    const frames = (await captureIpcOutput(async () => {
       const p1 = manager.handleUserMessage({
         type: "user_message",
-        content: [{ type: "text" as const, text: "first" }]
+        content: [{ type: "text" as const, text: "first" }],
+        submission_id: FIRST,
       });
       const p2 = manager.handleUserMessage({
         type: "user_message",
-        content: [{ type: "text" as const, text: "second" }]
+        content: [{ type: "text" as const, text: SECOND_TEXT }],
+        submission_id: SECOND,
       });
       await Promise.all([p1, p2]);
-    });
+    })) as Array<Record<string, unknown>>;
+    return { manager, frames, writes };
+  }
 
-    // Both turns bracketed — two turn_complete frames.
-    const turnCompletes = captured.filter((m: any) => m.type === "turn_complete");
-    expect(turnCompletes.length).toBe(2);
+  const indexOf = (
+    frames: Array<Record<string, unknown>>,
+    match: (f: Record<string, unknown>) => boolean,
+    from = 0,
+  ): number => {
+    for (let i = from; i < frames.length; i++) if (match(frames[i])) return i;
+    return -1;
+  };
+  const lifecycle = (frames: Array<Record<string, unknown>>, id: string) =>
+    frames
+      .filter((f) => f.type === "command_lifecycle" && f.submissionId === id)
+      .map((f) => f.state);
 
-    // The follow-on turn's content was routed, not dropped.
-    const turnTwoIdx = captured.findIndex(
-      (m: any) => m.type === "assistant_text" && m.text === "TurnTwo",
-    );
-    expect(turnTwoIdx).toBeGreaterThan(-1);
+  test("a message claude merged brackets one turn and leaves nothing pending", async () => {
+    const { manager, frames } = await land("merged");
 
-    // ...and it streamed after the first turn closed.
-    const firstTcIdx = captured.findIndex((m: any) => m.type === "turn_complete");
-    expect(turnTwoIdx).toBeGreaterThan(firstTcIdx);
-
-    // Both messages reached claude's stdin.
-    expect(userWriteCount(writes)).toBe(2);
+    expect(frames.filter((f) => f.type === "turn_complete")).toHaveLength(1);
+    expect(frames.some((f) => f.type === "follow_on_started")).toBe(false);
+    expect(lifecycle(frames, SECOND)).toEqual(["queued", "started", "completed"]);
+    // The merge settled the entry: nothing is left to be mistaken for the
+    // opener of a later turn.
+    expect((manager as any).pendingTurnInputs.size).toBe(0);
   });
 
-  test("a merged mid-turn message brackets as a single turn", async () => {
-    // claude merged the mid-turn message into the running turn (one
-    // `result`). tugcode brackets exactly one turn — no spurious
-    // second turn_complete — and both messages still reached claude.
-    const manager = new SessionManager(
-      "/tmp/tugcode-overlap-merged-" + Date.now(),
-      crypto.randomUUID(),
-    );
-    const writes: string[] = [];
-    const mockStdin = injectMockSubprocess(manager, [
-      initLine("sess-merged"),
-      textDelta("Merged"),
-      resultLine,
-    ]);
-    mockStdin.write = (data: unknown) => writes.push(String(data));
+  test("a message claude ran after the turn's result opens a follow-on turn for it", async () => {
+    const { manager, frames } = await land("follow-on");
 
-    const captured = await captureIpcOutput(async () => {
-      const p1 = manager.handleUserMessage({
-        type: "user_message",
-        content: [{ type: "text" as const, text: "first" }]
-      });
-      const p2 = manager.handleUserMessage({
-        type: "user_message",
-        content: [{ type: "text" as const, text: "second" }]
-      });
-      await Promise.all([p1, p2]);
+    const firstClose = indexOf(frames, (f) => f.type === "turn_complete");
+    const started = indexOf(
+      frames,
+      (f) => f.type === "command_lifecycle" && f.submissionId === SECOND && f.state === "started",
+    );
+    const announced = indexOf(frames, (f) => f.type === "follow_on_started");
+    const secondClose = indexOf(frames, (f) => f.type === "turn_complete", firstClose + 1);
+    expect(firstClose).toBeGreaterThan(-1);
+    // claude took the message in after the first turn closed, and the
+    // announcement follows that report and precedes the turn's close.
+    expect(started).toBeGreaterThan(firstClose);
+    expect(announced).toBeGreaterThan(started);
+    expect(secondClose).toBeGreaterThan(announced);
+    expect(frames[announced]).toMatchObject({
+      submissionId: SECOND,
+      content: [{ type: "text", text: SECOND_TEXT }],
     });
-
-    const turnCompletes = captured.filter((m: any) => m.type === "turn_complete");
-    expect(turnCompletes.length).toBe(1);
-    expect(userWriteCount(writes)).toBe(2);
-  });
-
-  test("a single non-overlapping turn brackets unchanged", async () => {
-    const manager = new SessionManager(
-      "/tmp/tugcode-overlap-single-" + Date.now(),
-      crypto.randomUUID(),
-    );
-    const mockStdin = injectMockSubprocess(manager, [
-      initLine("sess-single"),
-      textDelta("OnlyTurn"),
-      resultLine,
-    ]);
-    mockStdin.write = (_data: unknown) => {};
-
-    const captured = await captureIpcOutput(() =>
-      manager.handleUserMessage({
-        type: "user_message",
-        content: [{ type: "text" as const, text: "only" }]
-      }),
-    );
-
-    const turnCompletes = captured.filter((m: any) => m.type === "turn_complete");
-    expect(turnCompletes.length).toBe(1);
-    // The turn-input FIFO was never touched; the drain cleared the
-    // active turn on `result`.
-    expect((manager as any).pendingTurnInputs.length).toBe(0);
+    // The follow-on's work is routed into its own turn, not dropped.
+    const work = indexOf(frames, (f) => f.type === "tool_use", announced);
+    expect(work).toBeGreaterThan(announced);
+    expect(work).toBeLessThan(secondClose);
+    // The follow-on's fresh `system/init` lands inside the turn its
+    // `started` opened, so it is never read as a wake.
+    expect(frames.some((f) => f.type === "wake_started")).toBe(false);
+    expect((manager as any).pendingTurnInputs.size).toBe(0);
     expect((manager as any).activeTurn).toBeNull();
+  });
+
+  test("a message sent during a wake turn merges into the wake", async () => {
+    const { manager, frames } = await land("wake");
+
+    const wake = indexOf(frames, (f) => f.type === "wake_started");
+    expect(wake).toBeGreaterThan(-1);
+    const started = indexOf(
+      frames,
+      (f) => f.type === "command_lifecycle" && f.submissionId === SECOND && f.state === "started",
+    );
+    expect(started).toBeGreaterThan(wake);
+    expect(frames.some((f) => f.type === "follow_on_started")).toBe(false);
+    // The first turn and the wake each close once.
+    expect(frames.filter((f) => f.type === "turn_complete")).toHaveLength(2);
+    expect((manager as any).pendingTurnInputs.size).toBe(0);
+  });
+
+  test("both messages reach claude under the uuids it reports on", async () => {
+    const { writes } = await land("merged");
+    const uuids = writes
+      .map((w) => JSON.parse(w.replace(/\n$/, "")) as { type?: string; uuid?: string })
+      .filter((m) => m.type === "user")
+      .map((m) => m.uuid);
+    expect(uuids).toEqual([FIRST, SECOND]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Withdrawing a waiting message
+//
+// The deck's remove button and Stop withdraw a message claude has not taken
+// in with `cancel_async_message` for its uuid. claude's answers are the ones
+// the probe recorded beside the brief's finding on it: a message still
+// waiting gets `command_lifecycle cancelled` and `{cancelled: true}`, one
+// already taken in gets `{cancelled: false}` after its `started`.
+// ---------------------------------------------------------------------------
+
+describe("withdrawing a waiting message", () => {
+  const WAITING = "bbbbbbbb-0000-4000-8000-00000000000b";
+
+  function waitingManager() {
+    const manager = new SessionManager(
+      "/tmp/tugcode-withdraw-" + Date.now(),
+      crypto.randomUUID(),
+    );
+    const writes: Array<Record<string, any>> = [];
+    (manager as any).claudeProcess = {
+      stdin: {
+        write: (data: unknown) => writes.push(JSON.parse(String(data).trim())),
+        flush() {},
+        end() {},
+      },
+    };
+    (manager as any).pendingTurnInputs.set(WAITING, {
+      content: [{ type: "text", text: "Also run: echo pushed" }],
+      submissionId: WAITING,
+    });
+    const line = (event: Record<string, unknown>) =>
+      (manager as any).handleClaudeLine(JSON.stringify(event));
+    const answer = (requestId: string, cancelled: boolean) => ({
+      type: "control_response",
+      response: { subtype: "success", request_id: requestId, response: { cancelled } },
+    });
+    return { manager, writes, line, answer };
+  }
+
+  test("asks claude to withdraw the message by the uuid it went under", () => {
+    const { manager, writes } = waitingManager();
+    manager.handleCancelAsyncMessage(WAITING);
+    expect(writes).toHaveLength(1);
+    expect(writes[0]).toMatchObject({
+      type: "control_request",
+      request: { subtype: "cancel_async_message", message_uuid: WAITING },
+    });
+  });
+
+  test("a withdrawn message is settled by claude's own lifecycle, and its answer is consumed", async () => {
+    const { manager, writes, line, answer } = waitingManager();
+    manager.handleCancelAsyncMessage(WAITING);
+    const frames = (await captureIpcOutput(async () => {
+      line({ type: "command_lifecycle", command_uuid: WAITING, state: "cancelled" });
+      line(answer(writes[0].request_id, true));
+    })) as Array<Record<string, unknown>>;
+    expect(frames).toEqual([
+      expect.objectContaining({ type: "command_lifecycle", submissionId: WAITING, state: "cancelled" }),
+    ]);
+    expect((manager as any).pendingTurnInputs.size).toBe(0);
+    expect((manager as any).pendingWithdrawals.size).toBe(0);
+  });
+
+  test("a withdrawal answered cancelled with no lifecycle still settles the message", async () => {
+    const { manager, writes, line, answer } = waitingManager();
+    manager.handleCancelAsyncMessage(WAITING);
+    const frames = (await captureIpcOutput(async () => {
+      line(answer(writes[0].request_id, true));
+    })) as Array<Record<string, unknown>>;
+    expect(frames).toEqual([
+      expect.objectContaining({ type: "command_lifecycle", submissionId: WAITING, state: "cancelled" }),
+    ]);
+    // Nothing is left for a later `started` to open a follow-on turn from.
+    expect((manager as any).pendingTurnInputs.size).toBe(0);
+  });
+
+  test("a message claude already took in is left to its `started`", async () => {
+    const { manager, writes, line, answer } = waitingManager();
+    manager.handleCancelAsyncMessage(WAITING);
+    const frames = (await captureIpcOutput(async () => {
+      line(answer(writes[0].request_id, false));
+    })) as Array<Record<string, unknown>>;
+    expect(frames).toEqual([]);
+    expect((manager as any).pendingTurnInputs.has(WAITING)).toBe(true);
+  });
+
+  test("a message no longer pending sends claude nothing", () => {
+    const { manager, writes } = waitingManager();
+    (manager as any).pendingTurnInputs.clear();
+    manager.handleCancelAsyncMessage(WAITING);
+    expect(writes).toEqual([]);
+  });
+
+  test("a message a dead claude held is reported discarded, so no row waits on it", async () => {
+    const { manager } = waitingManager();
+    const frames = (await captureIpcOutput(async () => {
+      (manager as any).signalEofToActiveTurn();
+    })) as Array<Record<string, unknown>>;
+    expect(frames.filter((f) => f.type === "command_lifecycle")).toEqual([
+      expect.objectContaining({ type: "command_lifecycle", submissionId: WAITING, state: "discarded" }),
+    ]);
+    expect((manager as any).pendingTurnInputs.size).toBe(0);
+  });
+
+  test("the discard is written after the turn's own end", async () => {
+    const { manager } = waitingManager();
+    (manager as any).activeTurn = {
+      currentMessageId: "msg_eof",
+      seq: 0,
+      userContent: [{ type: "text", text: "" }],
+      partialText: "partial",
+      gotResult: false,
+      interrupted: true,
+      suppressEmit: false,
+      finish() {},
+    };
+    const frames = (await captureIpcOutput(async () => {
+      (manager as any).signalEofToActiveTurn();
+    })) as Array<Record<string, unknown>>;
+    expect(frames.map((f) => f.type).filter((t) => t === "turn_cancelled" || t === "command_lifecycle")).toEqual([
+      "turn_cancelled",
+      "command_lifecycle",
+    ]);
   });
 });
 

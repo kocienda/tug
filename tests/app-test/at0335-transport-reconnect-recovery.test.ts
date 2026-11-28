@@ -112,12 +112,42 @@ async function errorBannerCount(app: App): Promise<number> {
   return n;
 }
 
-/** Whether this card's pane body carries the banner's `inert` lock. */
-function bodyIsInert(app: App, cardId: CardId): Promise<boolean> {
-  return app.body(cardId).evalJS<boolean>(
+/**
+ * Whether this card's body is locked: a surface a person uses — its composer,
+ * its transcript, or, while the card restores, the restoring surface it shows
+ * in their place — sits inside an `inert` subtree, which is what the banner's
+ * lock does. Asked of those surfaces rather than of any `inert` in the card,
+ * since a lowered shade is inert by design and locks nothing.
+ *
+ * The answer waits for one of them to be drawn; a card that draws none fails
+ * the wait.
+ */
+async function bodyIsInert(app: App, cardId: CardId): Promise<boolean | null> {
+  await app.body(cardId).waitForCondition<boolean>(
+    `(document.querySelector(${JSON.stringify(usedSurfaces(cardId))}) !== null)`,
+    { timeoutMs: 10_000 },
+  );
+  return bodyLockReading(app, cardId);
+}
+
+/** The surfaces {@link bodyIsInert} asks about, as one selector. */
+function usedSurfaces(cardId: CardId): string {
+  const card = `[data-card-id="${cardId}"] `;
+  return [
+    `${card}.tug-prompt-entry-submit-button`,
+    `${card}.session-card-transcript`,
+    `${card}[data-slot="session-card-restoring"]`,
+  ].join(", ");
+}
+
+/** One reading of {@link bodyIsInert}: `null` while no surface is drawn. */
+function bodyLockReading(app: App, cardId: CardId): Promise<boolean | null> {
+  return app.body(cardId).evalJS<boolean | null>(
     `(function(){
-      var el = document.querySelector('[data-card-id="${cardId}"] [inert]');
-      return el !== null;
+      var used = document.querySelectorAll(${JSON.stringify(usedSurfaces(cardId))});
+      // No surface drawn is no answer.
+      if (used.length === 0) return null;
+      return Array.prototype.some.call(used, function (el) { return el.closest('[inert]') !== null; });
     })()`,
   );
 }

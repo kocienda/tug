@@ -334,13 +334,15 @@ describe("reducer — attribution rides the message, not the turn", () => {
       tool_name: "Bash",
       input: { command: "ls" },
     } as CodeSessionEvent).state;
-    // Mid-turn, so it queues rather than opening a turn of its own.
+    // Mid-turn, so it waits at claude rather than opening a turn of its own.
     state = reduce(state, interjection).state;
-    return reduce(state, {
+    state = reduce(state, {
       type: "tool_result",
       tool_use_id: "tu1",
       output: "ok",
     } as CodeSessionEvent).state;
+    // claude takes it in after the tool's result, inside the wheel's turn.
+    return reduce(state, { type: "command_lifecycle", submissionId: "mine", state: "started" } as CodeSessionEvent).state;
   }
 
   it("stamps the wheel's stage prompt as the wheel's", () => {

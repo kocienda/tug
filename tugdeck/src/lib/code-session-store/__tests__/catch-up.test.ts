@@ -1797,10 +1797,14 @@ describe("catchUp — the card yields to tugcast's latch", () => {
     expect(lines.map((l) => l.action)).toEqual(["asked"]);
   });
 
-  it("a race placed: a reading of the turn just finished does not touch the queued send it flushed", () => {
+  it("a race placed: a reading of the turn just finished does not touch the follow-on its waiting send opened", () => {
     const { store, conn, a } = streaming();
     store.send("next", []);
+    const next = internal(store).queuedSends[0].turnKey;
     complete(conn, 2);
+    // claude runs the waiting send as a turn of its own.
+    emit(conn, { type: "command_lifecycle", submissionId: next, state: "started" });
+    emit(conn, { type: "follow_on_started", submissionId: next, content: [{ type: "text", text: "next" }] });
     const b = cycleId(store);
     expect(b).not.toBe(a);
     store.noteServerTurn(idle(a), CARD);
@@ -1810,21 +1814,21 @@ describe("catchUp — the card yields to tugcast's latch", () => {
     expect(lines).toEqual([]);
   });
 
-  it("the queued send survives the drop, and the follow-up catch-up's close sends it", () => {
+  it("the waiting send survives the drop, and no catch-up's close sends it a second time", () => {
     const { store, conn, timers, a } = streaming();
     store.send("next", []);
+    // Sent at Return: claude holds it.
+    const sentBefore = userMessagesOf(conn).length;
+    expect(userMessagesOf(conn)[sentBefore - 1].content).toEqual([{ type: "text", text: "next" }]);
     store.catchUp(CARD);
     store.noteServerTurn(idle(a), CARD);
     timers.advance(CATCH_UP_DEADLINE_MS);
     expect(lines.map((l) => l.action)).toEqual(["ended"]);
     expect(internal(store).queuedSends).toHaveLength(1);
-    const sentBefore = userMessagesOf(conn).length;
 
     timers.advance(CATCH_UP_DEADLINE_MS);
-    expect(internal(store).queuedSends).toHaveLength(0);
-    expect(userMessagesOf(conn)).toHaveLength(sentBefore + 1);
-    const sent = userMessagesOf(conn);
-    expect(sent[sent.length - 1].content).toEqual([{ type: "text", text: "next" }]);
+    expect(internal(store).queuedSends).toHaveLength(1);
+    expect(userMessagesOf(conn)).toHaveLength(sentBefore);
     // The reading names a turn the card has ended: the new turn is left alone.
     expect(lines).toHaveLength(1);
   });

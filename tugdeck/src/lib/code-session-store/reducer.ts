@@ -36,6 +36,8 @@ import { isNetworkStalled, phaseCanInterrupt } from "./lifecycle-state";
 import type { ReplayWindow } from "@tugproto/inbound";
 import type {
   AddUserMessageEvent,
+  FollowOnStartedEvent,
+  CommandLifecycleEvent,
   ApiRetryEvent,
   TranscriptEvictedEvent,
   ModelRefusalFallbackEvent,
@@ -287,6 +289,13 @@ export interface PendingTurn {
    * naming one of these is a turn the card heard, not one it missed.
    */
   heardTurnIds?: string[];
+  /**
+   * The committed turn this one continues ([B03]): set when a follow-on
+   * reopened it. The scratch was seeded with its messages, the commit folds
+   * its telemetry into the follow-on's, and its `/rewind` anchor stays the
+   * turn's — a follow-on's own anchor is the message's, never the exchange's.
+   */
+  continues?: TurnEntry;
 }
 
 /** Derive a Message's `messageKey` from the wire coordinate it owns. */
@@ -945,6 +954,16 @@ export interface CodeSessionState {
      * skipped by every flush until a proving event releases it.
      */
     held: boolean;
+    /**
+     * On the wire and waiting at claude — see {@link QueuedSend.sent}, whose
+     * doc is the contract. No flush takes it; claude's `started` seats it.
+     */
+    sent?: true;
+    /**
+     * Asked of claude to be withdrawn — see {@link QueuedSend.withdrawing},
+     * whose doc is the contract.
+     */
+    withdrawing?: true;
   }>;
   lastError: {
     cause:
@@ -1075,6 +1094,16 @@ export interface CodeSessionState {
    * paths are owned by the wrapper.
    */
   committedMsgIds: Set<string>;
+  /**
+   * The turn this card last committed live, while it is still the one a
+   * follow-on would continue ([B03]): claude can run a message it did not
+   * merge as a turn of its own right after this one's result, and
+   * {@link handleFollowOnStarted} reopens this entry so the exchange is drawn
+   * as one. Set at every live commit that enters the transcript; cleared by a
+   * replay bracket and by a rewind, after which the entry may no longer be
+   * the transcript's. `null` before the first live commit.
+   */
+  lastLiveCommit: TurnEntry | null;
   /**
    * Outcome of the most recent JSONL replay window. `null` between
    * windows; populated on every `replay_complete` (success and error
@@ -2146,6 +2175,7 @@ export function createInitialState(
     lastContextBreakdown: null,
     lastDirectoryResult: null,
     committedMsgIds: new Set(),
+    lastLiveCommit: null,
     lastReplayResult: null,
     replayEverCompleted: false,
     coldRevealSettled: false,
@@ -2244,9 +2274,91 @@ function releaseHeldSends(
   return sends.map((s) => (s.held ? { ...s, held: false } : s));
 }
 
-/** True when the queue's head is waiting on the network — no flush may take it. */
+/**
+ * True when claude holds a message the card sent at Return and claude has not
+ * taken in yet ([B07]). While one waits, no flush puts anything else on the
+ * wire: claude runs the waiting message first, as the turn it opens for it.
+ */
+function waitsOnClaude(state: CodeSessionState): boolean {
+  return state.queuedSends.some((s) => s.sent === true);
+}
+
+/** The words of the first message being withdrawn, to offer back. */
+function withdrawnDraft(
+  queued: CodeSessionState["queuedSends"],
+): CodeSessionState["pendingDraftRestore"] {
+  const first = queued.find((q) => q.withdrawing === true);
+  return first === undefined ? null : { text: first.text, atoms: first.atoms };
+}
+
+/** The frame that asks claude to withdraw one waiting message ([B06]). */
+function withdrawFrame(turnKey: string): Effect {
+  return { kind: "send-frame", msg: { type: "cancel_async_message", submission_id: turnKey } };
+}
+
+/**
+ * The queue with every message claude no longer holds made unsent again
+ * ([B07]), for a moment that proves claude holds none: tugcode ended the
+ * claude they were written to, or a bracket closed with nothing running and
+ * did not show them taken in. Each goes back to waiting off the wire, for
+ * the ordinary flush to give the claude that answers next. One the user had
+ * already asked back leaves the queue instead, and its words are offered
+ * back. The same state when nothing was waiting.
+ */
+function unsendWhatClaudeDoesNotHold(state: CodeSessionState): CodeSessionState {
+  if (!waitsOnClaude(state)) return state;
+  return {
+    ...state,
+    queuedSends: state.queuedSends
+      .filter((s) => s.withdrawing !== true)
+      .map(({ sent: _sent, ...rest }) => rest),
+    pendingDraftRestore: state.pendingDraftRestore ?? withdrawnDraft(state.queuedSends),
+  };
+}
+
+/**
+ * The queue without the waiting message `submissionId` names, for a moment
+ * that shows claude took it in without the card seating it: a bracket drew
+ * it, or claude reported it while the card was not drawing live. The same
+ * state when no waiting message has that id.
+ */
+function settleTakenIn(state: CodeSessionState, submissionId: string | undefined): CodeSessionState {
+  if (submissionId === undefined) return state;
+  if (!state.queuedSends.some((q) => q.turnKey === submissionId && q.sent === true)) return state;
+  return { ...state, queuedSends: state.queuedSends.filter((q) => q.turnKey !== submissionId) };
+}
+
+/**
+ * Take back every message in the queue, the way Stop does before it
+ * interrupts the turn ([B06]). An entry never sent leaves the queue, as it
+ * always did. A waiting one cannot simply be dropped, since claude holds it
+ * and would run it: it stays, marked as withdrawing, and claude is asked to
+ * withdraw it, once; its `command_lifecycle` then takes it out or seats it.
+ */
+function withdrawQueue(queued: CodeSessionState["queuedSends"]): {
+  queuedSends: CodeSessionState["queuedSends"];
+  effects: Effect[];
+} {
+  const effects: Effect[] = [];
+  const kept: Array<CodeSessionState["queuedSends"][number]> = [];
+  for (const q of queued) {
+    if (q.sent !== true) continue;
+    if (q.withdrawing === true) {
+      kept.push(q);
+    } else {
+      kept.push({ ...q, withdrawing: true });
+      effects.push(withdrawFrame(q.turnKey));
+    }
+  }
+  return { queuedSends: kept, effects };
+}
+
+/**
+ * True when no flush may take the queue's head: it is waiting on the network,
+ * or a message ahead of it is waiting at claude.
+ */
 function headIsHeld(state: CodeSessionState): boolean {
-  return state.queuedSends.length > 0 && state.queuedSends[0].held;
+  return state.queuedSends.length > 0 && (state.queuedSends[0].held || waitsOnClaude(state));
 }
 
 /**
@@ -2294,7 +2406,10 @@ function handleSend(
     !held &&
     event.queueOnly !== true &&
     state.catchUp.stage === "none" &&
-    (state.phase === "idle" || state.phase === "errored")
+    (state.phase === "idle" || state.phase === "errored") &&
+    // claude still holds a message sent during the turn that just ended, and
+    // runs it next: this one waits behind it, as tugcode holds it too.
+    !waitsOnClaude(state)
   ) {
     const submitAt = Date.now();
     const userMessage: UserMessage = {
@@ -2407,13 +2522,25 @@ function handleSend(
     };
   }
 
-  // Mid-turn send — enqueue. The queue is speculative: a single
-  // entry flushes at `turn_complete(success)` via the single-tick
-  // collapse in `handleTurnComplete`; `interrupt()` clears it.
-  // The queued entry carries both the wire content blocks (for the
-  // send-frame at flush time) and the already-synthesized substrate
-  // (so the flush mints the new turn's `UserMessage` without
-  // re-running the synthesizer at the reducer layer).
+  // Mid-turn send. During a live turn — a wake included ([B05]) — the
+  // message goes on the wire now, at Return ([B07]): claude holds it and
+  // takes it in at its next opportunity, merged into this turn or as a turn
+  // of its own, and says which with `command_lifecycle`. Until then it waits
+  // in the queue as `sent`, drawn as a `Waiting` row. Every other hold is
+  // unchanged ([B08]): a submit the network cannot carry, one made during a
+  // hand-over or a catch-up, one made while a stop is in flight, and one
+  // behind an entry still waiting to be flushed all queue off the wire, and
+  // the queue entry carries both the wire content blocks (for the send-frame
+  // at flush time) and the already-synthesized substrate (so the flush mints
+  // the new turn's `UserMessage` without re-running the synthesizer).
+  const sendNow =
+    !held &&
+    event.queueOnly !== true &&
+    state.catchUp.stage === "none" &&
+    (phaseHoldsLiveTurn(state.phase) || waitsOnClaude(state)) &&
+    !state.interruptInFlight &&
+    !sessionIsGone(state) &&
+    state.queuedSends.every((s) => s.sent === true);
   const queuedSends = [
     ...state.queuedSends,
     {
@@ -2430,9 +2557,35 @@ function handleSend(
       // Waiting for the network, or merely for the turn ahead of it. An
       // idle card only ever reaches this enqueue when `held` is true.
       held,
+      ...(sendNow ? { sent: true as const } : {}),
     },
   ];
-  return { state: { ...state, queuedSends }, effects: [] };
+  return {
+    state: { ...state, queuedSends },
+    effects: sendNow
+      ? [
+          {
+            kind: "send-frame",
+            msg: { type: "user_message", content: event.content, submission_id: event.turnKey },
+          },
+        ]
+      : [],
+  };
+}
+
+/**
+ * The phases in which a turn is running on claude, so a message written now
+ * reaches a claude that will take it in mid-turn or right after ([B05]).
+ */
+function phaseHoldsLiveTurn(phase: CodeSessionPhase): boolean {
+  return (
+    phase === "submitting" ||
+    phase === "awaiting_first_token" ||
+    phase === "streaming" ||
+    phase === "tool_work" ||
+    phase === "awaiting_approval" ||
+    phase === "waking"
+  );
 }
 
 /**
@@ -2476,6 +2629,11 @@ function handleInterrupt(
   if (state.phase === "idle" || state.phase === "errored") {
     return { state, effects: [] };
   }
+
+  // Whichever case this is, the queue is taken back first, and the frames
+  // asking claude to withdraw its waiting messages go out ahead of the
+  // interrupt, so claude never runs one as the turn after the stopped one.
+  const withdrawn = withdrawQueue(state.queuedSends);
 
   // CASE A — interrupt fired before claude produced any answer-channel
   // content: no `assistant_text` delta and no `tool_use` yet
@@ -2579,7 +2737,7 @@ function handleInterrupt(
         pendingApproval: null,
         pendingQuestion: null,
         prevPhase: null,
-        queuedSends: [],
+        queuedSends: withdrawn.queuedSends,
         // CASE A is locally terminal — phase goes straight to idle and
         // no TurnEntry will commit (the wire echo is suppressed).
         // Reset all per-turn accumulators here so a subsequent send
@@ -2619,6 +2777,7 @@ function handleInterrupt(
         interruptInFlightIntervals: [],
       },
       effects: [
+        ...withdrawn.effects,
         // A user-origin pull-down is a retraction: the row already left
         // the local transcript and the draft is back in the composer, so
         // the prompt must also leave claude's history — `retract: true`
@@ -2688,7 +2847,7 @@ function handleInterrupt(
       pendingApproval: null,
       pendingQuestion: null,
       prevPhase: null,
-      queuedSends: [],
+      queuedSends: withdrawn.queuedSends,
       interruptInFlight: true,
       // Bridge the interrupt reason across the round-trip: the interrupted
       // TurnEntry is committed later at `turn_complete`, so stash it here
@@ -2699,7 +2858,7 @@ function handleInterrupt(
     },
     // The deadline is armed by the store wrapper off this state's rising
     // `interruptInFlight` — see `interruptSilenceEffect`.
-    effects: [{ kind: "send-frame", msg: { type: "interrupt" } }],
+    effects: [...withdrawn.effects, { kind: "send-frame", msg: { type: "interrupt" } }],
   };
 }
 
@@ -2846,16 +3005,16 @@ function sendConditionHolds(state: CodeSessionState, condition: SendCondition): 
 }
 
 /**
- * The unified Stop / Escape: cancel the newest queued send; with none, a
- * stop that already went unanswered escalates to Force Stop rather than
- * repeating ([F04]); otherwise interrupt the turn.
+ * The unified Stop / Escape: cancel the newest queued send not already being
+ * withdrawn; with none, a stop that already went unanswered escalates to
+ * Force Stop rather than repeating ([F04]); otherwise interrupt the turn.
  */
 function handlePopInteractive(state: CodeSessionState): { state: CodeSessionState; effects: Effect[] } {
-  const queued = state.queuedSends;
-  if (queued.length > 0) {
+  const newest = [...state.queuedSends].reverse().find((q) => q.withdrawing !== true);
+  if (newest !== undefined) {
     return handleCancelQueuedSend(state, {
       type: "cancel_queued_send",
-      turnKey: queued[queued.length - 1]!.turnKey,
+      turnKey: newest.turnKey,
     });
   }
   if (state.stopStalled) return handleForceStop(state);
@@ -2864,20 +3023,33 @@ function handlePopInteractive(state: CodeSessionState): { state: CodeSessionStat
 
 /**
  * Cancel one queued send, identified by the `turnKey` its ghost row
- * carries. The send was queued mid-turn but never dispatched, so
- * removing it is a pure local edit — no wire frame. The un-sent
- * prompt routes back through `pendingDraftRestore`; the prompt-entry
- * seeds the editor from it iff the editor is empty (a cancel never
- * clobbers in-progress content). A no-op when the `turnKey` is no
- * longer queued — it flushed first, racing the cancel.
+ * carries. A send never put on the wire is removed locally, with no frame.
+ * The un-sent prompt routes back through `pendingDraftRestore`; the
+ * prompt-entry seeds the editor from it iff the editor is empty (a cancel
+ * never clobbers in-progress content). A no-op when the `turnKey` is no
+ * longer queued — it was taken in first, racing the cancel.
+ *
+ * A message waiting at claude is withdrawn through claude ([B06]): the row
+ * stays, marked, and claude is asked for it back. Its `command_lifecycle`
+ * decides — `cancelled` takes the row out and restores the words the same
+ * way, `started` seats it where claude had already taken it in.
  */
 function handleCancelQueuedSend(
   state: CodeSessionState,
   event: CancelQueuedSendActionEvent,
 ): { state: CodeSessionState; effects: Effect[] } {
   const target = state.queuedSends.find((q) => q.turnKey === event.turnKey);
-  if (target === undefined) {
+  if (target === undefined || target.withdrawing === true) {
     return { state, effects: [] };
+  }
+  if (target.sent === true) {
+    return {
+      state: {
+        ...state,
+        queuedSends: state.queuedSends.map((q) => (q === target ? { ...q, withdrawing: true as const } : q)),
+      },
+      effects: [withdrawFrame(target.turnKey)],
+    };
   }
   return {
     state: {
@@ -3695,51 +3867,13 @@ function handleToolResult(
   const nextMessages = entry.messages.slice();
   nextMessages[arrayIdx] = mutated;
 
-  // Steering pickup at the agent-loop boundary ([Q01]/[P06]/[P07]). A
-  // `tool_result` while a turn is live (`tool_work`, not replay or a
-  // wake) is the iteration boundary at which claude merges a queued
-  // message. When the queue is non-empty we pick up its head atomically:
-  // forward it to claude (`send-frame`), remove it from `queuedSends`,
-  // and append it as a `user_message` to THIS turn's `messages` so the
-  // retractable foot ghost becomes a real mid-turn user row after the
-  // tool block. The message keeps its own queue-time key
-  // (`${turnKey}-user`, [P04]) — distinct from the host opener's. Held
-  // off the wire until now (`handleSend` only parks it), which is what
-  // kept it retractable; removal-on-pickup means the `turn_complete`
-  // collapse only ever sees never-picked-up entries (no double-forward,
-  // Risk R03). Live position is approximate (the boundary we act on,
-  // since claude emits no live echo — [Q02]); reload from JSONL tightens
-  // it to claude's exact merge point.
-  const isLive = !isReplaying && !isWaking;
-  // A live tool_result is a stream event, so the hold releases here too —
-  // before the pickup reads the head, which is what lets a prompt held at
-  // submit be steered into the turn that has just proved the path.
-  let queuedSends = isLive
+  // A live tool_result is a stream event, so a hold on the network releases
+  // here. Nothing is sent from here: a message posted during the turn went to
+  // claude at Return, and claude's own `command_lifecycle started` seats it
+  // where it was taken in ([B07]).
+  const queuedSends = !isReplaying && !isWaking
     ? releaseHeldSends(state.queuedSends)
     : state.queuedSends;
-  const pickupEffects: Effect[] = [];
-  if (isLive && queuedSends.length > 0 && !sessionIsGone(state)) {
-    const [head, ...rest] = queuedSends;
-    // Queue-time stamp, as at the `turn_complete` flush: the row's
-    // timestamp is when the user posted, not when the agent loop picked
-    // the message up.
-    const steered: UserMessage = {
-      kind: "user_message",
-      messageKey: userMessageKey(head.turnKey),
-      createdAt: head.queuedAt,
-      text: head.text,
-      attachments: head.atoms,
-      origin: head.origin,
-      submitAt: head.queuedAt,
-      submissionId: head.turnKey,
-    };
-    nextMessages.push(steered);
-    queuedSends = rest;
-    pickupEffects.push({
-      kind: "send-frame",
-      msg: { type: "user_message", content: head.content, submission_id: head.turnKey },
-    });
-  }
 
   // The path resolver's third door ([B12]). A live `Write` / `Edit`, or a
   // shell result carrying a `TUG-FILE-RECEIPT`, is this session's own word
@@ -3755,9 +3889,7 @@ function handleToolResult(
   // is as live a write as any, and gating it out left the case this door was
   // built for uncovered wherever a turn began that way. Which is often: an
   // arc stage that backgrounds a build and writes a document when it returns
-  // is exactly the shape, and `isLive` is `!isReplaying && !isWaking` because
-  // the queued-send pickup above must not fire on a wake. That is the pickup's
-  // reason and not this one's.
+  // is exactly the shape.
   const confirmEffects: Effect[] = [];
   if (!isReplaying) {
     const written = writtenPaths(
@@ -3955,8 +4087,8 @@ function handleToolResult(
     },
     // Beside the fold, as at the other three call sites.
     effects: isReplaying
-      ? [...pickupEffects, ...confirmEffects]
-      : [...pickupEffects, ...confirmEffects, streamStallEffect(nextPhase)],
+      ? confirmEffects
+      : [...confirmEffects, streamStallEffect(nextPhase)],
   };
 }
 
@@ -4332,6 +4464,47 @@ function buildTurnEntry(
 }
 
 /**
+ * The entry a turn commits as, given the turn it continues ([B03]). A
+ * follow-on reopened the turn the card had just committed, so its commit is
+ * the whole exchange again: the reopened turn's key, attribution and
+ * `/rewind` anchor, the messages the scratch already carries in full, and the
+ * two segments' telemetry taken together — the span from the first submit to
+ * this end, the active and paused time and the cost summed, the first
+ * segment's time to first token. `own` is returned as it is for any other
+ * turn. The ledger's per-turn telemetry row is still written from `own`,
+ * because a reload replays the two segments as the turns claude recorded.
+ */
+function foldContinuation(pending: PendingTurn | null, own: TurnEntry): TurnEntry {
+  const prior = pending?.continues;
+  if (prior === undefined) return own;
+  const firstSubmitAt = prior.endedAt - prior.wallClockMs;
+  const compactionPostTotal = own.compactionPostTotal ?? prior.compactionPostTotal;
+  return {
+    ...own,
+    turnKey: prior.turnKey,
+    origin: prior.origin,
+    ...(prior.promptUuid !== undefined ? { promptUuid: prior.promptUuid } : {}),
+    wallClockMs: Math.max(own.wallClockMs, own.endedAt - firstSubmitAt),
+    awaitingApprovalMs: prior.awaitingApprovalMs + own.awaitingApprovalMs,
+    transportDowntimeMs: prior.transportDowntimeMs + own.transportDowntimeMs,
+    activeMs: prior.activeMs + own.activeMs,
+    ttftMs: prior.ttftMs ?? own.ttftMs,
+    ttftcMs: prior.ttftcMs ?? own.ttftcMs,
+    reconnectCount: prior.reconnectCount + own.reconnectCount,
+    maxStreamGapMs: Math.max(prior.maxStreamGapMs, own.maxStreamGapMs),
+    cost: {
+      inputTokens: prior.cost.inputTokens + own.cost.inputTokens,
+      outputTokens: prior.cost.outputTokens + own.cost.outputTokens,
+      cacheCreationInputTokens: prior.cost.cacheCreationInputTokens + own.cost.cacheCreationInputTokens,
+      cacheReadInputTokens: prior.cost.cacheReadInputTokens + own.cost.cacheReadInputTokens,
+      totalCostUsd: prior.cost.totalCostUsd + own.cost.totalCostUsd,
+    },
+    ...(compactionPostTotal !== undefined ? { compactionPostTotal } : {}),
+    ...(own.compacted === true || prior.compacted === true ? { compacted: true as const } : {}),
+  };
+}
+
+/**
  * Flush the head of `queuedSends` into a new `submitting` turn at a
  * turn-boundary commit. Shared by every terminal branch that settles a
  * turn while a queued send is waiting — the normal `turn_complete`
@@ -4615,13 +4788,17 @@ function handleTurnComplete(
   // reset to the replay-emission time and the Z1 transcript timestamp
   // would re-stamp on every session restore.
   const endedAt = event.timestamp ?? Date.now();
-  const entry: TurnEntry = buildTurnEntry(
+  const ownEntry: TurnEntry = buildTurnEntry(
     state,
     msgId,
     turnEndReason,
     endedAt,
     event.telemetry,
   );
+  // A follow-on commits the whole exchange it continues ([B03]); the
+  // ledger's telemetry row stays the follow-on's own, since a reload
+  // replays the two as claude recorded them.
+  const entry = foldContinuation(state.pendingTurn, ownEntry);
   // Restore `sessionInitTokens` on the resume path: the live capture
   // (`handleStreamingUsage` / `handleCostUpdate`) never ran for a
   // replayed session, so the value rides in on the first replayed
@@ -4710,7 +4887,7 @@ function handleTurnComplete(
       { kind: "append-transcript", entry },
       { kind: "clear-inflight" },
       ...(event.telemetry === undefined
-        ? [buildRecordTelemetryEffect(entry, sessionInitTokens)]
+        ? [buildRecordTelemetryEffect(ownEntry, sessionInitTokens)]
         : []),
     ];
     // A wake settling with a queued send is a turn boundary too: drain
@@ -4718,7 +4895,7 @@ function handleTurnComplete(
     // otherwise the message strands at idle with no later trigger to
     // flush it — nothing drives the "gets its own turn" the old comment
     // assumed. `wakeTrigger` is cleared as the wake closes.
-    if (state.queuedSends.length > 0 && !sessionIsGone(state)) {
+    if (state.queuedSends.length > 0 && !waitsOnClaude(state) && !sessionIsGone(state)) {
       // A turn that ended is a proving event for a held prompt ([P10]): the
       // wire carried a turn to completion, so whatever the hold was raised
       // for has passed. Release before the flush, so the head this drains is
@@ -4729,7 +4906,7 @@ function handleTurnComplete(
         committedMsgIds,
         sessionInitTokens,
         wakeCommitEffects,
-        { wakeTrigger: null },
+        { wakeTrigger: null, lastLiveCommit: entry },
       );
     }
     return {
@@ -4744,6 +4921,7 @@ function handleTurnComplete(
         prevPhase: null,
         pendingTurn: null,
         wakeTrigger: null,
+        lastLiveCommit: entry,
         // A wake does not touch `lastError` — the user did not submit
         // anything, so a wake-success does not "clear" a prior error
         // cue that still applies to the user's most recent action. The
@@ -4768,12 +4946,12 @@ function handleTurnComplete(
   // bug (the wire shape's replay-only contract is enforced by tugcast's
   // supervisor; defensively, only persist when there was no inline
   // source).
-  if (isSuccess && state.queuedSends.length > 0 && !sessionIsGone(state)) {
+  if (isSuccess && state.queuedSends.length > 0 && !waitsOnClaude(state) && !sessionIsGone(state)) {
     const successCommitEffects: Effect[] = [
       { kind: "append-transcript", entry },
       { kind: "clear-inflight" },
       ...(event.telemetry === undefined
-        ? [buildRecordTelemetryEffect(entry, sessionInitTokens)]
+        ? [buildRecordTelemetryEffect(ownEntry, sessionInitTokens)]
         : []),
     ];
     // Released for the same reason the wake branch releases: the turn
@@ -4785,7 +4963,7 @@ function handleTurnComplete(
       committedMsgIds,
       sessionInitTokens,
       successCommitEffects,
-      {},
+      { lastLiveCommit: state.pendingTurn?.suppressed === true ? state.lastLiveCommit : entry },
     );
   }
 
@@ -4827,12 +5005,14 @@ function handleTurnComplete(
       pendingDraftRestore: exhaustedRestore ?? state.pendingDraftRestore,
       // Error-path queue clear: if a turn errored out without a
       // preceding `interrupt()`, any enqueued follow-ups are dropped.
-      // Interrupt-driven paths already cleared the queue.
-      queuedSends: isSuccess ? state.queuedSends : [],
+      // Interrupt-driven paths already cleared the queue. A message already
+      // at claude stays: claude still holds it, and runs it next.
+      queuedSends: isSuccess ? state.queuedSends : state.queuedSends.filter((s) => s.sent === true),
       // A successful turn clears any lingering `lastError` from an
       // earlier errored-phase recovery.
       lastError: isSuccess ? null : state.lastError,
       committedMsgIds,
+      lastLiveCommit: state.pendingTurn?.suppressed === true ? state.lastLiveCommit : entry,
       ...resetPerTurnTelemetry(),
       ...closedPauseSegments,
     },
@@ -4847,7 +5027,7 @@ function handleTurnComplete(
       // Persist per-turn telemetry via the supervisor's SessionLedger
       // on the live path. See note above in the queue-flush branch.
       ...(state.pendingTurn?.suppressed !== true && event.telemetry === undefined
-        ? [buildRecordTelemetryEffect(entry, sessionInitTokens)]
+        ? [buildRecordTelemetryEffect(ownEntry, sessionInitTokens)]
         : []),
     ],
   };
@@ -4957,17 +5137,24 @@ function handleTurnCancelled(
       : state.pendingInterruptReason;
 
   const commitState: CodeSessionState = {
-    ...state,
+    // tugcode writes this frame when it ended claude — the escalation
+    // ladder's kill, the drain's EOF, `stop_all_work` — so every message the
+    // card sent at Return and claude had not taken in died with that claude.
+    // They are unsent again, and the flush below gives the next claude the
+    // first of them. One the user had already asked back is not: it leaves
+    // the queue, and its words go back to the composer.
+    ...unsendWhatClaudeDoesNotHold(state),
     scratch: scratchForCommit,
     pendingInterruptReason,
   };
-  const entry = buildTurnEntry(
+  const ownEntry = buildTurnEntry(
     commitState,
     msgId,
     "interrupted",
     endedAt,
     undefined,
   );
+  const entry = foldContinuation(state.pendingTurn, ownEntry);
 
   const closedPauseSegments = closeTurnPauseSegments(state, endedAt);
   const scratch = withoutPendingTurnScratch(commitState);
@@ -4984,7 +5171,7 @@ function handleTurnCancelled(
     // per-turn telemetry block is always derived and always persisted.
     ...(suppressed
       ? []
-      : [buildRecordTelemetryEffect(entry, state.sessionInitTokens)]),
+      : [buildRecordTelemetryEffect(ownEntry, state.sessionInitTokens)]),
   ];
 
   // A queued send flushes here, on the same single-tick collapse the wake
@@ -4996,14 +5183,14 @@ function handleTurnCancelled(
   // A held head stays held here. A cancel is not a proving event — nothing
   // reached the far end — so flushing one would send the prompt into exactly
   // the dead path it was held for.
-  if (state.queuedSends.length > 0 && !headIsHeld(state) && !sessionIsGone(state)) {
+  if (commitState.queuedSends.length > 0 && !headIsHeld(commitState) && !sessionIsGone(state)) {
     return flushQueuedHeadResult(
       commitState,
       scratch,
       committedMsgIds,
       state.sessionInitTokens,
       commitEffects,
-      { wakeTrigger: null },
+      { wakeTrigger: null, lastLiveCommit: suppressed ? state.lastLiveCommit : entry },
     );
   }
 
@@ -5021,7 +5208,10 @@ function handleTurnCancelled(
       // A cancel closes a wake bracket the same way `turn_complete` does:
       // there is no separate `wake_complete` frame ([D01]).
       wakeTrigger: null,
+      queuedSends: commitState.queuedSends,
+      pendingDraftRestore: commitState.pendingDraftRestore,
       committedMsgIds,
+      lastLiveCommit: suppressed ? state.lastLiveCommit : entry,
       ...resetPerTurnTelemetry(),
       ...closedPauseSegments,
     },
@@ -5487,6 +5677,9 @@ function handlePromptAnchor(
   if (
     pending === null ||
     pending.promptUuid !== undefined ||
+    // A follow-on's anchor is its message's, not the exchange's: `/rewind`
+    // stays on the opener of the turn it continues ([P05]).
+    pending.continues !== undefined ||
     typeof event.promptUuid !== "string" ||
     event.promptUuid.length === 0
   ) {
@@ -5567,6 +5760,8 @@ function handleRewindResult(
       ...state,
       lastRewindResult: ack,
       pendingRewindDraft: null,
+      // A rewound transcript may no longer hold the turn last committed.
+      ...(conversationRewound ? { lastLiveCommit: null } : {}),
       ...(seedDraft
         ? {
             pendingDraftRestore: { text: stash.text, atoms: stash.atoms },
@@ -6483,6 +6678,15 @@ function handleSeedQueuedSends(
       // is still waiting for the network, not one about to be sent into
       // it.
       held: s.held,
+      // So does a message already on the wire. A reconnect disposes the card
+      // and seeds its next store while claude still holds the message, and
+      // an entry seeded as unsent would be flushed to claude a second time
+      // at the replay's end. Waiting, it is settled the way it would have
+      // been: by the bracket that shows claude took it in, by claude's own
+      // report, or, when the bracket ends with nothing running, as unsent
+      // again ({@link unsendWhatClaudeDoesNotHold}).
+      ...(s.sent === true ? { sent: true as const } : {}),
+      ...(s.withdrawing === true ? { withdrawing: true as const } : {}),
     })),
   };
   // A store seeded before its replay drains the queue at that replay's
@@ -6528,7 +6732,7 @@ function handleNetworkPathSatisfied(
   const released = releaseHeldSends(state.queuedSends);
   if (released === state.queuedSends) return { state, effects: [] };
   const next = { ...state, queuedSends: released };
-  if ((state.phase !== "idle" && state.phase !== "errored") || sessionIsGone(state)) {
+  if ((state.phase !== "idle" && state.phase !== "errored") || waitsOnClaude(state) || sessionIsGone(state)) {
     // Mid-turn: the entries are unheld now and the turn's own end flushes
     // the head, exactly as it does for an ordinary queued send. A gone
     // session is written nothing; the card's next one inherits the queue.
@@ -6698,13 +6902,17 @@ function endTurnAsTransportLost(
       // Transport-lost commits never come from replay (replay never
       // synthesizes a transport_lost reason); the live derivation is
       // always the source.
-      const entry = buildTurnEntry(state, msgId, "transport_lost", endedAt, undefined);
+      const entry = foldContinuation(
+        state.pendingTurn,
+        buildTurnEntry(state, msgId, "transport_lost", endedAt, undefined),
+      );
       transportLostCommit.push({ kind: "append-transcript", entry });
       transportLostCommit.push({ kind: "clear-inflight" });
       const committedMsgIds = new Set(state.committedMsgIds);
       committedMsgIds.add(msgId);
       perTurnReset = {
         committedMsgIds,
+        lastLiveCommit: entry,
         activeMsgId: null,
         scratch: withoutPendingTurnScratch(state),
         toolUseStartedAt: new Map(),
@@ -7133,6 +7341,9 @@ function handleReplayStarted(
     state: {
       ...opened,
       phase: "replaying",
+      // A bracket rewrites the transcript under the card; the turn last
+      // committed live may not survive it, so no follow-on reopens it.
+      lastLiveCommit: null,
       // Clear pendingTurn defensively — replay should never observe
       // one (idle/errored have it null), but a future caller that
       // drives `send` then `replay_started` synchronously would
@@ -7417,12 +7628,21 @@ function handleReplayComplete(
   // bracket closing is JSONL off the local disk and proves nothing about the
   // network. The release comes from a stream event, a completed turn, or the
   // host's path transition, and until one of those lands the words wait.
-  if (state.queuedSends.length > 0 && !headIsHeld(state) && !sessionIsGone(state)) {
+  //
+  // A message sent at Return that the bracket did not show taken in, with no
+  // turn left running, is one claude does not hold: an idle claude runs what
+  // it holds at once, and the bracket carries what it ran. That is the claude
+  // of a reconnect that outlived the one the message was written to, so the
+  // message is unsent again and this flush gives it to the claude that is
+  // there. A load-previous page proves nothing about the live session, and
+  // leaves the queue as it was.
+  const settled = state.replayPrependActive ? state : unsendWhatClaudeDoesNotHold(state);
+  if (settled.queuedSends.length > 0 && !headIsHeld(settled) && !sessionIsGone(settled)) {
     return flushQueuedHeadResult(
-      state,
+      settled,
       new Map(),
-      state.committedMsgIds,
-      state.sessionInitTokens,
+      settled.committedMsgIds,
+      settled.sessionInitTokens,
       effects,
       replayBookkeeping,
     );
@@ -7430,7 +7650,7 @@ function handleReplayComplete(
 
   return {
     state: {
-      ...state,
+      ...settled,
       phase: "idle",
       activeMsgId: null,
       scratch: new Map(),
@@ -7487,6 +7707,19 @@ function handleAddUserMessage(
   if (state.phase !== "replaying") {
     return { state, effects: [] };
   }
+  // A message the card sent at Return and is still holding as waiting, which
+  // the bracket now draws, is one claude took in while the card was not
+  // drawing live — across a reconnect, say. The bracket's copy is the one
+  // kept, and the waiting row goes, so the message is neither drawn twice
+  // nor flushed to claude again at the bracket's end.
+  return placeReplayedUserMessage(settleTakenIn(state, event.submissionId), event);
+}
+
+/** {@link handleAddUserMessage}'s placement of the message, in a bracket. */
+function placeReplayedUserMessage(
+  state: CodeSessionState,
+  event: AddUserMessageEvent,
+): { state: CodeSessionState; effects: Effect[] } {
   // The store wrapper has already walked the inbound `content` blocks
   // through `synthesizeUserMessageFromBlocks` and dispatches the
   // substrate `(text, atoms)` pair on the event. The reducer trusts
@@ -7592,6 +7825,247 @@ function handleAddUserMessage(
       // converge on the same handler behavior.
     },
     effects: [],
+  };
+}
+
+/**
+ * `command_lifecycle` — claude's report on a message the card sent at Return
+ * while a turn ran ([B07]). Only a waiting entry (`sent`) is read; an id the
+ * queue does not hold as waiting is a message the card already drew, or one
+ * it never sent, and changes nothing.
+ *
+ * - `started` with a turn open: claude merged the message into that turn.
+ *   It leaves the queue and is appended to the turn's messages, which is
+ *   where claude took it in, so the row loses `Waiting` and stays where it
+ *   is; the work it causes streams in under it.
+ * - `started` with no turn open: claude is running it as a turn of its own.
+ *   The entry stays until tugcode's `follow_on_started`, the next frame,
+ *   opens that turn from it ({@link handleFollowOnStarted}).
+ * - `cancelled`, `discarded`, `refused`: claude will never act on it. It
+ *   leaves the queue, and its words go back to the composer the way a
+ *   removed queued message's do, unless something there is already waiting
+ *   to be restored.
+ * - `completed`: the turn that carried it has ended, so a `started` the card
+ *   never read — lost across a reconnect — is read here instead, the same
+ *   way. With no turn open there is nothing to seat it in, and it leaves the
+ *   queue; a reload draws it where claude recorded it.
+ *
+ * While a bracket replays, the card draws nothing live, and the report still
+ * settles the row rather than being lost: a message claude took in leaves
+ * the queue for the bracket, or the live turn after it, to draw, and one it
+ * will never act on leaves with its words offered back.
+ */
+function handleCommandLifecycle(
+  state: CodeSessionState,
+  event: CommandLifecycleEvent,
+): { state: CodeSessionState; effects: Effect[] } {
+  const id = event.submissionId;
+  const waiting = state.queuedSends.find((q) => q.turnKey === id && q.sent === true);
+  if (waiting === undefined) {
+    return { state, effects: [] };
+  }
+  const queuedSends = state.queuedSends.filter((q) => q !== waiting);
+  const restored = state.pendingDraftRestore ?? { text: waiting.text, atoms: waiting.atoms };
+  if (state.phase === "replaying") {
+    if (event.state === "queued") return { state, effects: [] };
+    const neverRun = event.state !== "started" && event.state !== "completed";
+    return {
+      state: { ...state, queuedSends, ...(neverRun ? { pendingDraftRestore: restored } : {}) },
+      effects: [],
+    };
+  }
+  switch (event.state) {
+    case "started":
+    case "completed": {
+      if (state.pendingTurn === null) {
+        return event.state === "started" ? { state, effects: [] } : { state: { ...state, queuedSends }, effects: [] };
+      }
+      const hostKey = state.pendingTurn.turnKey;
+      const entry = state.scratch.get(hostKey);
+      if (entry === undefined) {
+        return event.state === "started" ? { state, effects: [] } : { state: { ...state, queuedSends }, effects: [] };
+      }
+      if (scratchHoldsSubmission(state.scratch, id)) {
+        return { state: { ...state, queuedSends }, effects: [] };
+      }
+      // Queue-time stamp: the row's timestamp is when the user posted, not
+      // when claude took the message in.
+      const seated: UserMessage = {
+        kind: "user_message",
+        messageKey: userMessageKey(waiting.turnKey),
+        createdAt: waiting.queuedAt,
+        text: waiting.text,
+        attachments: waiting.atoms,
+        origin: waiting.origin,
+        submitAt: waiting.queuedAt,
+        submissionId: waiting.turnKey,
+      };
+      return {
+        state: {
+          ...state,
+          queuedSends,
+          scratch: withScratchEntry(state.scratch, hostKey, {
+            ...entry,
+            messages: [...entry.messages, seated],
+          }),
+        },
+        effects: [],
+      };
+    }
+    case "cancelled":
+    case "discarded":
+    case "refused":
+      return {
+        state: {
+          ...state,
+          queuedSends,
+          pendingDraftRestore: restored,
+        },
+        effects: [],
+      };
+    case "queued":
+      return { state, effects: [] };
+  }
+}
+
+/**
+ * `follow_on_started` — claude is running a message as a turn of its own,
+ * one it did not merge into the turn before ([B04]). The deck did not open
+ * this turn, and a card that drew nothing for it would let every command it
+ * runs pass in silence ([F06]), so the turn is opened here, from whatever the
+ * card holds:
+ *
+ * - **The card's own copy of the message wins.** A message still queued
+ *   leaves the queue for its seat; one already drawn in the committed turn
+ *   moves to where claude actually took it in, after that turn's reply. The frame's synthesized text is the copy of last resort.
+ * - **With no turn open, the turn the card just committed is reopened**
+ *   ([B03]): its messages seed the scratch under its own key, the message is
+ *   appended after them, and a `reopen-turn` effect takes the committed copy
+ *   out of the transcript so the two are one exchange — the same shape a
+ *   merged message takes, with no new turn header and no second opener. The
+ *   commit folds the two back together ({@link foldContinuation}). With
+ *   nothing to continue (a fresh card, or one whose transcript a replay or a
+ *   rewind rewrote) the message opens a turn of its own.
+ * - **With a turn already open, the message joins it**, as a merged message
+ *   would: tugcode routes the follow-on's frames into whatever turn the card
+ *   has open, so that is where its work is drawn.
+ *
+ * A replay bracket never sees one (the frame is live-only); one arriving
+ * there is dropped.
+ */
+function handleFollowOnStarted(
+  state: CodeSessionState,
+  event: FollowOnStartedEvent,
+): { state: CodeSessionState; effects: Effect[] } {
+  if (state.phase === "replaying") {
+    return { state, effects: [] };
+  }
+  const id = event.submissionId;
+  const now = Date.now();
+
+  const queuedIndex = id === undefined ? -1 : state.queuedSends.findIndex((q) => q.turnKey === id);
+  const queued = queuedIndex >= 0 ? state.queuedSends[queuedIndex] : undefined;
+  const queuedSends =
+    queuedIndex >= 0 ? state.queuedSends.filter((_, i) => i !== queuedIndex) : state.queuedSends;
+  const ownCopy = (turnKey: string): UserMessage =>
+    queued !== undefined
+      ? {
+          kind: "user_message",
+          messageKey: userMessageKey(queued.turnKey),
+          createdAt: queued.queuedAt,
+          text: queued.text,
+          attachments: queued.atoms,
+          origin: queued.origin,
+          submitAt: queued.queuedAt,
+          submissionId: queued.turnKey,
+        }
+      : {
+          kind: "user_message",
+          messageKey: userMessageKey(id ?? turnKey),
+          createdAt: now,
+          text: event.text,
+          attachments: event.atoms,
+          origin: "user",
+          submitAt: now,
+          ...(id !== undefined ? { submissionId: id } : {}),
+        };
+
+  // A turn is open: the message joins it, unless it is already there.
+  if (state.pendingTurn !== null) {
+    const hostKey = state.pendingTurn.turnKey;
+    const entry = state.scratch.get(hostKey);
+    if (entry === undefined || (id !== undefined && scratchHoldsSubmission(state.scratch, id))) {
+      return { state: queuedSends === state.queuedSends ? state : { ...state, queuedSends }, effects: [] };
+    }
+    return {
+      state: {
+        ...state,
+        queuedSends,
+        scratch: withScratchEntry(state.scratch, hostKey, {
+          ...entry,
+          messages: [...entry.messages, ownCopy(hostKey)],
+        }),
+      },
+      effects: [],
+    };
+  }
+
+  const prior = state.lastLiveCommit;
+  let turnKey: string;
+  let messages: Message[];
+  let origin: TurnOrigin;
+  const effects: Effect[] = [];
+  if (prior !== null) {
+    // Continue the exchange the card just committed.
+    turnKey = prior.turnKey;
+    origin = prior.origin;
+    const drawnAt =
+      id === undefined
+        ? -1
+        : prior.messages.findIndex((m) => m.kind === "user_message" && m.submissionId === id);
+    const message = drawnAt >= 0 ? prior.messages[drawnAt] : ownCopy(turnKey);
+    messages = [...prior.messages.filter((_, i) => i !== drawnAt), message];
+    effects.push({ kind: "reopen-turn", turnKey });
+  } else {
+    turnKey = queued?.turnKey ?? id ?? event.turnKey;
+    const message = ownCopy(turnKey);
+    origin = message.origin;
+    messages = [message];
+  }
+
+  return {
+    state: {
+      ...state,
+      phase: "submitting",
+      queuedSends,
+      lastLiveCommit: null,
+      activeMsgId: null,
+      scratch: withScratchEntry(state.scratch, turnKey, {
+        ...newScratchEntry(turnKey, messages),
+        // Past every note key the reopened turn already minted.
+        systemNoteSeq: messages.length,
+      }),
+      toolUseStartedAt: new Map(),
+      pendingApproval: null,
+      pendingQuestion: null,
+      prevPhase: null,
+      pendingTurn: {
+        turnKey,
+        submitAt: now,
+        origin,
+        ...(prior?.promptUuid !== undefined ? { promptUuid: prior.promptUuid } : {}),
+        // tugcode opened the turn for this message, under its submission id.
+        ...(id !== undefined ? { turnId: id } : {}),
+        ...(prior !== null ? { continues: prior } : {}),
+      },
+      ...resetPerTurnTelemetry(),
+      awaitingApprovalIntervals: [],
+      transportDowntimeIntervals: [],
+      interruptInFlightIntervals: [],
+      interruptInFlightSegmentStartedAt: null,
+      costAtSubmit: state.lastCost,
+    },
+    effects,
   };
 }
 
@@ -9734,6 +10208,10 @@ function reduceEvent(
     }
     case "add_user_message":
       return handleAddUserMessage(state, event);
+    case "follow_on_started":
+      return handleFollowOnStarted(state, event);
+    case "command_lifecycle":
+      return handleCommandLifecycle(state, event);
     case "wake_started":
       return handleWakeStarted(state, event);
     case "assistant_opener":

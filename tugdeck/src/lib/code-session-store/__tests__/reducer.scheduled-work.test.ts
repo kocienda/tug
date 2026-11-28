@@ -341,10 +341,14 @@ describe("pop_interactive — the unified Stop / Escape, decided by the engine",
   test("cancels the newest queued send, then interrupts the turn", () => {
     const busy = applyAll(fresh(), [send("one", "k1"), send("two", "k2"), send("three", "k3")]);
     expect(busy.queuedSends.map((q) => q.turnKey)).toEqual(["k2", "k3"]);
-    const popped = reduce(busy, { type: "pop_interactive" }).state;
+    // Each was sent at Return, so each pop asks claude for it back, and
+    // claude's `cancelled` takes it out.
+    const cancelled = (submissionId: string): CodeSessionEvent =>
+      ({ type: "command_lifecycle", submissionId, state: "cancelled" }) as CodeSessionEvent;
+    const popped = applyAll(busy, [{ type: "pop_interactive" }, cancelled("k3")]);
     expect(popped.queuedSends.map((q) => q.turnKey)).toEqual(["k2"]);
     expect(popped.pendingDraftRestore?.text).toBe("three");
-    const drained = reduce(popped, { type: "pop_interactive" }).state;
+    const drained = applyAll(popped, [{ type: "pop_interactive" }, cancelled("k2")]);
     expect(drained.queuedSends).toEqual([]);
     const stopped = reduce(drained, { type: "pop_interactive" });
     expect(stopped.effects.some((e) => e.kind === "send-frame" && e.msg.type === "interrupt")).toBe(true);

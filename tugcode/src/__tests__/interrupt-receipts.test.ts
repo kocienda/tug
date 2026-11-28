@@ -174,7 +174,7 @@ describe("interrupt receipts — no silent early return", () => {
     // deck's silence deadline answers this stop with Force Stop instead.
     const manager = makeManager();
     (manager as any).claudeProcess = mockClaudeChild().child;
-    (manager as any).pendingTurnInputs.push({ content: [] });
+    (manager as any).pendingTurnInputs.set(crypto.randomUUID(), { content: [], submissionId: null });
 
     const emitted = await captureIpc(() => {
       manager.handleInterrupt();

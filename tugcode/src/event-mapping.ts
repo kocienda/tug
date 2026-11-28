@@ -29,6 +29,7 @@ import type {
   TaskProgress,
   BackgroundTasksChanged,
   ToolUseStructured,
+  CommandLifecycle,
 } from "./types.ts";
 import { IPC_VERSION } from "./types.ts";
 import { tugDataRoot } from "./spawn-config.ts";
@@ -415,6 +416,44 @@ export function buildBackgroundTasksChangedMessage(
     type: "background_tasks_changed",
     session_id: sessionId,
     payload,
+    ipc_version: IPC_VERSION,
+  };
+}
+
+const COMMAND_LIFECYCLE_STATES: ReadonlySet<CommandLifecycle["state"]> = new Set([
+  "queued",
+  "started",
+  "completed",
+  "cancelled",
+  "discarded",
+  "refused",
+]);
+
+/**
+ * Translate claude's `command_lifecycle` — one message's progress through
+ * claude's input queue, keyed on `command_uuid`, which is the uuid the inbound
+ * message carried (Tug's submission id) — into the outbound frame of the same
+ * name. `null` for any other event, and for a lifecycle frame whose uuid or
+ * state is not one this protocol names: a state claude adds later is dropped
+ * rather than forwarded under a word the deck cannot read. Pure.
+ */
+export function buildCommandLifecycleMessage(
+  event: Record<string, unknown>,
+): CommandLifecycle | null {
+  if (event.type !== "command_lifecycle") return null;
+  const uuid = event.command_uuid;
+  const state = event.state;
+  if (typeof uuid !== "string" || uuid.length === 0) return null;
+  if (
+    typeof state !== "string" ||
+    !COMMAND_LIFECYCLE_STATES.has(state as CommandLifecycle["state"])
+  ) {
+    return null;
+  }
+  return {
+    type: "command_lifecycle",
+    submissionId: uuid,
+    state: state as CommandLifecycle["state"],
     ipc_version: IPC_VERSION,
   };
 }
@@ -1172,13 +1211,12 @@ export function routeTopLevelEvent(
     }
 
     case "command_lifecycle": {
-      // Per-command queue telemetry claude streams for every inbound
-      // message that carried a uuid (our submission id): `queued`,
-      // `started`, `completed`, `cancelled`, `discarded`, `refused`, keyed
-      // on `command_uuid`. Tug tracks its own submissions and turn
-      // boundaries, so nothing downstream reads these; swallow them so
-      // they don't fall into the `unknown_event` default and raise a
-      // spurious "Unsupported event" banner.
+      // One message's progress through claude's input queue, keyed on the
+      // submission id it went out under. The session's drain catches these
+      // before turn routing, since they arrive between turns as often as in
+      // one; this arm is the same translation for any other caller.
+      const frame = buildCommandLifecycleMessage(event);
+      if (frame !== null) messages.push(frame);
       break;
     }
 

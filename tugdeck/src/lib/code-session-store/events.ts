@@ -924,6 +924,14 @@ export interface SeedQueuedSendsEvent {
      * was raised for.
      */
     held: boolean;
+    /**
+     * Carried the same way: a message already on the wire, which claude
+     * holds, re-seeded as unsent would be flushed to claude a second time.
+     * See {@link QueuedSend.sent}.
+     */
+    sent?: true;
+    /** Carried with `sent` — see {@link QueuedSend.withdrawing}. */
+    withdrawing?: true;
   }>;
 }
 
@@ -1118,6 +1126,40 @@ export interface AddUserMessageEvent {
    */
   submissionId?: string;
   [key: string]: unknown;
+}
+
+/**
+ * Where claude has got to with a message (the wire's `command_lifecycle`),
+ * keyed on the submission id the deck sent it under. The reducer reads
+ * `started` — claude took the message in — to seat a waiting row in the
+ * running turn ([B07]), and `cancelled` / `discarded` / `refused` to take one
+ * out of the queue. `queued` and `completed` say nothing the card draws.
+ */
+export type CommandLifecycleEvent = WireEvent<Wire.CommandLifecycle>;
+
+/**
+ * A turn claude opened for a message it did not merge into the turn before
+ * (the wire's `follow_on_started`). tugcode announces it once, right after
+ * claude's `command_lifecycle started` for the message, and before any of the
+ * turn's own frames — the deck did not open this turn, so without the
+ * announcement every frame of it would arrive at an idle card.
+ *
+ * The reducer draws it as a continuation of the exchange it follows ([B03]):
+ * the message seats at the point claude took it in, and the work it caused
+ * continues under it, the same shape a merged message takes.
+ *
+ * `text` / `atoms` are the store wrapper's synthesis of the frame's
+ * `content`, used only when the card holds no copy of the message already;
+ * `turnKey` is a React-key seed minted the same way, for the turn the
+ * reducer opens when there is nothing to continue.
+ */
+export interface FollowOnStartedEvent {
+  type: "follow_on_started";
+  /** The message's submission id, when tugcode received one. */
+  submissionId?: string;
+  text: string;
+  atoms: ReadonlyArray<AtomSegment>;
+  turnKey: string;
 }
 
 /**
@@ -1693,6 +1735,8 @@ export type CodeSessionEvent =
   | NetworkPathSatisfiedEvent
   | ResumeFailedEvent
   | AddUserMessageEvent
+  | FollowOnStartedEvent
+  | CommandLifecycleEvent
   | ReplayStartedEvent
   | ReplayCompleteEvent
   | WakeStartedEvent

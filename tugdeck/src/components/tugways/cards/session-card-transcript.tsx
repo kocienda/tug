@@ -816,15 +816,26 @@ const GhostRowCell = React.memo(function GhostRowCell({
   // DOM and says nothing about it in ink — the state strip is where a stall
   // is announced, once for the card, rather than under each queued prompt.
   const held = queued.held;
+  // A message sent at Return while a turn ran is on the wire, and claude
+  // holds it until it takes it in ([B07]). The row says so in one word, in
+  // the attribution row's quiet slot, and predicts nothing about where it
+  // will land; when claude takes it in the row leaves the foot for its seat.
+  const waiting = queued.sent === true;
+  // Taken back and asked of claude ([B06]): the row stays until claude
+  // answers, and has nothing more to offer a press.
+  const withdrawing = queued.withdrawing === true;
   return (
     <div
       className="session-card-transcript-ghost-row"
       data-slot="session-transcript-ghost-row"
       data-held={held ? "true" : undefined}
+      data-waiting={waiting ? "true" : undefined}
+      data-withdrawing={withdrawing ? "true" : undefined}
     >
       <TugTranscriptEntry
         participant="user"
         identifier={USER_IDENTIFIER}
+        timestamp={waiting ? "Waiting" : undefined}
         body={
           <>
             <SessionContextAttachments blocks={contextBlocks} />
@@ -844,8 +855,9 @@ const GhostRowCell = React.memo(function GhostRowCell({
           // `TugIconButton` is focus-refusing — un-sending a queued
           // message must not steal focus from an editor the user may
           // be composing in. `cancelQueuedSend` removes this one entry
-          // and routes its text back through `pendingDraftRestore`.
-          <TugIconButton
+          // and routes its text back through `pendingDraftRestore`, or,
+          // for a message waiting at claude, asks claude for it back.
+          withdrawing ? undefined : <TugIconButton
             icon={<X size={11} strokeWidth={2.5} />}
             aria-label="Cancel queued message"
             role="danger"

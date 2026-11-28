@@ -358,14 +358,19 @@ describe("the snapshot opener names the submission it renders", () => {
     expect(await snapshotOpener(manager)).toMatchObject({ inflightSnapshot: true, submissionId: SUBMISSION });
   });
 
-  test("a follow-on turn opened from the queue carries its own submission id", async () => {
+  test("a follow-on turn opened by claude's report carries its own submission id", async () => {
     const manager = managerWithStdin();
     void manager.handleUserMessage(userMessage("first", crypto.randomUUID()));
     await Promise.resolve();
     await manager.handleUserMessage(userMessage("second", SUBMISSION));
-    // The drain opens the queued turn when claude's events for it begin.
+    // The first turn has closed; claude reports taking the second message
+    // in, which opens the follow-on turn for it.
     (manager as unknown as { activeTurn: ActiveTurn | null }).activeTurn = null;
-    (manager as unknown as { openTurnFromPending(): void }).openTurnFromPending();
+    await captureStdout(async () =>
+      (manager as unknown as { handleClaudeLine(line: string): void }).handleClaudeLine(
+        JSON.stringify({ type: "command_lifecycle", command_uuid: SUBMISSION, state: "started" }),
+      ),
+    );
 
     expect(await snapshotOpener(manager)).toMatchObject({ submissionId: SUBMISSION });
   });

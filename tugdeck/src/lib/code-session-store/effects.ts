@@ -118,6 +118,21 @@ export interface AppendTranscriptEffect {
 }
 
 /**
+ * Take a committed turn back out of the transcript so it continues in flight
+ * ([B03]). Emitted when claude runs a message as a turn of its own right after
+ * the turn the card just committed: the reducer reopens that turn, under its
+ * own `turnKey`, with the message and its work appended, so the exchange is
+ * drawn as one, the same shape a merged message takes. The in-flight rows key
+ * identically to the committed ones they replace, so nothing remounts
+ * ([L26]); the turn commits again, whole, at its `turn_complete`. A no-op when
+ * the transcript holds no turn under the key.
+ */
+export interface ReopenTurnEffect {
+  kind: "reopen-turn";
+  turnKey: string;
+}
+
+/**
  * Commit a staged load-previous batch: move the turns staged by
  * `append-transcript { prepend: true }` to the FRONT of the transcript,
  * in arrival order, then clear the staging buffer. Emitted by
@@ -405,6 +420,7 @@ export type Effect =
   | RecordTelemetryEffect
   | RecordContextBreakdownEffect
   | TruncateTranscriptEffect
+  | ReopenTurnEffect
   | AppendCompactNoteEffect
   | AppendStageNoteEffect
   | AppendRelocationNoteEffect

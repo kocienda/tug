@@ -62,19 +62,6 @@ function lastUserMessageFrame(conn: TestFrameChannel): { content: ContentBlock[]
   return frame.decoded as { content: ContentBlock[] };
 }
 
-function dispatchTurnCompleteSuccess(
-  conn: TestFrameChannel,
-  msgId: string,
-): void {
-  conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
-    type: "turn_complete",
-    seq: 0,
-    tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
-    msg_id: msgId,
-    result: "success",
-  });
-}
-
 // ---------------------------------------------------------------------------
 // handleSend — live path resolver wiring
 // ---------------------------------------------------------------------------
@@ -347,7 +334,7 @@ describe("Step 5c — queued-send + handleTurnComplete flush integration", () =>
     expect(bytes.get("editor-B")?.content).toBe("B-DATA");
   });
 
-  it("turn_complete flushes the queued entry: mints UserMessage from synthesized substrate; sends wire content", () => {
+  it("a mid-turn send carries its wire content at Return, and its seated row the synthesized substrate", () => {
     const conn = new TestFrameChannel();
     const store = constructStore(conn);
     const bytes = store.getAtomBytesStore();
@@ -368,37 +355,10 @@ describe("Step 5c — queued-send + handleTurnComplete flush integration", () =>
     bytes.put("editor-B", { content: "B-DATA", mediaType: "image/jpeg" });
     store.send(`two ${C}`, [imageAtom("editor-B", "second.jpg")]);
 
-    // Snapshot the wire content the first submit produced — we want
-    // to confirm the queue-flush emits a NEW wire frame whose
-    // content blocks come from the queued entry, not a re-run of
-    // buildWirePayload.
-    const beforeFlush = lastUserMessageFrame(conn);
-    expect(beforeFlush?.content).toEqual([
-      { type: "text", text: "one " },
-      {
-        type: "image",
-        source: { type: "base64", media_type: "image/png", data: "A-DATA" },
-      },
-    ]);
-
-    // Flush: turn_complete(success) collapses the queue head into
-    // the active turn.
-    dispatchTurnCompleteSuccess(conn, FIXTURE_IDS.MSG_ID_N(1));
-
-    // The new active turn's user message comes from the queued
-    // entry's synthesized substrate (no re-synthesis).
-    const flushedUser = store.getSnapshot().activeTurn?.messages[0];
-    expect(flushedUser).toBeDefined();
-    if (flushedUser?.kind !== "user_message") throw new Error("expected user_message");
-    expect(flushedUser.text).toBe(`two ${C}`);
-    expect(flushedUser.attachments).toHaveLength(1);
-    expect(flushedUser.attachments[0].id).toBe("editor-B");
-    expect(flushedUser.attachments[0].label).toBe("image-1");
-
-    // A fresh wire user_message frame was emitted with the queued
-    // entry's content blocks.
-    const afterFlush = lastUserMessageFrame(conn);
-    expect(afterFlush?.content).toEqual([
+    // The mid-turn submit went on the wire at once, with its own content
+    // blocks.
+    const sent = lastUserMessageFrame(conn);
+    expect(sent?.content).toEqual([
       { type: "text", text: "two " },
       {
         type: "image",
@@ -406,7 +366,30 @@ describe("Step 5c — queued-send + handleTurnComplete flush integration", () =>
       },
     ]);
 
-    // Queue is drained.
+    // claude takes it in: the row is seated in the running turn.
+    const turnKey = store.getSnapshot().queuedSends[0].turnKey;
+    conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
+      type: "command_lifecycle",
+      tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
+      submissionId: turnKey,
+      state: "started",
+    });
+
+    // The seated row comes from the queued entry's synthesized substrate
+    // (no re-synthesis).
+    const messages = store.getSnapshot().activeTurn?.messages ?? [];
+    const flushedUser = messages[messages.length - 1];
+    expect(flushedUser).toBeDefined();
+    if (flushedUser?.kind !== "user_message") throw new Error("expected user_message");
+    expect(flushedUser.text).toBe(`two ${C}`);
+    expect(flushedUser.attachments).toHaveLength(1);
+    expect(flushedUser.attachments[0].id).toBe("editor-B");
+    expect(flushedUser.attachments[0].label).toBe("image-1");
+
+    // Seating it sent nothing more.
+    expect(lastUserMessageFrame(conn)).toEqual(sent);
+
+    // The row left the queue.
     expect(store.getSnapshot().queuedSends).toHaveLength(0);
     // Bytes-store entries from both submits stayed live across the
     // gap (per-card bytes-store, not per-turn).

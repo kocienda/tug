@@ -588,6 +588,20 @@ const promptAnchor = obj({
   promptUuid: str,
 });
 
+const commandLifecycle = obj({
+  type: lit("command_lifecycle"),
+  ...envelope,
+  submissionId: str,
+  state: lit("queued", "started", "completed", "cancelled", "discarded", "refused"),
+});
+
+const followOnStarted = obj({
+  type: lit("follow_on_started"),
+  ...envelope,
+  submissionId: opt(str),
+  content: arr(contentBlock),
+});
+
 const rewindPreviewResult = obj({
   type: lit("rewind_preview_result"),
   ...envelope,
@@ -821,6 +835,8 @@ export const OUTBOUND_DECODERS = {
   replay_complete: replayComplete,
   request_replay_dropped: requestReplayDropped,
   prompt_anchor: promptAnchor,
+  command_lifecycle: commandLifecycle,
+  follow_on_started: followOnStarted,
   rewind_preview_result: rewindPreviewResult,
   rewind_result: rewindResult,
   task_started: taskStarted,

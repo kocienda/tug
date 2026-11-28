@@ -21,9 +21,10 @@
  *   - A: the clean turn lifecycle — IDLE → STREAMING → TOOL_WORK →
  *        COMPLETE.
  *   - B: AWAITING_USER (a permission forward).
- *   - C: QUEUED_NEXT_TURN — two mid-turn submits paint two ghost rows;
- *        the Stop button peels the newest (LIFO), the ghost row's ✕
- *        un-sends a targeted one (C1).
+ *   - C: QUEUED_NEXT_TURN — two mid-turn submits go to claude at Return
+ *        and paint two waiting ghost rows; the Stop button asks claude for
+ *        the newest back (LIFO), the ghost row's ✕ a targeted one (C1), and
+ *        each row leaves when claude reports it withdrawn.
  *   - D: ERRORED (a wire error frame).
  *   - E: REPLAYING (a replay window).
  *   - F: TRANSPORT_DOWN (the wire goes offline).
@@ -180,6 +181,39 @@ function wireError(cardId: CardId): Record<string, unknown> {
 
 function replayStarted(cardId: CardId): Record<string, unknown> {
   return { type: "replay_started", tug_session_id: sessionIdFor(cardId) };
+}
+
+/** claude's report that a message it held has been withdrawn ([B06]). */
+function commandCancelled(cardId: CardId, submissionId: string): Record<string, unknown> {
+  return {
+    type: "command_lifecycle",
+    tug_session_id: sessionIdFor(cardId),
+    submissionId,
+    state: "cancelled",
+  };
+}
+
+/** The submission id of each message the card holds queued, oldest first. */
+function queuedTurnKeys(app: App, cardId: CardId): Promise<string[]> {
+  return app.body(cardId).evalJS<string[]>(
+    `window.__tug.turnFacts(${JSON.stringify(cardId)}).queuedTurnKeys`,
+  );
+}
+
+/** A probe: is the ghost row with this text marked as being asked back? */
+function withdrawingProbe(cardId: CardId, text: string): string {
+  return `Array.from(document.querySelectorAll(
+      '[data-card-id="${cardId}"] [data-slot="session-transcript-ghost-row"]'
+    )).some(function (row) {
+      var body = row.querySelector('[data-testid="session-card-transcript-user-body"]');
+      return body !== null && (body.textContent || "").trim() === ${JSON.stringify(text)} &&
+        row.getAttribute("data-withdrawing") === "true";
+    })`;
+}
+
+/** Wait until the ghost row with this text is marked as being asked back. */
+async function waitForWithdrawing(app: App, cardId: CardId, text: string): Promise<void> {
+  await app.body(cardId).waitForCondition<boolean>(withdrawingProbe(cardId, text), { timeoutMs: 5000 });
 }
 
 // ---------------------------------------------------------------------------
@@ -382,7 +416,8 @@ describe.skipIf(!SHOULD_RUN)(
 
           // --- Card C: QUEUED_NEXT_TURN + Stop-peel + C1 (✕) --------
           // A submit, one delta to reach a live phase, then two
-          // mid-turn submits — each queues and paints a ghost row.
+          // mid-turn submits — each goes to claude at Return and paints a
+          // waiting ghost row.
           await app.driveSession("C", { op: "send", text: "first" });
           await app.driveSession("C", {
             op: "ingestFrame",
@@ -406,7 +441,21 @@ describe.skipIf(!SHOULD_RUN)(
           // (LIFO), not the running turn. "queued-2" goes; "queued-1"
           // stays; the turn keeps running. (Esc invokes the identical
           // `peelNewest()` path — see `code-session-store.queue.test`.)
+          // A waiting message is claude's to give back ([B06]): the row
+          // stays, marked, until claude reports it withdrawn — no claude
+          // runs here, so the test answers as claude would.
+          const [key1, key2] = await queuedTurnKeys(app, "C");
           await app.body("C").click('[data-card-id="C"] .tug-prompt-entry-submit-button');
+          await waitForWithdrawing(app, "C", "queued-2");
+          expect(
+            await ghostRowCount(app, "C"),
+            "Stop asks for the newest waiting message back; its row stays until claude answers",
+          ).toBe(2);
+          await app.driveSession("C", {
+            op: "ingestFrame",
+            feedId: FEED_CODE_OUTPUT,
+            decoded: commandCancelled("C", key2!),
+          });
           await waitForGhostRowCount(app, "C", 1);
           expect(
             await ghostRowTexts(app, "C"),
@@ -422,6 +471,12 @@ describe.skipIf(!SHOULD_RUN)(
             '[data-card-id="C"] [data-slot="session-transcript-ghost-row"] ' +
               '[data-slot="tug-icon-button"]',
           );
+          await waitForWithdrawing(app, "C", "queued-1");
+          await app.driveSession("C", {
+            op: "ingestFrame",
+            feedId: FEED_CODE_OUTPUT,
+            decoded: commandCancelled("C", key1!),
+          });
           await waitForGhostRowCount(app, "C", 0);
           expect(
             await ghostRowCount(app, "C"),

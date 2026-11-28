@@ -186,7 +186,10 @@ describe("an effort change over an open turn", () => {
     await m.handleEffortChange("medium");
 
     m.activeTurn = null;
-    m.pendingTurnInputs.push([{ type: "text", text: "and then" }]);
+    m.pendingTurnInputs.set(crypto.randomUUID(), {
+      content: [{ type: "text", text: "and then" }],
+      submissionId: null,
+    });
     m.applyDeferredEffort();
     await respawnsSettled(m);
 
@@ -194,7 +197,7 @@ describe("an effort change over an open turn", () => {
     expect(spawns).toEqual([]);
     expect(m.effortRespawnPending).toBe(true);
 
-    m.pendingTurnInputs.length = 0;
+    m.pendingTurnInputs.clear();
     m.applyDeferredEffort();
     await respawnsSettled(m);
     expect(spawns).toHaveLength(1);
