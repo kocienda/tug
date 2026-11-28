@@ -152,7 +152,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--tugx-cycle-map-tile-gap, 6px);
+  gap: var(--tugx-cycle-map-tile-gap, 4px);
   padding: 0 var(--tugx-cycle-map-tile-pad, 8px);
   border: 1.5px solid var(--tugx-block-hairline);
   border-radius: var(--tugx-cycle-map-tile-radius, 8px);
@@ -241,13 +241,15 @@
 
 /* How far a running entry has got: the arc's own track, the strip every
    surface whose subject is the arc draws, with the phase or step in hand
-   breathing. A tile sets only the track's knobs, at the full tile's scale
-   here and the compact one's above (`CYCLE_MAP_TRACK`); the tile's width is
-   sized to hold a planned arc's track beside a two-digit number. */
+   breathing. It shrinks to the room the tile's number leaves (`fit`): the
+   knobs here are the widths its cells take when there is room, and the tile
+   never grows to hold it. */
 .tug-cycle-map-tile {
   --tugx-arc-track-cell-w: 6px;
   --tugx-arc-track-steps-w: 36px;
   --tugx-arc-track-cell-h: 9px;
+  --tugx-arc-track-gap: 1px;
+  --tugx-arc-track-tick-gap: 0.5px;
   --tugx-arc-track-out: 0px;
 }
 

@@ -77,10 +77,20 @@ export type {
 export interface TugArcTrackProps extends Omit<React.ComponentPropsWithoutRef<"span">, "children"> {
   /** The arc's phases, steps and stop, as the track draws them. */
   model: ArcTrackModel;
+  /**
+   * Shrink to the room the host gives it. The knobs become the widths the
+   * cells take when there is room, and the strip gives way proportionally
+   * below them, down to a pixel a cell; a tick the implement cell cannot
+   * hold is clipped to it. For a host whose box is fixed and small, as a
+   * cycle map's tile is.
+   * @selector .tug-arc-track[data-fit="true"]
+   * @default false
+   */
+  fit?: boolean;
 }
 
 export const TugArcTrack = React.forwardRef<HTMLSpanElement, TugArcTrackProps>(function TugArcTrack(
-  { model, "aria-label": ariaLabel, className, ...rest },
+  { model, fit = false, "aria-label": ariaLabel, className, ...rest },
   ref,
 ) {
   // The track draws the phases the arc has, never the six with two struck
@@ -103,6 +113,7 @@ export const TugArcTrack = React.forwardRef<HTMLSpanElement, TugArcTrackProps>(f
       data-slot="tug-arc-track"
       {...rest}
       data-phase={model.phase}
+      data-fit={fit ? "true" : undefined}
       data-direct={model.direct ? "true" : undefined}
       data-stopped={model.stopped !== null ? "true" : undefined}
       aria-label={ariaLabel ?? arcCellTip(model, model.phase, arcCellState(model, model.phase))}

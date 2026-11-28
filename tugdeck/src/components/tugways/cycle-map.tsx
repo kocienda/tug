@@ -230,14 +230,14 @@ export const CycleMap = React.forwardRef<HTMLDivElement, CycleMapProps>(function
 
 /**
  * Beside a tile's number: a check once joined, a play mark when ready, a
- * cross when dropped, and while running, the arc's own track at the tile's
- * scale (`cycle-map.css` sets its knobs; `tileTrackWidth` is what the tile's
- * width is sized to hold).
+ * cross when dropped, and while running, the arc's own track, shrunk to the
+ * room the number leaves (`fit`; `cycle-map.css` sets the widths it takes
+ * when there is room).
  */
 function TileMark({ tile }: { tile: CycleMapTile }): React.ReactElement | null {
   if (tile.state === "joined") return <Check size={14} aria-hidden />;
   if (tile.state === "ready") return <Play size={12} aria-hidden />;
   if (tile.state === "dropped") return <X size={12} aria-hidden />;
-  if (tile.state === "running" && tile.track !== undefined) return <TugArcTrack model={tile.track} />;
+  if (tile.state === "running" && tile.track !== undefined) return <TugArcTrack model={tile.track} fit />;
   return null;
 }

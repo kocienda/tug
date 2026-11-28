@@ -308,7 +308,7 @@ interface MapDims {
   pad: number;
 }
 
-// The shipped map's measures, whose tiles are sized to hold the arc's track.
+// The shipped map's measures; a running tile's track shrinks to fit.
 const MAP_FULL: MapDims = CYCLE_MAP_MEASURES.full;
 const MAP_COMPACT: MapDims = CYCLE_MAP_MEASURES.compact;
 
@@ -477,7 +477,7 @@ function CycleMapView({
                   ) : state === "ready" ? (
                     <Play size={12} aria-hidden />
                   ) : state === "running" ? (
-                    <TugArcTrack model={runningModel(entry, done).model} />
+                    <TugArcTrack model={runningModel(entry, done).model} fit />
                   ) : null}
                 </span>
               </button>

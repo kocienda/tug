@@ -373,11 +373,12 @@
   background: var(--tug7-element-tone-fill-normal-agent-rest);
 }
 
-/* A running tile draws the arc's own track, at the shipped map's scale. */
+/* A running tile draws the arc's own track, shrunk to the tile's room. */
 .sp-cycle-tile {
   --tugx-arc-track-cell-w: 6px;
   --tugx-arc-track-steps-w: 36px;
   --tugx-arc-track-cell-h: 9px;
+  --tugx-arc-track-gap: 1px;
   --tugx-arc-track-out: 0px;
 }
 

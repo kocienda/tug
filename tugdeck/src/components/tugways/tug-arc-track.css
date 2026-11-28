@@ -46,7 +46,7 @@
 .tug-arc-track {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--tugx-arc-track-gap, 2px);
   flex: 0 0 auto;
 }
 
@@ -153,6 +153,35 @@
   background: transparent;
   box-shadow: inset 0 0 0 1px var(--tug7-element-global-border-normal-muted-rest);
   opacity: 0.45;
+}
+
+/* Fit (`fit`): the strip shrinks to the room its host gives it. The knobs
+   become each cell's width when there is room. Below that the phase cells
+   give way first, four times as fast, down to a pixel each, so the steps keep
+   most of what room there is; the gap between ticks is a knob a small host
+   tightens (`--tugx-arc-track-tick-gap`). What the implement cell still
+   cannot hold it clips. Constant width is still the rule: a fit strip is as
+   wide as its host's box, whatever the plan. */
+.tug-arc-track[data-fit="true"] {
+  flex: 0 1 auto;
+  min-inline-size: 0;
+}
+
+.tug-arc-track[data-fit="true"] .tug-arc-track-cell {
+  flex: 0 4 var(--tugx-arc-track-cell-w, 18px);
+  inline-size: auto;
+  min-inline-size: 1px;
+}
+
+.tug-arc-track[data-fit="true"] .tug-arc-track-cell[data-steps="true"] {
+  flex-basis: var(--tugx-arc-track-steps-w, 54px);
+  flex-shrink: 1;
+  inline-size: auto;
+  gap: var(--tugx-arc-track-tick-gap, 1px);
+}
+
+.tug-arc-track[data-fit="true"] .tug-arc-track-tick {
+  min-inline-size: 0;
 }
 
 /* The breath. Exactly one thing on the strip moves: the key-colored mark, the

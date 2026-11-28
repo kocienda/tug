@@ -24,10 +24,10 @@
  * What the evolved shade changes, each a small step from the shipped one:
  *
  *   - **The map wraps.** A run of entries that each wait on the one before is
- *     one long line. The same tiles and wires are drawn five to a row.
+ *     one long line. The same tiles and wires are drawn six to a row.
  *   - **A running tile draws its arc's track**, the strip every surface whose
- *     subject is the arc draws, with the step in hand breathing, as the
- *     shipped map now does.
+ *     subject is the arc draws, shrunk to the tile's room, with the step in
+ *     hand breathing, as the shipped map now does.
  *   - **Every kind is named in the header's small caps**: `Sketch`, `Arc`,
  *     and `Arcs` on the landed fold, as the shipped shade now does.
  *   - **An entry is headed by its own part of the brief.** Twelve entries
@@ -431,10 +431,10 @@ function SessionChip({ session, presses }: { session: string; presses: Presses }
 }
 
 /** How many tiles the wrapped map draws to a row. */
-const MAP_ROW = 5;
+const MAP_ROW = 6;
 
 /**
- * The shipped map, wrapped: the same tiles and wires, five entries to a row. A
+ * The shipped map, wrapped: the same tiles and wires, six entries to a row. A
  * row after the first keeps only the waits and the sketches that are in it,
  * so its first tile starts the row instead of reaching back for its wire.
  */

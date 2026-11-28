@@ -24,9 +24,6 @@ import {
   reducedWaits,
   sealCycleMap,
   sketchKey,
-  tileMarkRoom,
-  tileTrackTicks,
-  tileTrackWidth,
   type CycleMapEntry,
   type CycleMapLayout,
   type CycleMapSeat,
@@ -344,11 +341,11 @@ describe("cycle-map-layout — sketches as seals", () => {
 describe("cycle-map-layout — geometry", () => {
   const layout = layoutCycleMap(sealCycleMap(EIGHT).entries);
 
-  it("draws the eight-entry cycle at 784 × 236 full and 548 × 154 compact", () => {
+  it("draws the eight-entry cycle at 516 × 236 full and 328 × 154 compact", () => {
     const full = cycleMapGeometry(layout, "full");
     const compact = cycleMapGeometry(layout, "compact");
-    expect([full.width, full.height]).toEqual([784, 236]);
-    expect([compact.width, compact.height]).toEqual([548, 154]);
+    expect([full.width, full.height]).toEqual([516, 236]);
+    expect([compact.width, compact.height]).toEqual([328, 154]);
   });
 
   for (const size of ["full", "compact"] as const) {
@@ -388,23 +385,6 @@ describe("cycle-map-layout — geometry", () => {
 
   it("draws the empty cycle at no size", () => {
     expect(cycleMapGeometry(layoutCycleMap([]), "full")).toEqual({ width: 0, height: 0, boxes: [], strokes: [] });
-  });
-});
-
-describe("cycle-map-layout — a tile's steps stay inside the tile", () => {
-  // A running tile draws the arc's own track, never a mark of its own: the
-  // track's whole width fits beside a two-digit number, and its ticks fit the
-  // implement cell for as many steps as a plan ordinarily holds.
-  for (const size of ["full", "compact"] as const) {
-    it(`${size}: a planned arc's track fits beside a two-digit number`, () => {
-      expect(tileTrackWidth(size, true)).toBeLessThanOrEqual(tileMarkRoom(size, 99));
-      expect(tileTrackWidth(size, false)).toBeLessThan(tileTrackWidth(size, true));
-    });
-  }
-
-  it("full holds 18 ticks in its implement cell, compact 13", () => {
-    expect(tileTrackTicks("full")).toBe(18);
-    expect(tileTrackTicks("compact")).toBe(13);
   });
 });
 

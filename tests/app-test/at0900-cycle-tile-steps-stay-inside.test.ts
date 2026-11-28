@@ -5,17 +5,17 @@
  * The fixture is a real cycle of two entries, each carried by a real arc with
  * a stamped plan whose first step is open: entry 1's arc has thirteen steps,
  * entry 2's has seven. A running tile draws its arc's own track (`TugArcTrack`),
- * the strip every surface whose subject is the arc draws, and the compact
- * tile is sized to hold it with thirteen ticks in its implement cell
- * (`tileTrackTicks`), so what is asserted is:
+ * the strip every surface whose subject is the arc draws, shrunk to the room
+ * the tile's number leaves (`fit`); the tile keeps its compact 44 px, so the
+ * map still fits the sidebar. What is asserted is:
  *
+ *   - each tile is drawn at the compact measure, never widened for its track;
  *   - each tile draws one track, with a tick a step: thirteen and seven;
- *   - no cell or tick of either track passes the tile's inner right edge,
- *     and no tick passes the implement cell that holds it;
+ *   - no cell of either track passes the tile's inner right edge;
  *   - the mark the work is in breathes: the track's own animation runs on it.
  *
- * The tiles' inner widths, the numbers' widths and the tracks' widths are
- * noted, which are the measures `tileTrackWidth` counts against.
+ * The tiles' inner widths, the numbers' widths and the tracks' and implement
+ * cells' widths are noted.
  *
  * @covers tugdeck/src/components/tugways/cycle-map.tsx
  * @covers tugdeck/src/components/tugways/cycle-map.css
@@ -104,6 +104,7 @@ afterAll(() => {
 
 interface TileReading {
   state: string;
+  width: number;
   tracks: number;
   ticks: number;
   /** The tile's inner right edge: its right edge less its right border. */
@@ -111,10 +112,9 @@ interface TileReading {
   innerWidth: number;
   numberWidth: number;
   trackWidth: number;
-  /** The rightmost edge any cell or tick reaches. */
+  implementWidth: number;
+  /** The rightmost edge any cell reaches. */
   markRight: number;
-  /** How far the last tick passes its implement cell's right edge; 0 or less is inside. */
-  tickOver: number;
   /** The animation on the mark the work is in, or "" with none. */
   breath: string;
 }
@@ -126,29 +126,29 @@ const readTile = (n: number): string => `(() => {
   const cs = getComputedStyle(el);
   const border = parseFloat(cs.borderRightWidth) || 0;
   const pad = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
-  const marks = Array.from(el.querySelectorAll(".tug-arc-track-cell, .tug-arc-track-tick"));
+  const marks = Array.from(el.querySelectorAll(".tug-arc-track-cell"));
   const cell = el.querySelector('.tug-arc-track-cell[data-steps="true"]');
   const ticks = Array.from(el.querySelectorAll(".tug-arc-track-tick"));
-  const lastTick = ticks[ticks.length - 1];
   const active = el.querySelector('.tug-arc-track-tick[data-state="active"], .tug-arc-track-cell[data-state="active"]:not([data-steps])');
   const round = (v) => Math.round(v * 10) / 10;
   return {
     state: el.getAttribute("data-state") ?? "",
+    width: round(box.width),
     tracks: el.querySelectorAll(".tug-arc-track").length,
     ticks: ticks.length,
     innerRight: round(box.right - border),
     innerWidth: round(box.width - 2 * border - pad),
     numberWidth: round(el.querySelector(".tug-cycle-map-tile-number")?.getBoundingClientRect().width ?? 0),
     trackWidth: round(el.querySelector(".tug-arc-track")?.getBoundingClientRect().width ?? 0),
+    implementWidth: round(cell?.getBoundingClientRect().width ?? 0),
     markRight: round(Math.max(-Infinity, ...marks.map((m) => m.getBoundingClientRect().right))),
-    tickOver: cell && lastTick ? round(lastTick.getBoundingClientRect().right - cell.getBoundingClientRect().right) : 0,
     breath: active ? getComputedStyle(active).animationName : "",
   };
 })()`;
 
 describe.skipIf(!SHOULD_RUN)("AT0900: a tile's steps stay inside the tile", () => {
   test(
-    "thirteen and seven steps draw the arc's track inside the tile, its step in hand breathing",
+    "thirteen and seven steps draw the arc's track shrunk into the compact tile, its step in hand breathing",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
@@ -194,12 +194,12 @@ describe.skipIf(!SHOULD_RUN)("AT0900: a tile's steps stay inside the tile", () =
           [long!, 13],
           [short!, 7],
         ] as const) {
+          expect(reading.width, `${steps} steps: the tile keeps its compact width`).toBeLessThanOrEqual(44.5);
           expect(reading.tracks, `${steps} steps: the tile draws the arc's track`).toBe(1);
           expect(reading.ticks, `${steps} steps: a tick a step`).toBe(steps);
-          expect(reading.markRight, `${steps} steps: no cell or tick passes the tile's edge`).toBeLessThanOrEqual(
+          expect(reading.markRight, `${steps} steps: no cell passes the tile's edge`).toBeLessThanOrEqual(
             reading.innerRight + 0.5,
           );
-          expect(reading.tickOver, `${steps} steps: no tick passes its implement cell`).toBeLessThanOrEqual(0.5);
           expect(reading.breath, `${steps} steps: the mark the work is in breathes`).toBe("tug-arc-track-breath");
         }
       } finally {
